@@ -6,6 +6,8 @@
 
 `Next.js 16` · `React 19` · `TypeScript` · `Tailwind CSS 4` · `Prisma + SQLite` · `Framer Motion`
 
+🌐 **Demo en vivo:** https://jarumy-app-dusky.vercel.app · 📦 **Repositorio:** https://github.com/marcoskoo/jarumy-app
+
 </div>
 
 ---
