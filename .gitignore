@@ -1,0 +1,65 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# database (SQLite local — se crea y auto-siembra al primer arranque)
+/db/
+*.db
+*.db-journal
+
+# misc
+.DS_Store
+*.pem
+
+# debug / logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+*.log
+
+# env files (configura tus propias variables)
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# infra local del sandbox (no forma parte de la app)
+/.zscripts/
+/Caddyfile
+/mini-services/
+/examples/
+/download/
+/upload/
+/worklog.md
+/dev.log
+
+# editor / agentes
+local-*
+.claude
+.z-ai-config
+prompt
+test
+/skills/

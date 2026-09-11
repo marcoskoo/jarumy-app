@@ -1,0 +1,248 @@
+// ============================================================
+// JARUMY APP — Plano arquitectónico base
+// Vivienda unifamiliar 15×10 m · 60 px = 1 m · Esc. 1:60
+// ============================================================
+
+import type { ElementType } from './tools-data'
+
+export interface WallGeo { x1: number; y1: number; x2: number; y2: number; t: number }
+export interface DoorGeo { cx: number; cy: number; r: number; a0: number; a1: number; axis: 'h' | 'v' }
+export interface WindowGeo { x: number; y: number; len: number; orient: 'h' | 'v'; t: number }
+export interface RoomGeo { x: number; y: number; w: number; h: number; name: string; num: string }
+export interface FurnGeo { kind: string; x: number; y: number; w: number; h: number }
+export interface DimGeo { x1: number; y1: number; x2: number; y2: number; offset: number }
+export interface TextGeo { x: number; y: number; text: string; size: number; anchor: 'start' | 'middle' | 'end' }
+export interface ColGeo { x: number; y: number; size: number }
+export interface OpenGeo { x: number; y: number; len: number; orient: 'h' | 'v' }
+export interface DrawGeo { kind: string; pts: number[][]; r?: number; text?: string }
+
+export interface PlanElement {
+  id: string
+  type: ElementType
+  layer: string
+  name: string
+  geo: WallGeo | DoorGeo | WindowGeo | RoomGeo | FurnGeo | DimGeo | TextGeo | ColGeo | OpenGeo | DrawGeo
+}
+
+export interface LayerDef {
+  id: string
+  name: string
+  color: string
+  visible: boolean
+  locked: boolean
+}
+
+export const VIEW_W = 1200
+export const VIEW_H = 820
+export const PX_PER_M = 60
+
+export const LAYERS: LayerDef[] = [
+  { id: 'muros', name: 'Muros', color: '#d4d4d8', visible: true, locked: false },
+  { id: 'puertas', name: 'Puertas y vanos', color: '#fbbf24', visible: true, locked: false },
+  { id: 'ventanas', name: 'Ventanas', color: '#2dd4bf', visible: true, locked: false },
+  { id: 'espacios', name: 'Espacios', color: '#a3a3a3', visible: true, locked: false },
+  { id: 'mobiliario', name: 'Mobiliario', color: '#d97706', visible: true, locked: false },
+  { id: 'sanitarios', name: 'Sanitarios', color: '#14b8a6', visible: true, locked: false },
+  { id: 'cotas', name: 'Cotas', color: '#f59e0b', visible: true, locked: false },
+  { id: 'textos', name: 'Textos', color: '#e4e4e7', visible: true, locked: false },
+  { id: 'estructura', name: 'Estructura', color: '#a855f7', visible: true, locked: false },
+  { id: 'dibujo', name: 'Dibujo', color: '#fb923c', visible: true, locked: false },
+]
+
+const wall = (id: string, x1: number, y1: number, x2: number, y2: number, t: number): PlanElement => ({
+  id: `muro-${id}`, type: 'muro', layer: 'muros', name: `Muro ${id}`,
+  geo: { x1, y1, x2, y2, t },
+})
+
+const door = (id: string, name: string, geo: DoorGeo): PlanElement => ({
+  id: `puerta-${id}`, type: 'puerta', layer: 'puertas', name, geo,
+})
+
+const win = (id: string, name: string, x: number, y: number, len: number, orient: 'h' | 'v'): PlanElement => ({
+  id: `vent-${id}`, type: 'ventana', layer: 'ventanas', name,
+  geo: { x, y, len, orient, t: 12 },
+})
+
+const furn = (id: string, kind: string, name: string, x: number, y: number, w: number, h: number, sanitary = false): PlanElement => ({
+  id: `${sanitary ? 'san' : 'mob'}-${id}`, type: sanitary ? 'sanitario' : 'mobiliario',
+  layer: sanitary ? 'sanitarios' : 'mobiliario', name,
+  geo: { kind, x, y, w, h },
+})
+
+const dim = (id: string, x1: number, y1: number, x2: number, y2: number, offset: number): PlanElement => ({
+  id: `cota-${id}`, type: 'cota', layer: 'cotas', name: `Cota ${id}`,
+  geo: { x1, y1, x2, y2, offset },
+})
+
+const txt = (id: string, x: number, y: number, text: string, size = 17, anchor: 'start' | 'middle' | 'end' = 'middle'): PlanElement => ({
+  id: `txt-${id}`, type: 'texto', layer: 'textos', name: `Texto ${id}`,
+  geo: { x, y, text, size, anchor },
+})
+
+const col = (id: string, x: number, y: number): PlanElement => ({
+  id: `col-${id}`, type: 'columna', layer: 'estructura', name: `Columna ${id}`,
+  geo: { x, y, size: 18 },
+})
+
+export const ROOMS: PlanElement[] = [
+  { id: 'esp-sala', type: 'espacio', layer: 'espacios', name: 'Sala', geo: { x: 150, y: 100, w: 480, h: 300, name: 'SALA', num: '01' } },
+  { id: 'esp-cocina', type: 'espacio', layer: 'espacios', name: 'Cocina', geo: { x: 150, y: 400, w: 480, h: 300, name: 'COCINA', num: '02' } },
+  { id: 'esp-dorm1', type: 'espacio', layer: 'espacios', name: 'Dormitorio 1', geo: { x: 630, y: 100, w: 420, h: 240, name: 'DORMITORIO 1', num: '03' } },
+  { id: 'esp-bano', type: 'espacio', layer: 'espacios', name: 'Baño', geo: { x: 630, y: 340, w: 250, h: 170, name: 'BAÑO', num: '04' } },
+  { id: 'esp-vestidor', type: 'espacio', layer: 'espacios', name: 'Vestidor', geo: { x: 880, y: 340, w: 170, h: 170, name: 'VESTIDOR', num: '05' } },
+  { id: 'esp-dorm2', type: 'espacio', layer: 'espacios', name: 'Dormitorio 2', geo: { x: 630, y: 510, w: 420, h: 190, name: 'DORMITORIO 2', num: '06' } },
+]
+
+export const WALLS: PlanElement[] = [
+  // ------ Muro norte (y=100) ------
+  wall('n1', 150, 100, 220, 100, 12), wall('n2', 360, 100, 420, 100, 12),
+  wall('n3', 560, 100, 700, 100, 12), wall('n4', 840, 100, 900, 100, 12),
+  wall('n5', 1000, 100, 1050, 100, 12),
+  // ------ Muro sur (y=700) ------
+  wall('s1', 150, 700, 700, 700, 12), wall('s2', 860, 700, 900, 700, 12),
+  wall('s3', 1000, 700, 1050, 700, 12),
+  // ------ Muro oeste (x=150) ------
+  wall('w1', 150, 100, 150, 240, 12), wall('w2', 150, 320, 150, 460, 12),
+  wall('w3', 150, 600, 150, 700, 12),
+  // ------ Muro este (x=1050) ------
+  wall('e1', 1050, 100, 1050, 150, 12), wall('e2', 1050, 290, 1050, 700, 12),
+  // ------ Interior vertical x=630 ------
+  wall('i1', 630, 100, 630, 160, 8), wall('i2', 630, 240, 630, 390, 8),
+  wall('i3', 630, 460, 630, 560, 8), wall('i4', 630, 640, 630, 700, 8),
+  // ------ Interior horizontal y=400 ------
+  wall('i5', 150, 400, 260, 400, 8), wall('i6', 380, 400, 630, 400, 8),
+  // ------ Interior horizontal y=340 ------
+  wall('i7', 630, 340, 900, 340, 8), wall('i8', 980, 340, 1050, 340, 8),
+  // ------ Interior vertical x=880 y horizontal y=510 ------
+  wall('i9', 880, 340, 880, 510, 8), wall('i10', 630, 510, 1050, 510, 8),
+]
+
+export const DOORS: PlanElement[] = [
+  door('principal', 'Puerta principal 0.90', { cx: 150, cy: 320, r: 80, a0: -90, a1: 0, axis: 'v' }),
+  door('dorm1', 'Puerta dorm. 1 0.90', { cx: 630, cy: 160, r: 80, a0: 90, a1: 0, axis: 'v' }),
+  door('bano', 'Puerta baño 0.70', { cx: 630, cy: 390, r: 70, a0: 90, a1: 0, axis: 'v' }),
+  door('dorm2', 'Puerta dorm. 2 0.90', { cx: 630, cy: 640, r: 80, a0: -90, a1: 0, axis: 'v' }),
+  door('vestidor', 'Puerta vestidor 0.90', { cx: 980, cy: 340, r: 80, a0: 180, a1: 90, axis: 'h' }),
+]
+
+export const OPENINGS: PlanElement[] = [
+  { id: 'ap-cocina', type: 'apertura', layer: 'puertas', name: 'Vano sala-cocina 1.20', geo: { x: 260, y: 400, len: 120, orient: 'h' } },
+]
+
+export const WINDOWS: PlanElement[] = [
+  win('sala1', 'Ventana sala 2.30', 220, 100, 140, 'h'),
+  win('sala2', 'Ventana sala 2.30', 420, 100, 140, 'h'),
+  win('dorm1a', 'Ventana dorm. 1 2.30', 700, 100, 140, 'h'),
+  win('dorm1b', 'Ventana dorm. 1 1.60', 900, 100, 100, 'h'),
+  win('dorm1c', 'Ventana dorm. 1 2.30', 1050, 150, 140, 'v'),
+  win('cocina', 'Ventana cocina 2.30', 150, 460, 140, 'v'),
+  win('dorm2a', 'Ventana dorm. 2 2.60', 700, 700, 160, 'h'),
+  win('dorm2b', 'Ventana dorm. 2 1.60', 900, 700, 100, 'h'),
+]
+
+export const FURNITURE: PlanElement[] = [
+  // Sala
+  furn('sofa', 'sofa', 'Sofá 3 cuerpos', 230, 300, 180, 70),
+  furn('mesacentro', 'mesacentro', 'Mesa de centro', 280, 205, 80, 48),
+  furn('tv', 'tv', 'Panel TV', 250, 110, 140, 14),
+  furn('alfombra', 'alfombra', 'Alfombra 3.5×3', 225, 190, 220, 185),
+  furn('sillon', 'sillon', 'Sillón individual', 480, 285, 62, 62),
+  // Cocina
+  furn('counterN', 'counter', 'Módulo de cocina', 160, 406, 260, 58),
+  furn('counterW', 'counter', 'Módulo de cocina', 156, 464, 58, 226),
+  furn('stove', 'stove', 'Cocina 4 hornillas', 210, 408, 58, 54, true),
+  furn('sinkk', 'sinkk', 'Fregadero doble', 340, 412, 55, 48, true),
+  furn('refri', 'refri', 'Refrigeradora', 560, 410, 56, 66),
+  furn('isla', 'isla', 'Isla de cocina', 300, 555, 140, 72),
+  furn('mesacomedor', 'mesacomedor', 'Mesa comedor', 510, 560, 100, 100),
+  // Dormitorio 1
+  furn('cama1', 'cama', 'Cama plaza y media', 795, 106, 135, 185),
+  furn('mesita1', 'mesitanoche', 'Mesita de noche', 735, 106, 50, 45),
+  furn('mesita2', 'mesitanoche', 'Mesita de noche', 945, 106, 50, 45),
+  furn('ropero1', 'ropero', 'Ropero 6 puertas', 640, 272, 150, 62),
+  // Baño
+  furn('ducha', 'ducha', 'Ducha 0.90×0.90', 790, 344, 88, 88, true),
+  furn('inodoro', 'inodoro', 'Inodoro', 645, 464, 46, 40, true),
+  furn('lavatorio', 'lavatorio', 'Lavatorio con gabinete', 760, 452, 74, 50, true),
+  // Vestidor
+  furn('estante1', 'estante', 'Estante modular', 890, 344, 150, 42),
+  furn('estante2', 'estante', 'Estante modular', 890, 462, 150, 44),
+  furn('islav', 'islav', 'Isla de vestidor', 925, 405, 80, 48),
+  // Dormitorio 2
+  furn('cama2', 'cama', 'Cama individual', 715, 515, 130, 168),
+  furn('mesita3', 'mesitanoche', 'Mesita de noche', 648, 518, 50, 44),
+  furn('escritorio', 'escritorio', 'Escritorio', 890, 518, 140, 58),
+  furn('sillaesc', 'sillaescritorio', 'Silla giratoria', 935, 590, 42, 42),
+  furn('ropero2', 'ropero', 'Ropero 4 puertas', 988, 540, 56, 150),
+]
+
+export const COLUMNS: PlanElement[] = [
+  col('a', 150, 100), col('b', 1050, 100), col('c', 150, 700), col('d', 1050, 700),
+  col('e', 630, 400), col('f', 630, 510),
+]
+
+export const DIMENSIONS: PlanElement[] = [
+  dim('total', 150, 100, 1050, 100, -58),   // superior total 15.00
+  dim('sala', 150, 100, 630, 100, -30),     // superior sala 8.00
+  dim('der', 630, 100, 1050, 100, -30),     // superior derecha 7.00
+  dim('izq', 150, 100, 150, 700, -72),      // izquierda total 10.00
+  dim('izqc', 150, 400, 150, 700, -44),     // izquierda cocina 5.00
+  dim('inf', 630, 700, 1050, 700, 55),      // inferior dorm2 7.00
+]
+
+export const TEXTS: PlanElement[] = [
+  txt('titulo', 600, 34, 'VIVIENDA UNIFAMILIAR — PLANTA ARQUITECTÓNICA', 20, 'middle'),
+  txt('esc', 150, 778, 'ESC. 1 : 60   ·   m²   ·   SUPERFICIE TECHADA 149.5 m²', 13, 'start'),
+  txt('lam', 1050, 778, 'LÁMINA A-01   ·   JARUMY APP', 13, 'end'),
+]
+
+export const BASE_ELEMENTS: PlanElement[] = [
+  ...ROOMS, ...WALLS, ...OPENINGS, ...DOORS, ...WINDOWS,
+  ...FURNITURE, ...COLUMNS, ...DIMENSIONS, ...TEXTS,
+]
+
+// Bloques insertables desde la biblioteca
+export const BLOCK_LIBRARY: { kind: string; label: string; w: number; h: number; sanitary?: boolean }[] = [
+  { kind: 'sofa', label: 'Sofá 3 cuerpos', w: 180, h: 70 },
+  { kind: 'cama', label: 'Cama plaza y media', w: 135, h: 185 },
+  { kind: 'mesacentro', label: 'Mesa de centro', w: 80, h: 48 },
+  { kind: 'ropero', label: 'Ropero', w: 150, h: 62 },
+  { kind: 'isla', label: 'Isla de cocina', w: 140, h: 72 },
+  { kind: 'refri', label: 'Refrigeradora', w: 56, h: 66 },
+  { kind: 'inodoro', label: 'Inodoro', w: 46, h: 40, sanitary: true },
+  { kind: 'lavatorio', label: 'Lavatorio', w: 74, h: 50, sanitary: true },
+  { kind: 'ducha', label: 'Ducha 0.90×0.90', w: 88, h: 88, sanitary: true },
+]
+
+export function roomAreaM2(geo: RoomGeo): number {
+  return Math.round(((geo.w / PX_PER_M) * (geo.h / PX_PER_M)) * 100) / 100
+}
+
+export function elementSummary(el: PlanElement): string {
+  switch (el.type) {
+    case 'muro': {
+      const g = el.geo as WallGeo
+      const len = Math.abs(g.x2 - g.x1) + Math.abs(g.y2 - g.y1)
+      return `Longitud ${(len / PX_PER_M).toFixed(2)} m · Espesor ${(g.t / PX_PER_M * 100).toFixed(0)} cm`
+    }
+    case 'puerta': {
+      const g = el.geo as DoorGeo
+      return `Ancho ${(g.r / PX_PER_M).toFixed(2)} m · Giro 90°`
+    }
+    case 'ventana': {
+      const g = el.geo as WindowGeo
+      return `Ancho ${(g.len / PX_PER_M).toFixed(2)} m · Vidrio laminado`
+    }
+    case 'espacio': {
+      const g = el.geo as RoomGeo
+      return `${roomAreaM2(g).toFixed(2)} m² · Uso: ${el.name}`
+    }
+    case 'cota': {
+      const g = el.geo as DimGeo
+      const d = Math.hypot(g.x2 - g.x1, g.y2 - g.y1)
+      return `Valor real ${(d / PX_PER_M).toFixed(2)} m`
+    }
+    default:
+      return el.name
+  }
+}
