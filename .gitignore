@@ -63,3 +63,10 @@ local-*
 prompt
 test
 /skills/
+
+# puente OAuth temporal (no parte de la app)
+/src/app/api/oauth/
+scripts/neon-auth.log
+scripts/*-bridge.log
+scripts/*-driver.out
+scripts/pty_driver.py
