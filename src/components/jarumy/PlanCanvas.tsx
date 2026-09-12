@@ -3,9 +3,11 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react'
 import { useJarumy, type HoverInfo } from '@/lib/store'
 import type { PlanElement } from '@/lib/plan-data'
-import { VIEW_W, VIEW_H, PX_PER_M, elementSummary } from '@/lib/plan-data'
-import { PlanElementNode } from './ElementRenderers'
+import { VIEW_W, VIEW_H, PX_PER_M, elementSummary, BLOCK_LIBRARY, roomAreaM2, type RoomGeo } from '@/lib/plan-data'
+import { PlanElementNode, FurnShape } from './ElementRenderers'
 import RadialMenu from './RadialMenu'
+import HeliodonLayer from './HeliodonLayer'
+import SunPanel from './SunPanel'
 import { ToolIcon } from './ToolIcon'
 import type { ToolAction } from '@/lib/tools-data'
 
@@ -167,7 +169,7 @@ export default function PlanCanvas() {
       case 'cota': {
         const pts = [...st.drawPts, p]
         if (pts.length === 2) {
-          const [a, b] = [pts[0], orthoPt(pts[1], pts[0])]
+          const [a, b] = [pts[0], orthoPt(pts[1] as [number, number], pts[0] as [number, number])]
           const newEl: PlanElement = st.drawTool === 'cota'
             ? { id: uid(), type: 'dibujo', layer: 'dibujo', name: 'Cota', geo: { kind: 'cota', pts: [a, b] } }
             : { id: uid(), type: 'dibujo', layer: 'dibujo', name: st.drawTool === 'linea' ? 'Línea' : 'Rectángulo', geo: { kind: st.drawTool, pts: [a, b] } }
@@ -248,6 +250,8 @@ export default function PlanCanvas() {
       if (rect) {
         mouseRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
         const sv = toSvg(e.clientX, e.clientY)
+        // el cursor SVG solo se rastrea con una herramienta armada (evita re-render en cada mousemove)
+        if (useJarumy.getState().drawTool) useJarumy.getState().setCursorSvg(sv)
         if (coordsRef.current) {
           coordsRef.current.textContent = `X ${(sv[0] / PX_PER_M).toFixed(2)}   Y ${(sv[1] / PX_PER_M).toFixed(2)} m`
         }
@@ -266,7 +270,7 @@ export default function PlanCanvas() {
     return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
   }, [toSvg])
 
-  // ESC cancela herramienta / cierra menú
+  // ESC cancela herramienta / cierra menú · R rota el bloque pendiente de inserción
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -276,6 +280,11 @@ export default function PlanCanvas() {
       }
       if (e.key === 'Enter' && useJarumy.getState().drawTool === 'polilinea') {
         useJarumy.getState().finishPolyline()
+      }
+      const st = useJarumy.getState()
+      if ((e.key === 'r' || e.key === 'R') && st.drawTool?.startsWith('ins:')) {
+        st.rotateInsert()
+        st.pushConsole({ text: `Inserción rotada a ${useJarumy.getState().insertRotation}°`, kind: 'out' })
       }
     }
     window.addEventListener('keydown', key)
@@ -346,6 +355,11 @@ export default function PlanCanvas() {
             {/* rejilla */}
             {s.showGrid && <rect x="150" y="100" width="900" height="600" fill={`url(#${gridId})`} pointerEvents="none" />}
 
+            {/* sombras del heliodón (debajo de los elementos) */}
+            {s.sun.active && (
+              <HeliodonLayer elements={s.elements} mods={s.mods} sun={s.sun} phase="under" />
+            )}
+
             {/* elementos por capas */}
             {sorted.map((el) =>
               visibleLayers.has(el.layer) ? (
@@ -356,12 +370,18 @@ export default function PlanCanvas() {
                   handlers={{
                     onClickEl: handleClickEl, onDownEl: handleDownEl,
                   }}
+                  showArea={s.areaLabels}
                 />
               ) : null
             )}
 
+            {/* diagrama solar del heliodón (encima de los elementos, sin captura) */}
+            {s.sun.active && (
+              <HeliodonLayer elements={s.elements} mods={s.mods} sun={s.sun} phase="over" />
+            )}
+
             {/* vista previa de dibujo */}
-            {s.drawTool && s.drawPts.length > 0 && (() => {
+            {s.drawTool && !s.drawTool.startsWith('ins:') && s.drawPts.length > 0 && (() => {
               const base = s.drawPts[s.drawPts.length - 1]
               const cur = orthoPt(snapPt(s.cursorSvg), base)
               const dash = { stroke: '#f59e0b', strokeWidth: 1.6, strokeDasharray: '6 4', fill: 'none' } as const
@@ -384,6 +404,23 @@ export default function PlanCanvas() {
                 </g>
               }
               return <line x1={base[0]} y1={base[1]} x2={cur[0]} y2={cur[1]} {...dash} />
+            })()}
+
+            {/* fantasma del bloque pendiente de inserción (sigue al cursor; R rota) */}
+            {s.drawTool?.startsWith('ins:') && (() => {
+              const kind = s.drawTool.slice(4)
+              const b = BLOCK_LIBRARY.find((x) => x.kind === kind)
+              if (!b) return null
+              const cur = snapPt(s.cursorSvg)
+              const gx = cur[0] - b.w / 2
+              const gy = cur[1] - b.h / 2
+              return (
+                <g opacity="0.6" transform={`rotate(${s.insertRotation} ${cur[0]} ${cur[1]})`} pointerEvents="none">
+                  <FurnShape g={{ kind: b.kind, x: gx, y: gy, w: b.w, h: b.h }} />
+                  <rect x={gx - 3} y={gy - 3} width={b.w + 6} height={b.h + 6}
+                    fill="none" stroke="#f59e0b" strokeWidth="1.4" strokeDasharray="5 4" rx="4" />
+                </g>
+              )
             })()}
 
             {/* rosa de los vientos + escala */}
@@ -435,6 +472,9 @@ export default function PlanCanvas() {
         />
       )}
 
+      {/* ---------- panel del heliodón (sol y sombras) ---------- */}
+      {s.sun.active && <SunPanel />}
+
       {/* ---------- indicador de herramienta activa ---------- */}
       {s.drawTool && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 rounded-full border border-amber-500/50 bg-zinc-950/90 px-4 py-1.5 shadow-lg jy-pop-in">
@@ -443,8 +483,10 @@ export default function PlanCanvas() {
             {s.drawTool.startsWith('ins:') ? `Insertar: ${s.drawTool.slice(4)}` : s.drawTool}
           </span>
           <span className="text-[10px] text-zinc-400">
-            {s.drawTool === 'borrar' || s.drawTool === 'copiar' || s.drawTool === 'mover'
-              ? 'clic en el objeto' : 'clic en el plano'}
+            {s.drawTool.startsWith('ins:')
+              ? `clic para colocar${s.insertRotation ? ` · ${s.insertRotation}°` : ''} · R rota 90°`
+              : s.drawTool === 'borrar' || s.drawTool === 'copiar' || s.drawTool === 'mover'
+                ? 'clic en el objeto' : 'clic en el plano'}
           </span>
           <button
             onClick={() => s.armDraw(null)}
@@ -485,20 +527,45 @@ export default function PlanCanvas() {
       </div>
 
       {/* ---------- modo ---------- */}
-      {(s.renderMode || s.view3D) && (
-        <div className="absolute top-3 left-3 z-20 flex gap-1.5">
-          {s.renderMode && (
-            <span className="rounded-full border border-orange-400/50 bg-orange-500/15 px-3 py-1 text-[10px] font-bold text-orange-300 uppercase tracking-wider">
-              Render V-Ray
-            </span>
-          )}
-          {s.view3D && (
-            <span className="rounded-full border border-amber-400/50 bg-amber-500/15 px-3 py-1 text-[10px] font-bold text-amber-300 uppercase tracking-wider">
-              Vista 3D
-            </span>
-          )}
-        </div>
-      )}
+      <div className="absolute top-3 left-3 z-20 flex flex-col gap-1.5 items-start">
+        {(s.renderMode || s.view3D) && (
+          <div className="flex gap-1.5">
+            {s.renderMode && (
+              <span className="rounded-full border border-orange-400/50 bg-orange-500/15 px-3 py-1 text-[10px] font-bold text-orange-300 uppercase tracking-wider">
+                Render V-Ray
+              </span>
+            )}
+            {s.view3D && (
+              <span className="rounded-full border border-amber-400/50 bg-amber-500/15 px-3 py-1 text-[10px] font-bold text-amber-300 uppercase tracking-wider">
+                Vista 3D
+              </span>
+            )}
+          </div>
+        )}
+        {s.sun.active && (
+          <span className="rounded-full border border-yellow-400/50 bg-yellow-500/15 px-3 py-1 text-[10px] font-bold text-yellow-300 uppercase tracking-wider">
+            Heliodón activo
+          </span>
+        )}
+        {(() => {
+          const total = s.elements
+            .filter((e) => e.type === 'espacio' && !s.mods[e.id]?.deleted)
+            .reduce((n, e) => n + roomAreaM2(e.geo as RoomGeo), 0)
+          return (
+            <button
+              onClick={() => s.runGlobal('toggleAreas')}
+              className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                s.areaLabels
+                  ? 'border-teal-400/40 bg-teal-500/10 text-teal-300 hover:bg-teal-500/20'
+                  : 'border-zinc-600/50 bg-zinc-800/40 text-zinc-500 hover:text-zinc-300'
+              }`}
+              title="Rotulado de áreas: clic para mostrar/ocultar etiquetas m²"
+            >
+              {s.areaLabels ? `Áreas · ${total.toFixed(1)} m² techados` : 'Áreas · ocultas'}
+            </button>
+          )
+        })()}
+      </div>
     </div>
   )
 }

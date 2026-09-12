@@ -201,17 +201,53 @@ export const BASE_ELEMENTS: PlanElement[] = [
   ...FURNITURE, ...COLUMNS, ...DIMENSIONS, ...TEXTS,
 ]
 
-// Bloques insertables desde la biblioteca
-export const BLOCK_LIBRARY: { kind: string; label: string; w: number; h: number; sanitary?: boolean }[] = [
-  { kind: 'sofa', label: 'Sofá 3 cuerpos', w: 180, h: 70 },
-  { kind: 'cama', label: 'Cama plaza y media', w: 135, h: 185 },
-  { kind: 'mesacentro', label: 'Mesa de centro', w: 80, h: 48 },
-  { kind: 'ropero', label: 'Ropero', w: 150, h: 62 },
-  { kind: 'isla', label: 'Isla de cocina', w: 140, h: 72 },
-  { kind: 'refri', label: 'Refrigeradora', w: 56, h: 66 },
-  { kind: 'inodoro', label: 'Inodoro', w: 46, h: 40, sanitary: true },
-  { kind: 'lavatorio', label: 'Lavatorio', w: 74, h: 50, sanitary: true },
-  { kind: 'ducha', label: 'Ducha 0.90×0.90', w: 88, h: 88, sanitary: true },
+// Bloques insertables desde la biblioteca (cat: agrupación del explorador visual)
+export type BlockCat = 'mobiliario' | 'cocina' | 'sanitarios' | 'exterior'
+
+export interface BlockDef {
+  kind: string
+  label: string
+  w: number
+  h: number
+  cat: BlockCat
+  sanitary?: boolean
+}
+
+export const BLOCK_CATS: { id: BlockCat; label: string; icon: string }[] = [
+  { id: 'mobiliario', label: 'Mobiliario', icon: 'Armchair' },
+  { id: 'cocina', label: 'Cocina', icon: 'CookingPot' },
+  { id: 'sanitarios', label: 'Sanitarios', icon: 'Bath' },
+  { id: 'exterior', label: 'Exterior', icon: 'TreePine' },
+]
+
+export const BLOCK_LIBRARY: BlockDef[] = [
+  // --- Mobiliario ---
+  { kind: 'sofa', label: 'Sofá 3 cuerpos', w: 180, h: 70, cat: 'mobiliario' },
+  { kind: 'sillon', label: 'Sillón individual', w: 62, h: 62, cat: 'mobiliario' },
+  { kind: 'mesacentro', label: 'Mesa de centro', w: 80, h: 48, cat: 'mobiliario' },
+  { kind: 'mesacomedor', label: 'Mesa comedor 4p', w: 100, h: 100, cat: 'mobiliario' },
+  { kind: 'tv', label: 'Panel TV', w: 140, h: 14, cat: 'mobiliario' },
+  { kind: 'alfombra', label: 'Alfombra 3.5×3', w: 220, h: 185, cat: 'mobiliario' },
+  { kind: 'cama', label: 'Cama plaza y media', w: 135, h: 185, cat: 'mobiliario' },
+  { kind: 'mesitanoche', label: 'Mesita de noche', w: 50, h: 45, cat: 'mobiliario' },
+  { kind: 'ropero', label: 'Ropero 6 puertas', w: 150, h: 62, cat: 'mobiliario' },
+  { kind: 'estante', label: 'Estante modular', w: 150, h: 42, cat: 'mobiliario' },
+  { kind: 'escritorio', label: 'Escritorio', w: 140, h: 58, cat: 'mobiliario' },
+  { kind: 'sillaescritorio', label: 'Silla giratoria', w: 42, h: 42, cat: 'mobiliario' },
+  // --- Cocina ---
+  { kind: 'counter', label: 'Módulo de cocina', w: 260, h: 58, cat: 'cocina' },
+  { kind: 'stove', label: 'Cocina 4 hornillas', w: 58, h: 54, cat: 'cocina' },
+  { kind: 'sinkk', label: 'Fregadero doble', w: 55, h: 48, cat: 'cocina' },
+  { kind: 'isla', label: 'Isla de cocina', w: 140, h: 72, cat: 'cocina' },
+  { kind: 'refri', label: 'Refrigeradora', w: 56, h: 66, cat: 'cocina' },
+  // --- Sanitarios ---
+  { kind: 'inodoro', label: 'Inodoro', w: 46, h: 40, cat: 'sanitarios', sanitary: true },
+  { kind: 'lavatorio', label: 'Lavatorio', w: 74, h: 50, cat: 'sanitarios', sanitary: true },
+  { kind: 'ducha', label: 'Ducha 0.90×0.90', w: 88, h: 88, cat: 'sanitarios', sanitary: true },
+  // --- Exterior ---
+  { kind: 'arbol', label: 'Árbol copa 2.5 m', w: 150, h: 150, cat: 'exterior' },
+  { kind: 'arbusto', label: 'Arbusto 1.0 m', w: 60, h: 60, cat: 'exterior' },
+  { kind: 'auto', label: 'Automóvil 4.5 m', w: 270, h: 130, cat: 'exterior' },
 ]
 
 export function roomAreaM2(geo: RoomGeo): number {

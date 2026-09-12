@@ -11,6 +11,7 @@ import RibbonToolbar from '@/components/jarumy/RibbonToolbar'
 import { LayersPanel, PropertiesPanel } from '@/components/jarumy/SidePanels'
 import { CommandConsole, StatusBar } from '@/components/jarumy/ConsoleBar'
 import { ScheduleDialog, CatalogDialog, EnergyDialog, ClashDialog } from '@/components/jarumy/Dialogs'
+import { BlockLibraryDialog } from '@/components/jarumy/BlockLibrary'
 import AdminPanel, { PRIMARY_PRESETS } from '@/components/jarumy/AdminPanel'
 import { ToolIcon } from '@/components/jarumy/ToolIcon'
 
@@ -77,6 +78,22 @@ export default function JarumyApp() {
 
         <div className="ml-auto flex items-center gap-1.5">
           <button
+            onClick={() => s.setDialog('blocks')}
+            className="hidden md:flex items-center gap-1.5 rounded-lg border jy-border px-3 py-1.5 text-[11px] font-semibold jy-text hover:border-amber-500/60 hover:text-amber-300 transition-colors"
+            title="Biblioteca de bloques con vista previa"
+          >
+            <ToolIcon name="Blocks" size={13} />
+            Bloques
+          </button>
+          <button
+            onClick={() => s.runGlobal('toggleSun')}
+            className="hidden md:flex items-center gap-1.5 rounded-lg border jy-border px-3 py-1.5 text-[11px] font-semibold jy-text hover:border-amber-500/60 hover:text-amber-300 transition-colors"
+            title="Heliodón: sol, sombras y trayectorias"
+          >
+            <ToolIcon name="Sun" size={13} />
+            Heliodón
+          </button>
+          <button
             onClick={() => s.setDialog('catalog')}
             className="hidden md:flex items-center gap-1.5 rounded-lg border jy-border px-3 py-1.5 text-[11px] font-semibold jy-text hover:border-amber-500/60 hover:text-amber-300 transition-colors"
             title="Catálogo completo de herramientas recopiladas"
@@ -128,6 +145,7 @@ export default function JarumyApp() {
       <CatalogDialog />
       <EnergyDialog />
       <ClashDialog />
+      <BlockLibraryDialog />
 
       {/* ---------- panel de administración ---------- */}
       <AdminPanel onDesignChange={applyDesign} />

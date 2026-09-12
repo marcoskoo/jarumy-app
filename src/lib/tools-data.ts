@@ -321,6 +321,14 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         options: [{ label: 'Cuadro de espacios', detail: 'Generado desde los espacios BIM', action: G('showSchedule') }],
       },
       {
+        id: 'rotulado-areas', label: 'Rotulado de áreas', icon: 'Tags', desc: 'Etiquetas automáticas de nombre + m² por ambiente, calculadas en tiempo real (Revit: Rooms)', source: 'Revit / ArchiCAD',
+        options: [
+          { label: 'Mostrar áreas', detail: 'Nombre + m² + número en cada espacio', action: G('toggleAreas') },
+          { label: 'Ocultar áreas', detail: 'Deja solo el nombre del ambiente', action: G('toggleAreas') },
+          { label: 'Cuadro de espacios', detail: 'Tabla BIM con total techado', action: G('showSchedule') },
+        ],
+      },
+      {
         id: 'nube', label: 'Nube de revisión', icon: 'Cloud', desc: 'NUBE: marca cambios (AutoCAD: REVCLOUD)', source: 'AutoCAD',
         options: [{ label: 'Marcar revisión', action: I('NUBEDECTRL: arco 0.5 m. Revisión R3 — "AMPLIAR VANOS DORMITORIO 2" registrada.') }],
       },
@@ -405,6 +413,9 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
           { label: 'Cama plaza y media', detail: 'Insertar bloque', action: D('ins:cama') },
           { label: 'Mesa de centro', detail: 'Insertar bloque', action: D('ins:mesacentro') },
           { label: 'Ropero 6 puertas', detail: 'Insertar bloque', action: D('ins:ropero') },
+          { label: 'Escritorio', detail: 'Insertar bloque', action: D('ins:escritorio') },
+          { label: 'Silla giratoria', detail: 'Insertar bloque', action: D('ins:sillaescritorio') },
+          { label: 'Estante modular', detail: 'Insertar bloque', action: D('ins:estante') },
         ],
       },
       {
@@ -420,6 +431,23 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         options: [
           { label: 'Isla de cocina', detail: 'Insertar bloque', action: D('ins:isla') },
           { label: 'Refrigeradora', detail: 'Insertar bloque', action: D('ins:refri') },
+          { label: 'Módulo de cocina', detail: 'Insertar bloque', action: D('ins:counter') },
+          { label: 'Cocina 4 hornillas', detail: 'Insertar bloque', action: D('ins:stove') },
+          { label: 'Fregadero doble', detail: 'Insertar bloque', action: D('ins:sinkk') },
+        ],
+      },
+      {
+        id: 'bib-exterior', label: 'Exterior', icon: 'TreePine', desc: 'Vegetación y vehículos para sitios y jardines', source: 'AutoCAD Arch / SketchUp',
+        options: [
+          { label: 'Árbol copa 2.5 m', detail: 'Insertar bloque', action: D('ins:arbol') },
+          { label: 'Arbusto 1.0 m', detail: 'Insertar bloque', action: D('ins:arbusto') },
+          { label: 'Automóvil 4.5 m', detail: 'Insertar bloque', action: D('ins:auto') },
+        ],
+      },
+      {
+        id: 'bib-visual', label: 'Biblioteca visual', icon: 'LayoutGrid', desc: 'Explorador de bloques con vista previa — clic para armar, clic en el plano para insertar (R rota 90°)', source: 'Jarumy',
+        options: [
+          { label: 'Abrir biblioteca de bloques', detail: '23 bloques con vista previa', action: G('showBlockLibrary') },
         ],
       },
       {
@@ -493,10 +521,13 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         options: [{ label: 'Simular recorrido', action: G('walkthrough') }],
       },
       {
-        id: 'sombras', label: 'Estudio de sombras', icon: 'Sun', desc: 'Sol por hora/estación (Revit / SketchUp)', source: 'Revit',
+        id: 'sombras', label: 'Estudio de sombras', icon: 'Sun', desc: 'Heliodón interactivo: sombras proyectadas según latitud, fecha y hora (Revit / SketchUp)', source: 'Revit',
         options: [
-          { label: 'Sol 09:00', action: I('SOL 09:00 — azimut 102°, elevación 38°. Sombra proyectada: 2.4 m en fachada norte.') },
-          { label: 'Sol 15:00', action: I('SOL 15:00 — azimut 245°, elevación 55°. Asolamiento óptimo en dormitorio oriente.') },
+          { label: 'Heliodón interactivo', detail: 'Panel de sol con sombras en vivo', action: G('toggleSun') },
+          { label: 'Solsticio de verano', detail: 'Sombra mínima del año', action: G('sunSummer') },
+          { label: 'Solsticio de invierno', detail: 'Sombra máxima del año', action: G('sunWinter') },
+          { label: 'Equinoccio', detail: '21 marzo · sombra media', action: G('sunEquinox') },
+          { label: 'Trayectorias solares', detail: 'Mostrar/ocultar arcos de 3 fechas', action: G('toggleSunPath') },
         ],
       },
       {
@@ -734,6 +765,14 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
         { label: 'Renombrar', action: P('Nuevo nombre', 'rename') },
         { label: 'Número', action: P('Número del espacio', 'renumber') },
         { label: 'Uso: sala', action: I('Uso del espacio: Estar / convivencia. Ocupación: 6 personas.') },
+      ],
+    },
+    {
+      id: 'etiquetas', label: 'Etiquetas', icon: 'Tags',
+      options: [
+        { label: 'Mostrar áreas m²', detail: 'Rotulado automático en tiempo real', action: G('toggleAreas') },
+        { label: 'Ocultar áreas', action: G('toggleAreas') },
+        { label: 'Cuadro de espacios', action: G('showSchedule') },
       ],
     },
     {
@@ -993,6 +1032,16 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
     },
   ],
   lamina: [
+    {
+      id: 'sol', label: 'Sol', icon: 'Sun',
+      options: [
+        { label: 'Heliodón y sombras', detail: 'Latitud · fecha · hora', action: G('toggleSun') },
+        { label: 'Solsticio de verano', action: G('sunSummer') },
+        { label: 'Solsticio de invierno', action: G('sunWinter') },
+        { label: 'Equinoccio', action: G('sunEquinox') },
+        { label: 'Trayectorias solares', action: G('toggleSunPath') },
+      ],
+    },
     {
       id: 'unidades', label: 'Unidades', icon: 'Ruler',
       options: [

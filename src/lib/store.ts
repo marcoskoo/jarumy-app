@@ -7,6 +7,7 @@ import {
 } from '@/lib/plan-data'
 import type { ToolAction } from '@/lib/tools-data'
 import { MATERIAL_COLORS, ROOM_FILLS, LINE_COLORS } from '@/lib/tools-data'
+import { dayOfYear } from '@/lib/solar'
 
 // ---------------- tipos ----------------
 
@@ -46,6 +47,15 @@ export interface ConsoleLine {
   kind: 'cmd' | 'out' | 'err'
 }
 
+export interface SunSettings {
+  active: boolean
+  lat: number       // grados; negativo = hemisferio sur (Lima = -12)
+  day: number       // día del año 1-365
+  hour: number      // hora solar local (5-19, con decimales)
+  wallH: number     // altura de muros en metros (para proyectar sombras)
+  showPath: boolean // dibujar trayectorias de solsticios/equinoccio
+}
+
 interface Snapshot {
   elements: PlanElement[]
   mods: Record<string, Mod>
@@ -78,7 +88,10 @@ interface JarumyState {
   radialEnabled: boolean
   showLayers: boolean
   showProperties: boolean
-  dialog: 'schedule' | 'catalog' | 'energy' | 'clash' | null
+  areaLabels: boolean
+  insertRotation: number
+  sun: SunSettings
+  dialog: 'schedule' | 'catalog' | 'energy' | 'clash' | 'blocks' | null
   adminOpen: boolean
   fitTick: number
   // consola
@@ -98,10 +111,12 @@ interface JarumyState {
   setView: (v: Partial<{ zoom: number; panX: number; panY: number }>) => void
   zoomBy: (f: number, cx?: number, cy?: number) => void
   fitView: () => void
-  toggle: (k: 'renderMode' | 'view3D' | 'showGrid' | 'snap' | 'ortho' | 'radialEnabled' | 'showLayers' | 'showProperties') => void
+  toggle: (k: 'renderMode' | 'view3D' | 'showGrid' | 'snap' | 'ortho' | 'radialEnabled' | 'showLayers' | 'showProperties' | 'areaLabels') => void
   setDialog: (d: JarumyState['dialog']) => void
   setAdminOpen: (v: boolean) => void
   pushConsole: (l: ConsoleLine) => void
+  rotateInsert: () => void
+  setSun: (p: Partial<SunSettings>) => void
   applyEffect: (elId: string | null, effect: string, value?: string | number) => void
   runGlobal: (g: string, elId?: string | null) => void
   executeAction: (action: ToolAction, elId?: string | null) => void
@@ -150,6 +165,9 @@ export const useJarumy = create<JarumyState>((set, get) => ({
   radialEnabled: true,
   showLayers: true,
   showProperties: true,
+  areaLabels: true,
+  insertRotation: 0,
+  sun: { active: false, lat: -12, day: dayOfYear(3, 21), hour: 12, wallH: 2.5, showPath: true },
   dialog: null,
   adminOpen: false,
   fitTick: 0,
@@ -199,6 +217,10 @@ export const useJarumy = create<JarumyState>((set, get) => ({
   setDialog: (d) => set({ dialog: d }),
   setAdminOpen: (v) => set({ adminOpen: v }),
   pushConsole: (l) => set((s) => ({ consoleLines: [...s.consoleLines.slice(-40), l] })),
+
+  rotateInsert: () => set((s) => ({ insertRotation: (s.insertRotation + 90) % 360 })),
+
+  setSun: (p) => set((s) => ({ sun: { ...s.sun, ...p } })),
 
   applyEffect: (elId, effect, value) => {
     if (!elId) return
@@ -420,11 +442,44 @@ export const useJarumy = create<JarumyState>((set, get) => ({
       case 'showCatalog':
         set({ dialog: 'catalog' })
         break
+      case 'showBlockLibrary':
+        set({ dialog: 'blocks' })
+        break
       case 'energyReport':
         set({ dialog: 'energy' })
         break
       case 'clashCheck':
         set({ dialog: 'clash' })
+        break
+      case 'toggleAreas':
+        set((st) => ({ areaLabels: !st.areaLabels }))
+        s.pushConsole({ text: `ROTULADO DE ÁREAS ${!s.areaLabels ? 'activado' : 'desactivado'} — etiquetas m² ${!s.areaLabels ? 'visibles' : 'ocultas'}`, kind: 'out' })
+        break
+      case 'toggleSun': {
+        const next = !s.sun.active
+        set({ sun: { ...s.sun, active: next } })
+        s.pushConsole({ text: `HELIODÓN ${next ? 'ACTIVADO — sombras proyectadas según latitud/fecha/hora' : 'desactivado'}`, kind: 'out' })
+        break
+      }
+      case 'toggleSunPath':
+        set({ sun: { ...s.sun, showPath: !s.sun.showPath } })
+        s.pushConsole({ text: `Trayectorias solares ${!s.sun.showPath ? 'visibles' : 'ocultas'} (solsticios + equinoccio)`, kind: 'out' })
+        break
+      case 'sunSummer': {
+        const d = s.sun.lat >= 0 ? dayOfYear(6, 21) : dayOfYear(12, 21)
+        set({ sun: { ...s.sun, active: true, day: d } })
+        s.pushConsole({ text: `SOLSTICIO DE VERANO (${s.sun.lat >= 0 ? '21 jun' : '21 dic'}) — sombra ${'mínima'} del año`, kind: 'out' })
+        break
+      }
+      case 'sunWinter': {
+        const d = s.sun.lat >= 0 ? dayOfYear(12, 21) : dayOfYear(6, 21)
+        set({ sun: { ...s.sun, active: true, day: d } })
+        s.pushConsole({ text: `SOLSTICIO DE INVIERNO (${s.sun.lat >= 0 ? '21 dic' : '21 jun'}) — sombra máxima del año`, kind: 'out' })
+        break
+      }
+      case 'sunEquinox':
+        set({ sun: { ...s.sun, active: true, day: dayOfYear(3, 21) } })
+        s.pushConsole({ text: 'EQUINOCCIO (21 mar) — día y noche duran lo mismo; sombra media', kind: 'out' })
         break
       case 'print':
         if (typeof window !== 'undefined') window.print()
@@ -501,16 +556,19 @@ export const useJarumy = create<JarumyState>((set, get) => ({
     const block = BLOCK_LIBRARY.find((b) => b.kind === kind)
     if (!block) return
     set((st) => ({ undoStack: [...st.undoStack.slice(-29), snapshot(st)], redoStack: [] }))
+    const id = uid()
     set((st) => ({
       elements: [...st.elements, {
-        id: uid(),
+        id,
         type: block.sanitary ? 'sanitario' : 'mobiliario',
         layer: block.sanitary ? 'sanitarios' : 'mobiliario',
         name: block.label,
         geo: { kind: block.kind, x: x - block.w / 2, y: y - block.h / 2, w: block.w, h: block.h },
       }],
+      // rotación acumulada con R durante la inserción
+      mods: st.insertRotation % 360 !== 0 ? { ...st.mods, [id]: { rotation: st.insertRotation } } : st.mods,
     }))
-    s.pushConsole({ text: `Bloque insertado: ${block.label}`, kind: 'out' })
+    s.pushConsole({ text: `Bloque insertado: ${block.label}${s.insertRotation % 360 !== 0 ? ` (rotado ${s.insertRotation}°)` : ''}`, kind: 'out' })
   },
 
   setLayerVisible: (id, v) => set((s) => ({
@@ -546,6 +604,9 @@ export const useJarumy = create<JarumyState>((set, get) => ({
       'CUADRO': () => s.runGlobal('showSchedule'), 'ESPACIOS': () => s.runGlobal('showSchedule'),
       'COLISIONES': () => s.runGlobal('clashCheck'),
       'ENERGIA': () => s.runGlobal('energyReport'),
+      'BLOQUES': () => s.runGlobal('showBlockLibrary'), 'BIBLIOTECA': () => s.runGlobal('showBlockLibrary'),
+      'SOL': () => s.runGlobal('toggleSun'), 'HELIODON': () => s.runGlobal('toggleSun'), 'SOMBRAS': () => s.runGlobal('toggleSun'),
+      'AREAS': () => s.runGlobal('toggleAreas'), 'ROTULAR': () => s.runGlobal('toggleAreas'),
       'U': () => s.runGlobal('undo'), 'DESHACER': () => s.runGlobal('undo'),
       'REHACER': () => s.runGlobal('redo'),
       'NUEVO': () => s.runGlobal('newPlan'),
@@ -560,6 +621,7 @@ export const useJarumy = create<JarumyState>((set, get) => ({
         'M/MOVER · CO/COPIA · E/BORRAR · U/DESHACER · REHACER · NUEVO',
         'REJILLA · SNAP · ORTO · RENDER · 3D · AJUSTAR · RECORRIDO',
         'PURGA · AUDIT · CUADRO · COLISIONES · ENERGIA · CATALOGO · ADMIN · AYUDA',
+        'NUEVO: BLOQUES (biblioteca visual) · SOL/HELIODON (sombras) · AREAS (rotulado m²)',
       ]
       ayuda.forEach((l) => s.pushConsole({ text: l, kind: 'out' }))
       return

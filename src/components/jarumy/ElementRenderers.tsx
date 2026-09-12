@@ -58,7 +58,7 @@ function buildTransform(el: PlanElement, m?: Mod): string | undefined {
   return parts.length ? parts.join(' ') : undefined
 }
 
-export function PlanElementNode({ el, mod, handlers }: { el: PlanElement; mod?: Mod; handlers: ElHandlers }) {
+export function PlanElementNode({ el, mod, handlers, showArea }: { el: PlanElement; mod?: Mod; handlers: ElHandlers; showArea?: boolean }) {
   if (mod?.deleted) return null
   const transform = buildTransform(el, mod)
   const gProps = {
@@ -69,7 +69,7 @@ export function PlanElementNode({ el, mod, handlers }: { el: PlanElement; mod?: 
 
   let content: React.ReactNode = null
   switch (el.type) {
-    case 'espacio': content = <Room el={el} mod={mod} />; break
+    case 'espacio': content = <Room el={el} mod={mod} showArea={showArea} />; break
     case 'muro': content = <Wall el={el} mod={mod} />; break
     case 'puerta': content = <Door el={el} mod={mod} />; break
     case 'ventana': content = <WindowNode el={el} mod={mod} />; break
@@ -87,9 +87,14 @@ export function PlanElementNode({ el, mod, handlers }: { el: PlanElement; mod?: 
 
 // ---------------- ESPACIO / HABITACIÓN ----------------
 
-function Room({ el, mod }: { el: PlanElement; mod?: Mod }) {
+function Room({ el, mod, showArea = true }: { el: PlanElement; mod?: Mod; showArea?: boolean }) {
   const g = el.geo as RoomGeo
   const area = roomAreaM2(g)
+  // tamaños adaptativos según el tamaño del ambiente (rotulado automático)
+  const minSide = Math.min(g.w, g.h)
+  const nameSize = minSide < 120 ? 11 : minSide < 170 ? 12.5 : 15
+  const subSize = minSide < 120 ? 9 : minSide < 170 ? 10 : 11.5
+  const cy = g.y + g.h / 2
   return (
     <g>
       <rect
@@ -100,19 +105,21 @@ function Room({ el, mod }: { el: PlanElement; mod?: Mod }) {
       <rect className="jy-hover-ring" x={g.x + 4} y={g.y + 4} width={g.w - 8} height={g.h - 8}
         fill="none" stroke="var(--jy-primary)" strokeWidth="2" strokeDasharray="7 5" rx="3" />
       <text
-        x={g.x + g.w / 2} y={g.y + g.h / 2 - 6}
-        textAnchor="middle" fontSize="15" fontWeight="800"
+        x={g.x + g.w / 2} y={showArea ? cy - 6 : cy + nameSize * 0.36}
+        textAnchor="middle" fontSize={nameSize} fontWeight="800"
         style={{ fill: 'var(--jy-muted)', letterSpacing: '1.5px' }}
       >
         {g.name}
       </text>
-      <text
-        x={g.x + g.w / 2} y={g.y + g.h / 2 + 13}
-        textAnchor="middle" fontSize="11.5" fontWeight="500"
-        style={{ fill: 'var(--jy-muted)', opacity: 0.72 }}
-      >
-        {area.toFixed(2)} m² · {g.num}
-      </text>
+      {showArea && (
+        <text
+          x={g.x + g.w / 2} y={cy + 13}
+          textAnchor="middle" fontSize={subSize} fontWeight="500"
+          style={{ fill: 'var(--jy-muted)', opacity: 0.72 }}
+        >
+          {area.toFixed(2)} m² · {g.num}
+        </text>
+      )}
     </g>
   )
 }
@@ -338,16 +345,12 @@ function TextNode({ el, mod }: { el: PlanElement; mod?: Mod }) {
 
 // ---------------- MOBILIARIO / SANITARIOS ----------------
 
-function FurnNode({ el, mod }: { el: PlanElement; mod?: Mod }) {
-  const g = el.geo as FurnGeo
-  const fill = mod?.material || 'rgba(168,162,158,0.16)'
+// Forma reutilizable: se usa en el plano Y en la vista previa de la biblioteca de bloques
+export function FurnShape({ g, material }: { g: FurnGeo; material?: string }) {
+  const fill = material || 'rgba(168,162,158,0.16)'
   const S = { stroke: 'var(--jy-muted)', strokeWidth: 1.4, fill } as const
   const L = { stroke: 'var(--jy-muted)', strokeWidth: 1, fill: 'none' } as const
-  const ring = (
-    <rect className="jy-hover-ring" x={g.x - 4} y={g.y - 4} width={g.w + 8} height={g.h + 8}
-      fill="none" stroke="var(--jy-primary)" strokeWidth="2" rx="5" />
-  )
-  const sh = (
+  return (
     <g className="jy-furn">
       {(() => {
         switch (g.kind) {
@@ -531,13 +534,65 @@ function FurnNode({ el, mod }: { el: PlanElement; mod?: Mod }) {
                 <rect x={g.x + 4} y={g.y + 4} width={g.w - 8} height={g.h - 8} rx="4" {...L} />
               </g>
             )
+          case 'arbol':
+            return (
+              <g>
+                <circle cx={g.x + g.w / 2} cy={g.y + g.h / 2} r={Math.min(g.w, g.h) / 2}
+                  fill="rgba(16,185,129,0.16)" stroke="rgba(16,185,129,0.75)" strokeWidth="1.4" strokeDasharray="5 3" />
+                <circle cx={g.x + g.w / 2} cy={g.y + g.h / 2} r={Math.min(g.w, g.h) / 3.2}
+                  fill="none" stroke="rgba(16,185,129,0.5)" strokeWidth="1" />
+                <circle cx={g.x + g.w / 2} cy={g.y + g.h / 2} r="2.6" fill="rgba(16,185,129,0.85)" />
+                {[0, 45, 90, 135].map((a) => (
+                  <line key={a} x1={g.x + g.w / 2} y1={g.y + g.h / 2}
+                    x2={g.x + g.w / 2 + Math.cos((a * Math.PI) / 180) * (Math.min(g.w, g.h) / 2)}
+                    y2={g.y + g.h / 2 + Math.sin((a * Math.PI) / 180) * (Math.min(g.w, g.h) / 2)}
+                    stroke="rgba(16,185,129,0.35)" strokeWidth="0.8" />
+                ))}
+              </g>
+            )
+          case 'arbusto':
+            return (
+              <g>
+                <circle cx={g.x + g.w * 0.32} cy={g.y + g.h * 0.4} r={Math.min(g.w, g.h) * 0.3}
+                  fill="rgba(16,185,129,0.22)" stroke="rgba(16,185,129,0.7)" strokeWidth="1.1" />
+                <circle cx={g.x + g.w * 0.68} cy={g.y + g.h * 0.45} r={Math.min(g.w, g.h) * 0.33}
+                  fill="rgba(16,185,129,0.22)" stroke="rgba(16,185,129,0.7)" strokeWidth="1.1" />
+                <circle cx={g.x + g.w * 0.5} cy={g.y + g.h * 0.68} r={Math.min(g.w, g.h) * 0.28}
+                  fill="rgba(16,185,129,0.22)" stroke="rgba(16,185,129,0.7)" strokeWidth="1.1" />
+              </g>
+            )
+          case 'auto':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} rx={Math.min(g.w, g.h) * 0.22} {...S} />
+                <rect x={g.x + g.w * 0.28} y={g.y + 5} width={g.w * 0.2} height={g.h - 10} rx="6" {...L} />
+                <rect x={g.x + g.w * 0.62} y={g.y + 5} width={g.w * 0.18} height={g.h - 10} rx="6" {...L} />
+                <line x1={g.x + g.w * 0.5} y1={g.y + 4} x2={g.x + g.w * 0.5} y2={g.y + g.h - 4} {...L} />
+                {[0.18, 0.82].map((fx, i) => (
+                  <g key={i}>
+                    <rect x={g.x + g.w * fx - 12} y={g.y - 2} width="24" height="5" rx="2" fill="#3f3f46" />
+                    <rect x={g.x + g.w * fx - 12} y={g.y + g.h - 3} width="24" height="5" rx="2" fill="#3f3f46" />
+                  </g>
+                ))}
+              </g>
+            )
           default:
             return <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="3" {...S} />
         }
       })()}
     </g>
   )
-  return <g>{sh}{ring}</g>
+}
+
+function FurnNode({ el, mod }: { el: PlanElement; mod?: Mod }) {
+  const g = el.geo as FurnGeo
+  return (
+    <g>
+      <FurnShape g={g} material={mod?.material} />
+      <rect className="jy-hover-ring" x={g.x - 4} y={g.y - 4} width={g.w + 8} height={g.h + 8}
+        fill="none" stroke="var(--jy-primary)" strokeWidth="2" rx="5" />
+    </g>
+  )
 }
 
 // ---------------- DIBUJO (elementos creados por el usuario) ----------------
