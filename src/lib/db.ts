@@ -9,13 +9,22 @@ const globalForPrisma = globalThis as unknown as {
 // DATABASE_URL debe apuntar a PostgreSQL (p. ej. Neon):
 //   postgresql://usuario:clave@host/bd?sslmode=require
 // En Vercel se configura como variable de entorno del proyecto (persistente).
-// Para serverless se recomienda el host "-pooler" (pgbouncer) con
-// &pgbouncer=true&connection_limit=1.
+// La integración Vercel-Neon inyecta la URL pooled (host "-pooler") sin
+// parámetros pgbouncer; Prisma los necesita en serverless para evitar
+// errores de prepared statements → se añaden automáticamente si faltan.
+
+export function resolveRuntimeUrl(): string | undefined {
+  let url = process.env.DATABASE_URL
+  if (url && url.includes('-pooler') && !url.includes('pgbouncer=')) {
+    url += (url.includes('?') ? '&' : '?') + 'pgbouncer=true&connection_limit=1'
+  }
+  return url
+}
 
 export const db =
   globalForPrisma.prisma ??
   new PrismaClient({
-    datasources: { db: { url: process.env.DATABASE_URL } },
+    datasources: { db: { url: resolveRuntimeUrl() } },
     log: process.env.NODE_ENV === 'production' ? ['error'] : ['query'],
   })
 
