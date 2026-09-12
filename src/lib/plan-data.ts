@@ -202,7 +202,7 @@ export const BASE_ELEMENTS: PlanElement[] = [
 ]
 
 // Bloques insertables desde la biblioteca (cat: agrupación del explorador visual)
-export type BlockCat = 'mobiliario' | 'cocina' | 'sanitarios' | 'exterior'
+export type BlockCat = 'mobiliario' | 'cocina' | 'sanitarios' | 'exterior' | 'otros'
 
 export interface BlockDef {
   kind: string
@@ -218,36 +218,80 @@ export const BLOCK_CATS: { id: BlockCat; label: string; icon: string }[] = [
   { id: 'cocina', label: 'Cocina', icon: 'CookingPot' },
   { id: 'sanitarios', label: 'Sanitarios', icon: 'Bath' },
   { id: 'exterior', label: 'Exterior', icon: 'TreePine' },
+  { id: 'otros', label: 'Otros', icon: 'Shapes' },
 ]
 
 export const BLOCK_LIBRARY: BlockDef[] = [
   // --- Mobiliario ---
   { kind: 'sofa', label: 'Sofá 3 cuerpos', w: 180, h: 70, cat: 'mobiliario' },
+  { kind: 'sofados', label: 'Sofá 2 cuerpos', w: 90, h: 51, cat: 'mobiliario' },
+  { kind: 'sofal', label: 'Sofá en L', w: 156, h: 108, cat: 'mobiliario' },
   { kind: 'sillon', label: 'Sillón individual', w: 62, h: 62, cat: 'mobiliario' },
+  { kind: 'puff', label: 'Puf', w: 33, h: 33, cat: 'mobiliario' },
   { kind: 'mesacentro', label: 'Mesa de centro', w: 80, h: 48, cat: 'mobiliario' },
   { kind: 'mesacomedor', label: 'Mesa comedor 4p', w: 100, h: 100, cat: 'mobiliario' },
+  { kind: 'mesacomedor6', label: 'Mesa comedor 6p', w: 96, h: 54, cat: 'mobiliario' },
+  { kind: 'silla', label: 'Silla de comedor', w: 27, h: 30, cat: 'mobiliario' },
+  { kind: 'taburete', label: 'Taburete', w: 24, h: 24, cat: 'mobiliario' },
   { kind: 'tv', label: 'Panel TV', w: 140, h: 14, cat: 'mobiliario' },
+  { kind: 'muebletv', label: 'Rack de TV', w: 96, h: 24, cat: 'mobiliario' },
   { kind: 'alfombra', label: 'Alfombra 3.5×3', w: 220, h: 185, cat: 'mobiliario' },
   { kind: 'cama', label: 'Cama plaza y media', w: 135, h: 185, cat: 'mobiliario' },
+  { kind: 'camaking', label: 'Cama king', w: 108, h: 123, cat: 'mobiliario' },
+  { kind: 'camaindividual', label: 'Cama individual', w: 63, h: 114, cat: 'mobiliario' },
+  { kind: 'cuna', label: 'Cuna', w: 42, h: 81, cat: 'mobiliario' },
   { kind: 'mesitanoche', label: 'Mesita de noche', w: 50, h: 45, cat: 'mobiliario' },
   { kind: 'ropero', label: 'Ropero 6 puertas', w: 150, h: 62, cat: 'mobiliario' },
+  { kind: 'comoda', label: 'Cómoda 6 cajones', w: 66, h: 33, cat: 'mobiliario' },
   { kind: 'estante', label: 'Estante modular', w: 150, h: 42, cat: 'mobiliario' },
+  { kind: 'librero', label: 'Librero', w: 72, h: 24, cat: 'mobiliario' },
   { kind: 'escritorio', label: 'Escritorio', w: 140, h: 58, cat: 'mobiliario' },
   { kind: 'sillaescritorio', label: 'Silla giratoria', w: 42, h: 42, cat: 'mobiliario' },
   // --- Cocina ---
   { kind: 'counter', label: 'Módulo de cocina', w: 260, h: 58, cat: 'cocina' },
+  { kind: 'esquinero', label: 'Módulo esquinero', w: 54, h: 54, cat: 'cocina' },
+  { kind: 'despensa', label: 'Despensa alta', w: 36, h: 132, cat: 'cocina' },
   { kind: 'stove', label: 'Cocina 4 hornillas', w: 58, h: 54, cat: 'cocina' },
+  { kind: 'campana', label: 'Campana extractora', w: 36, h: 30, cat: 'cocina' },
+  { kind: 'horno', label: 'Horno empotrado', w: 36, h: 36, cat: 'cocina' },
   { kind: 'sinkk', label: 'Fregadero doble', w: 55, h: 48, cat: 'cocina' },
-  { kind: 'isla', label: 'Isla de cocina', w: 140, h: 72, cat: 'cocina' },
+  { kind: 'fregadero1', label: 'Fregadero simple', w: 30, h: 27, cat: 'cocina' },
+  { kind: 'lavavajillas', label: 'Lavavajillas', w: 36, h: 36, cat: 'cocina' },
   { kind: 'refri', label: 'Refrigeradora', w: 56, h: 66, cat: 'cocina' },
+  { kind: 'refri2', label: 'Refrig. side-by-side', w: 54, h: 45, cat: 'cocina' },
+  { kind: 'isla', label: 'Isla de cocina', w: 140, h: 72, cat: 'cocina' },
+  { kind: 'barra', label: 'Barra de desayuno', w: 108, h: 36, cat: 'cocina' },
   // --- Sanitarios ---
   { kind: 'inodoro', label: 'Inodoro', w: 46, h: 40, cat: 'sanitarios', sanitary: true },
+  { kind: 'inodoropared', label: 'Inodoro de pared', w: 22, h: 33, cat: 'sanitarios', sanitary: true },
   { kind: 'lavatorio', label: 'Lavatorio', w: 74, h: 50, cat: 'sanitarios', sanitary: true },
+  { kind: 'lavatoriodoble', label: 'Lavatorio doble', w: 72, h: 30, cat: 'sanitarios', sanitary: true },
+  { kind: 'bidet', label: 'Bidet', w: 24, h: 36, cat: 'sanitarios', sanitary: true },
+  { kind: 'urinario', label: 'Urinario', w: 21, h: 24, cat: 'sanitarios', sanitary: true },
   { kind: 'ducha', label: 'Ducha 0.90×0.90', w: 88, h: 88, cat: 'sanitarios', sanitary: true },
+  { kind: 'banera', label: 'Bañera 1.70×0.80', w: 102, h: 48, cat: 'sanitarios', sanitary: true },
+  { kind: 'jacuzzi', label: 'Jacuzzi 1.8×1.8', w: 108, h: 108, cat: 'sanitarios', sanitary: true },
+  { kind: 'lavadora', label: 'Lavadora', w: 36, h: 36, cat: 'sanitarios', sanitary: true },
+  { kind: 'secadora', label: 'Secadora', w: 36, h: 36, cat: 'sanitarios', sanitary: true },
   // --- Exterior ---
   { kind: 'arbol', label: 'Árbol copa 2.5 m', w: 150, h: 150, cat: 'exterior' },
+  { kind: 'palmera', label: 'Palmera copa 3 m', w: 180, h: 180, cat: 'exterior' },
   { kind: 'arbusto', label: 'Arbusto 1.0 m', w: 60, h: 60, cat: 'exterior' },
+  { kind: 'maceta', label: 'Maceta 0.5 m', w: 30, h: 30, cat: 'exterior' },
+  { kind: 'grama', label: 'Césped 3×3 m', w: 180, h: 180, cat: 'exterior' },
+  { kind: 'bancojardin', label: 'Banco de jardín', w: 90, h: 30, cat: 'exterior' },
+  { kind: 'pergola', label: 'Pérgola 3×3 m', w: 180, h: 180, cat: 'exterior' },
+  { kind: 'parrilla', label: 'Parrilla 1.2×0.6', w: 72, h: 36, cat: 'exterior' },
+  { kind: 'piscina', label: 'Piscina 6×3 m', w: 360, h: 180, cat: 'exterior' },
   { kind: 'auto', label: 'Automóvil 4.5 m', w: 270, h: 130, cat: 'exterior' },
+  { kind: 'camioneta', label: 'Camioneta 5.4 m', w: 324, h: 120, cat: 'exterior' },
+  // --- Otros ---
+  { kind: 'escalera', label: 'Escalera recta', w: 54, h: 162, cat: 'otros' },
+  { kind: 'ascensor', label: 'Ascensor', w: 90, h: 90, cat: 'otros' },
+  { kind: 'rampa', label: 'Rampa accesible', w: 72, h: 144, cat: 'otros' },
+  { kind: 'chimenea', label: 'Chimenea', w: 54, h: 54, cat: 'otros' },
+  { kind: 'extintor', label: 'Extintor', w: 24, h: 24, cat: 'otros' },
+  { kind: 'tablero', label: 'Tablero eléctrico', w: 21, h: 15, cat: 'otros' },
 ]
 
 export function roomAreaM2(geo: RoomGeo): number {

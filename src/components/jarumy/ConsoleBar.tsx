@@ -7,16 +7,32 @@ import { ToolIcon } from './ToolIcon'
 export function CommandConsole() {
   const s = useJarumy()
   const [value, setValue] = useState('')
+  const [open, setOpen] = useState(false) // en móvil el registro queda plegado por defecto
   const inputRef = useRef<HTMLInputElement>(null)
   const logRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
-  }, [s.consoleLines.length])
+  }, [s.consoleLines.length, open])
 
   return (
     <div className="jy-bg2 border-t jy-border">
-      <div ref={logRef} className="max-h-20 overflow-y-auto jy-scroll px-3 py-1.5 font-mono text-[10.5px] leading-relaxed">
+      {/* plegado del registro en móvil */}
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="md:hidden w-full flex items-center justify-between px-3 py-1 text-[9px] font-bold jy-muted uppercase tracking-wider active:text-amber-300"
+        aria-expanded={open}
+      >
+        <span className="flex items-center gap-1.5">
+          <ToolIcon name="AlignLeft" size={10} />
+          Consola · {s.consoleLines.length} líneas
+        </span>
+        <ToolIcon name={open ? 'ChevronDown' : 'ChevronUp'} size={12} />
+      </button>
+      <div
+        ref={logRef}
+        className={`${open ? 'max-h-20' : 'max-h-0 md:max-h-20'} overflow-y-auto jy-scroll px-3 py-1.5 font-mono text-[10.5px] leading-relaxed transition-all`}
+      >
         {s.consoleLines.slice(-8).map((l, i) => (
           <p key={i} className={
             l.kind === 'cmd' ? 'text-amber-400' : l.kind === 'err' ? 'text-rose-400' : 'jy-muted'
@@ -42,7 +58,8 @@ export function CommandConsole() {
           onChange={(e) => setValue(e.target.value)}
           placeholder="escriba un comando… (AYUDA)"
           spellCheck={false}
-          className="flex-1 bg-transparent outline-none font-mono text-[11.5px] jy-text placeholder:text-zinc-600 uppercase"
+          autoCapitalize="characters"
+          className="flex-1 min-w-0 bg-transparent outline-none font-mono text-[11.5px] jy-text placeholder:text-zinc-600 uppercase"
         />
         <span className="text-[9px] jy-muted shrink-0 hidden sm:block">ESC: cancelar · ENTER: ejecutar</span>
       </form>
@@ -61,12 +78,15 @@ export function StatusBar() {
     { label: '3D', on: s.view3D, fn: () => s.toggle('view3D') },
   ]
   return (
-    <div className="jy-bg border-t jy-border flex items-center gap-1 px-2 py-1 overflow-x-auto jy-scroll">
+    <div
+      className="jy-bg border-t jy-border flex items-center gap-1 px-2 py-1 overflow-x-auto jy-scroll"
+      style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+    >
       {toggles.map((t) => (
         <button
           key={t.label}
           onClick={t.fn}
-          className={`rounded px-2 py-0.5 text-[9.5px] font-bold tracking-wider transition-colors shrink-0
+          className={`rounded px-2 py-1 text-[9.5px] font-bold tracking-wider transition-colors shrink-0
             ${t.on ? 'text-amber-300 bg-amber-500/15' : 'text-zinc-500 hover:text-zinc-300'}`}
         >
           {t.label}

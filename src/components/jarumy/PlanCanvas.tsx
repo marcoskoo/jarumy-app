@@ -18,9 +18,13 @@ const uid = () => `usr-${Math.random().toString(36).slice(2, 9)}`
 export default function PlanCanvas() {
   const s = useJarumy()
   const containerRef = useRef<HTMLDivElement>(null)
+  const svgRef = useRef<SVGSVGElement>(null)
   const mouseRef = useRef({ x: 0, y: 0 })
   const panRef = useRef<{ x: number; y: number; px: number; py: number } | null>(null)
   const didPanRef = useRef(false)
+  // false hasta que el usuario panea/zoomea a mano: permite re-ajustar la vista
+  // automáticamente cuando cambia el tamaño del lienzo (rotación, teclado móvil)
+  const userNavRef = useRef(false)
   const [dragging, setDragging] = useState(false)
   const [size, setSize] = useState({ w: 900, h: 600 })
   const coordsRef = useRef<HTMLSpanElement>(null)
@@ -42,7 +46,9 @@ export default function PlanCanvas() {
   // ---------- ajuste inicial y a petición ----------
   const fitted = useRef(false)
   useEffect(() => {
-    if (fitted.current || size.w < 50 || size.h < 50) return
+    if (size.w < 50 || size.h < 50) return
+    // primer ajuste o re-ajuste automático (mientras el usuario no haya navegado)
+    if (fitted.current && userNavRef.current) return
     fitted.current = true
     const z = Math.min(size.w / VIEW_W, size.h / VIEW_H) * 0.97
     useJarumy.setState({
@@ -222,6 +228,7 @@ export default function PlanCanvas() {
   // ---------- zoom y paneo ----------
   const onWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault()
+    userNavRef.current = true
     const st = useJarumy.getState()
     const rect = containerRef.current?.getBoundingClientRect()
     if (!rect) return
@@ -259,7 +266,10 @@ export default function PlanCanvas() {
         }
       }
       if (panRef.current) {
-        if (Math.abs(e.clientX - panRef.current.x) + Math.abs(e.clientY - panRef.current.y) > 5) didPanRef.current = true
+        if (Math.abs(e.clientX - panRef.current.x) + Math.abs(e.clientY - panRef.current.y) > 5) {
+          didPanRef.current = true
+          userNavRef.current = true
+        }
         useJarumy.setState({
           panX: panRef.current.px + (e.clientX - panRef.current.x),
           panY: panRef.current.py + (e.clientY - panRef.current.y),
@@ -291,6 +301,91 @@ export default function PlanCanvas() {
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
+  }, [])
+
+  // ---------- paneo (1 dedo) y zoom por pellizco (2 dedos) — móvil / tablet ----------
+  useEffect(() => {
+    const el = svgRef.current
+    if (!el) return
+    const t: {
+      mode: 'pan' | 'pinch' | null
+      startX: number; startY: number; px: number; py: number
+      dist0: number; zoom0: number; mx0: number; my0: number
+    } = { mode: null, startX: 0, startY: 0, px: 0, py: 0, dist0: 0, zoom0: 1, mx0: 0, my0: 0 }
+    const dist = (a: Touch, b: Touch) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
+    const onStart = (e: TouchEvent) => {
+      const rect = el.getBoundingClientRect()
+      if (e.touches.length === 1) {
+        const tc = e.touches[0]
+        const st = useJarumy.getState()
+        // posiciona el menú radial y el fantasma de inserción en el punto del toque
+        mouseRef.current = { x: tc.clientX - rect.left, y: tc.clientY - rect.top }
+        if (st.drawTool) {
+          st.setCursorSvg([
+            (tc.clientX - rect.left - st.panX) / st.zoom,
+            (tc.clientY - rect.top - st.panY) / st.zoom,
+          ])
+          t.mode = null
+          return // taps de dibujo/inserción: los maneja el clic
+        }
+        t.mode = 'pan'
+        t.startX = tc.clientX
+        t.startY = tc.clientY
+        t.px = st.panX
+        t.py = st.panY
+        didPanRef.current = false
+        setDragging(true)
+      } else if (e.touches.length >= 2) {
+        const st = useJarumy.getState()
+        t.mode = 'pinch'
+        t.dist0 = Math.max(10, dist(e.touches[0], e.touches[1]))
+        t.zoom0 = st.zoom
+        t.px = st.panX
+        t.py = st.panY
+        t.mx0 = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left
+        t.my0 = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top
+        didPanRef.current = true // el pellizco nunca debe disparar un clic
+        setDragging(true)
+      }
+    }
+    const onMove = (e: TouchEvent) => {
+      if (!t.mode) return
+      e.preventDefault()
+      userNavRef.current = true
+      if (t.mode === 'pan' && e.touches.length === 1) {
+        const tc = e.touches[0]
+        const dx = tc.clientX - t.startX
+        const dy = tc.clientY - t.startY
+        if (Math.abs(dx) + Math.abs(dy) > 5) didPanRef.current = true
+        useJarumy.setState({ panX: t.px + dx, panY: t.py + dy })
+      } else if (t.mode === 'pinch' && e.touches.length >= 2) {
+        const rect = el.getBoundingClientRect()
+        const d = Math.max(10, dist(e.touches[0], e.touches[1]))
+        const zoom1 = Math.min(6, Math.max(0.25, (t.zoom0 * d) / t.dist0))
+        const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left
+        const my = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top
+        // mantiene bajo el punto medio el mismo punto del plano que al iniciar
+        useJarumy.setState({
+          zoom: zoom1,
+          panX: mx - ((t.mx0 - t.px) / t.zoom0) * zoom1,
+          panY: my - ((t.my0 - t.py) / t.zoom0) * zoom1,
+        })
+      }
+    }
+    const onEnd = (ev: TouchEvent) => {
+      if (ev.touches.length === 0) { t.mode = null; setDragging(false) }
+      else if (t.mode === 'pinch') { t.mode = null; setDragging(false) }
+    }
+    el.addEventListener('touchstart', onStart, { passive: false })
+    el.addEventListener('touchmove', onMove, { passive: false })
+    el.addEventListener('touchend', onEnd)
+    el.addEventListener('touchcancel', onEnd)
+    return () => {
+      el.removeEventListener('touchstart', onStart)
+      el.removeEventListener('touchmove', onMove)
+      el.removeEventListener('touchend', onEnd)
+      el.removeEventListener('touchcancel', onEnd)
+    }
   }, [])
 
   // ---------- render de capas ----------
@@ -331,6 +426,7 @@ export default function PlanCanvas() {
       >
         <div className={s.view3D ? 'jy-3d' : 'jy-3d-off'}>
           <svg
+            ref={svgRef}
             width={VIEW_W} height={VIEW_H}
             viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
             className={`${s.renderMode ? 'jy-svg-render ' : ''}${geometricTool ? 'jy-geo-draw' : ''}`}
@@ -339,7 +435,7 @@ export default function PlanCanvas() {
               e.stopPropagation()
               if (useJarumy.getState().drawTool === 'polilinea') useJarumy.getState().finishPolyline()
             }}
-            style={{ background: 'transparent' }}
+            style={{ background: 'transparent', touchAction: 'none' }}
           >
             <defs>
               <pattern id={gridId} width={s.gridSpacing} height={s.gridSpacing} patternUnits="userSpaceOnUse">
@@ -491,10 +587,33 @@ export default function PlanCanvas() {
           </span>
           <span className="text-[10px] text-zinc-400">
             {s.drawTool.startsWith('ins:')
-              ? `clic para colocar${s.insertRotation ? ` · ${s.insertRotation}°` : ''} · R rota 90°`
+              ? `toque o clic para colocar${s.insertRotation ? ` · ${s.insertRotation}°` : ''}`
               : s.drawTool === 'borrar' || s.drawTool === 'copiar' || s.drawTool === 'mover'
-                ? 'clic en el objeto' : 'clic en el plano'}
+                ? 'toque o clic en el objeto' : 'toque o clic en el plano'}
           </span>
+          {s.drawTool === 'polilinea' && (
+            <button
+              onClick={() => s.finishPolyline()}
+              className="ml-1 flex items-center gap-1 rounded-full bg-amber-500 px-2.5 py-0.5 text-[10px] font-black text-zinc-950 hover:brightness-110 active:scale-95 transition-all"
+              title="Terminar polilínea (ENTER)"
+            >
+              <ToolIcon name="Check" size={11} />
+              Terminar
+            </button>
+          )}
+          {s.drawTool.startsWith('ins:') && (
+            <button
+              onClick={() => {
+                s.rotateInsert()
+                s.pushConsole({ text: `Inserción rotada a ${useJarumy.getState().insertRotation}°`, kind: 'out' })
+              }}
+              className="ml-1 flex items-center gap-1 rounded-full border border-amber-400/60 bg-amber-500/15 px-2.5 py-0.5 text-[10px] font-bold text-amber-300 hover:bg-amber-500/25 active:scale-95 transition-all"
+              title="Rotar 90° (tecla R)"
+            >
+              <ToolIcon name="RotateCw" size={11} />
+              Rotar
+            </button>
+          )}
           <button
             onClick={() => s.armDraw(null)}
             className="ml-1 rounded-full p-0.5 text-zinc-400 hover:text-amber-300"
@@ -509,7 +628,7 @@ export default function PlanCanvas() {
       {hint && !s.drawTool && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 jy-pulse rounded-full border border-amber-500/40 bg-zinc-950/85 px-5 py-2 text-center jy-pop-in">
           <span className="text-[11.5px] font-semibold text-amber-200">
-            Haga clic sobre un elemento del plano — se abrirá su círculo de herramientas
+            Toque o haga clic sobre un elemento del plano — se abrirá su círculo de herramientas
           </span>
         </div>
       )}

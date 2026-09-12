@@ -58,7 +58,7 @@ export default function SunPanel() {
 
   return (
     <div
-      className="absolute top-3 right-3 z-30 w-[238px] rounded-xl border shadow-2xl jy-pop-in overflow-hidden"
+      className="absolute top-3 right-3 z-30 w-[238px] max-w-[calc(100vw-24px)] rounded-xl border shadow-2xl jy-pop-in overflow-hidden"
       style={{ background: 'rgba(24,24,27,0.96)', borderColor: 'rgba(245,158,11,0.45)' }}
       onMouseDown={(e) => e.stopPropagation()}
     >

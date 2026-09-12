@@ -400,8 +400,49 @@ export async function exportPlanPdf(
           doc.circle(X(cx + g.w * 0.22), Y(cy + g.h * 0.22), rr, 'S')
           break
         }
-        case 'sinkk': case 'lavatorio': case 'islav':
+        case 'sinkk': case 'lavatorio': case 'islav': case 'fregadero1':
           doc.circle(X(cx), Y(cy), L(Math.min(g.w, g.h)) * 0.22, 'S'); break
+        case 'lavadora': case 'secadora': case 'lavavajillas': case 'campana': case 'jacuzzi':
+          doc.circle(X(cx), Y(cy), L(Math.min(g.w, g.h)) * 0.3, 'S'); break
+        case 'lavatoriodoble':
+          doc.circle(X(cx - g.w * 0.22), Y(cy), L(g.h) * 0.2, 'S')
+          doc.circle(X(cx + g.w * 0.22), Y(cy), L(g.h) * 0.2, 'S'); break
+        case 'refri2':
+          seg(0, -g.h / 2, 0, g.h / 2); break
+        case 'sofal':
+          seg(g.w * 0.36 - g.w / 2, -g.h / 2, g.w * 0.36 - g.w / 2, g.h / 2)
+          seg(-g.w / 2, -g.h / 2 + g.h * 0.42, g.w / 2, -g.h / 2 + g.h * 0.42); break
+        case 'banera':
+          seg(-g.w / 2 + g.w * 0.14, -g.h / 2, -g.w / 2 + g.w * 0.14, g.h / 2)
+          doc.circle(X(cx - g.w * 0.32), Y(cy), L(g.h) * 0.06, 'S'); break
+        case 'piscina':
+          seg(-g.w / 2 + g.w * 0.1, -g.h / 2, -g.w / 2 + g.w * 0.1, g.h / 2)
+          seg(-g.w / 2 + g.w * 0.1 + L(0.1), -g.h / 2, -g.w / 2 + g.w * 0.1 + L(0.1), g.h / 2); break
+        case 'palmera': {
+          const rr2 = L(g.w) * 0.42
+          setDraw(C.furn, 0.1)
+          doc.circle(X(cx), Y(cy), rr2, 'S')
+          line(cx - rr2, cy, cx + rr2, cy)
+          line(cx, cy - rr2, cx, cy + rr2); break
+        }
+        case 'camioneta':
+          seg(-g.w * 0.3, -g.h / 2, -g.w * 0.3, g.h / 2)
+          seg(g.w * 0.3, -g.h / 2, g.w * 0.3, g.h / 2)
+          seg(0, -g.h / 2, 0, g.h / 2); break
+        case 'escalera': {
+          const n = 7
+          for (let i = 1; i <= n; i++) {
+            const yy = -g.h / 2 + (g.h / n) * i
+            seg(-g.w / 2, yy, g.w / 2, yy)
+          }
+          seg(0, g.h / 2, 0, -g.h / 2 + g.h * 0.12); break
+        }
+        case 'ascensor':
+          seg(-g.w / 2, -g.h / 2, g.w / 2, g.h / 2)
+          seg(g.w / 2, -g.h / 2, -g.w / 2, g.h / 2); break
+        case 'rampa':
+          seg(0, g.h / 2, 0, -g.h / 2 + g.h * 0.1)
+          seg(-g.w * 0.3, g.h * 0.1, g.w * 0.3, g.h * 0.1); break
         case 'ducha':
           doc.circle(X(cx), Y(cy), L(Math.min(g.w, g.h)) * 0.18, 'S')
           seg(-g.w / 2, -g.h / 2, g.w / 2, g.h / 2)

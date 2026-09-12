@@ -1,13 +1,17 @@
 'use client'
 
 import { useJarumy } from '@/lib/store'
-import { BLOCK_LIBRARY, elementSummary } from '@/lib/plan-data'
+import { BLOCK_LIBRARY, BLOCK_CATS, elementSummary } from '@/lib/plan-data'
 import { ToolIcon } from './ToolIcon'
 
-export function LayersPanel() {
+const catIcon = (cat: string) => BLOCK_CATS.find((c) => c.id === cat)?.icon || 'Shapes'
+
+export function LayersPanel({ embedded = false }: { embedded?: boolean }) {
   const s = useJarumy()
   return (
-    <div className="w-52 shrink-0 jy-bg2 border-r jy-border flex flex-col overflow-hidden">
+    <div className={embedded
+      ? 'w-full flex flex-col overflow-hidden h-full'
+      : 'w-52 shrink-0 jy-bg2 border-r jy-border flex flex-col overflow-hidden'}>
       <div className="px-3 py-2 border-b jy-border flex items-center justify-between">
         <span className="text-[11px] font-bold jy-text uppercase tracking-wider">Capas</span>
         <button
@@ -61,7 +65,7 @@ export function LayersPanel() {
               className="flex flex-col items-center gap-1 rounded-lg border border-transparent hover:border-amber-500/50 hover:bg-amber-500/8 px-1 py-2 transition-all group"
             >
               <span className="flex items-center justify-center w-8 h-8 rounded-md bg-zinc-800/80 group-hover:bg-amber-500/15 group-hover:text-amber-300 text-zinc-400">
-                <ToolIcon name={b.sanitary ? 'Bath' : 'Armchair'} size={15} />
+                <ToolIcon name={catIcon(b.cat)} size={15} />
               </span>
               <span className="text-[8.5px] jy-muted text-center leading-tight line-clamp-2">{b.label}</span>
             </button>
@@ -72,14 +76,16 @@ export function LayersPanel() {
   )
 }
 
-export function PropertiesPanel() {
+export function PropertiesPanel({ embedded = false }: { embedded?: boolean }) {
   const s = useJarumy()
   const el = s.elements.find((e) => e.id === s.selectedId)
   const mod = el ? s.mods[el.id] : undefined
   const layer = el ? s.layers.find((l) => l.id === el.layer) : null
 
   return (
-    <div className="w-60 shrink-0 jy-bg2 border-l jy-border flex flex-col overflow-hidden">
+    <div className={embedded
+      ? 'w-full flex flex-col overflow-hidden h-full'
+      : 'w-60 shrink-0 jy-bg2 border-l jy-border flex flex-col overflow-hidden'}>
       <div className="px-3 py-2 border-b jy-border flex items-center justify-between">
         <span className="text-[11px] font-bold jy-text uppercase tracking-wider">Propiedades</span>
         <ToolIcon name="PanelRight" className="jy-muted" size={13} />

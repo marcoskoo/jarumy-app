@@ -86,7 +86,7 @@ export function ExportPdfDialog() {
 
   return (
     <Dialog open={s.dialog === 'pdf'} onOpenChange={(v) => !v && s.setDialog(null)}>
-      <DialogContent className="jy-bg2 jy-text border jy-border max-w-2xl max-h-[88vh] overflow-y-auto jy-scroll">
+      <DialogContent className="jy-bg2 jy-text border jy-border max-w-2xl max-h-[88vh] overflow-y-auto jy-scroll w-[calc(100vw-1.5rem)] sm:w-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <ToolIcon name="FileDown" className="text-amber-400" size={18} />

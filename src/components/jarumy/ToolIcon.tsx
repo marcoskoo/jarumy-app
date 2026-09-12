@@ -15,6 +15,7 @@ import {
   Settings2, Replace, Hash, RefreshCw, Pencil, AlignLeft, Tag, Tags, PaintBucket,
   PenLine, Frame, Scaling, X, ChevronLeft, Info, Lock, EyeOff,
   TreePine, Play, Pause,
+  Search, Menu, ChevronDown, ChevronUp, Check,
 } from 'lucide-react'
 
 const ICONS: Record<string, React.ComponentType<{ className?: string; size?: number; strokeWidth?: number }>> = {
@@ -32,6 +33,7 @@ const ICONS: Record<string, React.ComponentType<{ className?: string; size?: num
   Settings2, Replace, Hash, RefreshCw, Pencil, AlignLeft, Tag, Tags, PaintBucket,
   PenLine, Frame, Scaling, X, ChevronLeft, Info, Lock, EyeOff,
   TreePine, Play, Pause,
+  Search, Menu, ChevronDown, ChevronUp, Check,
 }
 
 export function ToolIcon({ name, className, size = 16 }: { name: string; className?: string; size?: number }) {

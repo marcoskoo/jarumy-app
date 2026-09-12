@@ -450,6 +450,8 @@ export function FurnShape({ g, material }: { g: FurnGeo; material?: string }) {
               </g>
             )
           case 'cama':
+          case 'camaking':
+          case 'camaindividual':
             return (
               <g>
                 <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="3" {...S} />
@@ -574,6 +576,397 @@ export function FurnShape({ g, material }: { g: FurnGeo; material?: string }) {
                     <rect x={g.x + g.w * fx - 12} y={g.y + g.h - 3} width="24" height="5" rx="2" fill="#3f3f46" />
                   </g>
                 ))}
+              </g>
+            )
+          case 'sofados':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="7" {...S} />
+                <rect x={g.x} y={g.y} width={g.w} height={12} rx="4" {...S} />
+                <rect x={g.x} y={g.y} width={10} height={g.h} rx="4" {...S} />
+                <rect x={g.x + g.w - 10} y={g.y} width={10} height={g.h} rx="4" {...S} />
+                <line x1={g.x + g.w / 2} y1={g.y + 15} x2={g.x + g.w / 2} y2={g.y + g.h - 3} {...L} />
+              </g>
+            )
+          case 'sofal':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h * 0.42} rx="6" {...S} />
+                <rect x={g.x} y={g.y} width={g.w} height={11} rx="4" {...S} />
+                <rect x={g.x} y={g.y} width={g.w * 0.36} height={g.h} rx="6" {...S} />
+                <rect x={g.x} y={g.y} width={10} height={g.h} rx="4" {...S} />
+                <line x1={g.x + g.w * 0.62} y1={g.y + 14} x2={g.x + g.w * 0.62} y2={g.y + g.h * 0.42 - 3} {...L} />
+                <line x1={g.x + 13} y1={g.y + g.h * 0.64} x2={g.x + g.w * 0.36 - 3} y2={g.y + g.h * 0.64} {...L} />
+              </g>
+            )
+          case 'puff':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} rx={g.w * 0.3} {...S} />
+                <circle cx={g.x + g.w / 2} cy={g.y + g.h / 2} r={Math.min(g.w, g.h) * 0.22} {...L} />
+              </g>
+            )
+          case 'silla':
+            return (
+              <g>
+                <rect x={g.x} y={g.y + 4} width={g.w} height={g.h - 4} rx="3" {...S} />
+                <rect x={g.x} y={g.y} width={g.w} height={4} rx="2" {...S} />
+              </g>
+            )
+          case 'taburete':
+            return (
+              <g>
+                <circle cx={g.x + g.w / 2} cy={g.y + g.h / 2} r={Math.min(g.w, g.h) / 2} {...S} />
+                <circle cx={g.x + g.w / 2} cy={g.y + g.h / 2} r={Math.min(g.w, g.h) / 4} {...L} />
+              </g>
+            )
+          case 'mesacomedor6':
+            return (
+              <g>
+                <rect x={g.x + g.w * 0.14} y={g.y + g.h * 0.1} width={g.w * 0.72} height={g.h * 0.8} rx="3" {...S} />
+                {[[0.3, -0.14], [0.7, -0.14], [0.3, 1.14], [0.7, 1.14]].map(([fx, fy], i) => (
+                  <rect key={i} x={g.x + g.w * fx - 8} y={g.y + g.h * fy - 6} width="16" height="12" rx="3" {...L} />
+                ))}
+                {[[-0.16, 0.5], [1.16, 0.5]].map(([fx, fy], i) => (
+                  <rect key={`l${i}`} x={g.x + g.w * fx - 6} y={g.y + g.h * fy - 8} width="12" height="16" rx="3" {...L} />
+                ))}
+              </g>
+            )
+          case 'muebletv':
+            return (
+              <g>
+                <rect x={g.x} y={g.y + 5} width={g.w} height={g.h - 5} rx="3" {...S} />
+                <rect x={g.x + g.w * 0.08} y={g.y} width={g.w * 0.84} height={4} rx="1.5" {...S} />
+              </g>
+            )
+          case 'librero':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} {...S} />
+                {[1, 2, 3].map((i) => (
+                  <line key={i} x1={g.x + (g.w / 4) * i} y1={g.y} x2={g.x + (g.w / 4) * i} y2={g.y + g.h} {...L} />
+                ))}
+              </g>
+            )
+          case 'comoda':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="2" {...S} />
+                <line x1={g.x + g.w / 2} y1={g.y} x2={g.x + g.w / 2} y2={g.y + g.h} {...L} />
+                <line x1={g.x} y1={g.y + g.h / 2} x2={g.x + g.w} y2={g.y + g.h / 2} {...L} />
+                {[[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]].map(([fx, fy], i) => (
+                  <circle key={i} cx={g.x + g.w * fx} cy={g.y + g.h * fy} r="1.4" {...L} />
+                ))}
+              </g>
+            )
+          case 'cuna':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="4" {...S} />
+                <rect x={g.x + 5} y={g.y + g.h * 0.13} width={g.w - 10} height={g.h * 0.28} rx="3" {...L} />
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <line key={i} x1={g.x + 8 + (i * (g.w - 16)) / 2} y1={g.y + g.h * 0.48}
+                    x2={g.x + 8 + (i * (g.w - 16)) / 2} y2={g.y + g.h - 4} {...L} />
+                ))}
+              </g>
+            )
+          case 'esquinero':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h * 0.38} {...S} />
+                <rect x={g.x} y={g.y} width={g.w * 0.38} height={g.h} {...S} />
+                <line x1={g.x + 4} y1={g.y + g.h * 0.38} x2={g.x + 4} y2={g.y + g.h} {...L} />
+              </g>
+            )
+          case 'despensa':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} {...S} />
+                {[0.25, 0.5, 0.75].map((f) => (
+                  <line key={f} x1={g.x} y1={g.y + g.h * f} x2={g.x + g.w} y2={g.y + g.h * f} {...L} />
+                ))}
+              </g>
+            )
+          case 'campana':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="3" {...S} />
+                <circle cx={g.x + g.w / 2} cy={g.y + g.h / 2} r={Math.min(g.w, g.h) * 0.3} {...L} />
+                <circle cx={g.x + g.w / 2} cy={g.y + g.h / 2} r={Math.min(g.w, g.h) * 0.12} {...L} />
+              </g>
+            )
+          case 'horno':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="3" {...S} />
+                <rect x={g.x + 5} y={g.y + 5} width={g.w - 10} height={g.h - 10} rx="2" {...L} />
+                <line x1={g.x + 5} y1={g.y + g.h * 0.3} x2={g.x + g.w - 5} y2={g.y + g.h * 0.3} {...L} />
+              </g>
+            )
+          case 'fregadero1':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="3" {...S} />
+                <rect x={g.x + 5} y={g.y + 5} width={g.w - 10} height={g.h - 10} rx="4" {...L} />
+                <circle cx={g.x + g.w / 2} cy={g.y + g.h / 2} r="2" {...L} />
+              </g>
+            )
+          case 'lavavajillas':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="3" {...S} />
+                <circle cx={g.x + g.w / 2} cy={g.y + g.h / 2} r={Math.min(g.w, g.h) * 0.34} {...L} />
+                <circle cx={g.x + g.w / 2} cy={g.y + g.h / 2} r={Math.min(g.w, g.h) * 0.14} {...L} />
+                <line x1={g.x + 4} y1={g.y + 3} x2={g.x + g.w - 4} y2={g.y + 3} {...L} />
+              </g>
+            )
+          case 'refri2':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="4" {...S} />
+                <line x1={g.x + g.w / 2} y1={g.y} x2={g.x + g.w / 2} y2={g.y + g.h} {...L} />
+                <line x1={g.x + 5} y1={g.y + g.h * 0.5} x2={g.x + g.w / 2 - 5} y2={g.y + g.h * 0.5} {...L} />
+                <line x1={g.x + g.w / 2 + 5} y1={g.y + g.h * 0.5} x2={g.x + g.w - 5} y2={g.y + g.h * 0.5} {...L} />
+              </g>
+            )
+          case 'barra':
+            return (
+              <g>
+                <rect x={g.x} y={g.y + 6} width={g.w} height={g.h - 6} rx="5" {...S} />
+                <rect x={g.x + 3} y={g.y} width={g.w - 6} height={g.h - 8} rx="3" fill="none"
+                  stroke="var(--jy-muted)" strokeWidth="0.9" strokeDasharray="5 3" opacity="0.8" />
+              </g>
+            )
+          case 'inodoropared':
+            return (
+              <g>
+                <rect x={g.x + g.w * 0.1} y={g.y} width={g.w * 0.8} height={g.h * 0.16} rx="1.5" {...S} />
+                <ellipse cx={g.x + g.w / 2} cy={g.y + g.h * 0.62} rx={g.w * 0.4} ry={g.h * 0.36} {...S} />
+                <ellipse cx={g.x + g.w / 2} cy={g.y + g.h * 0.62} rx={g.w * 0.24} ry={g.h * 0.2} {...L} />
+              </g>
+            )
+          case 'lavatoriodoble':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="4" {...S} />
+                <ellipse cx={g.x + g.w * 0.28} cy={g.y + g.h * 0.55} rx={g.w * 0.18} ry={g.h * 0.28} {...L} />
+                <ellipse cx={g.x + g.w * 0.72} cy={g.y + g.h * 0.55} rx={g.w * 0.18} ry={g.h * 0.28} {...L} />
+                <circle cx={g.x + g.w / 2} cy={g.y + g.h * 0.3} r="2" {...L} />
+              </g>
+            )
+          case 'bidet':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} rx={g.w * 0.22} {...S} />
+                <ellipse cx={g.x + g.w / 2} cy={g.y + g.h * 0.62} rx={g.w * 0.32} ry={g.h * 0.3} {...L} />
+                <circle cx={g.x + g.w / 2} cy={g.y + g.h * 0.16} r="2" {...L} />
+              </g>
+            )
+          case 'urinario':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} rx={g.w * 0.18} {...S} />
+                <ellipse cx={g.x + g.w / 2} cy={g.y + g.h * 0.55} rx={g.w * 0.3} ry={g.h * 0.33} {...L} />
+                <line x1={g.x + g.w * 0.2} y1={g.y + 3} x2={g.x + g.w * 0.8} y2={g.y + 3} {...L} />
+              </g>
+            )
+          case 'banera':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="4" {...S} />
+                <rect x={g.x + 7} y={g.y + 6} width={g.w - 14} height={g.h - 12} rx={Math.min(g.w, g.h) * 0.18} {...L} />
+                <circle cx={g.x + g.w * 0.18} cy={g.y + g.h / 2} r="2.6" {...L} />
+              </g>
+            )
+          case 'jacuzzi':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="10" {...S} />
+                <rect x={g.x + 9} y={g.y + 9} width={g.w - 18} height={g.h - 18} rx="14" {...L} />
+                <circle cx={g.x + g.w / 2} cy={g.y + g.h / 2} r={Math.min(g.w, g.h) * 0.16} {...L} />
+                <circle cx={g.x + g.w / 2} cy={g.y + g.h / 2} r="2.2" {...L} />
+              </g>
+            )
+          case 'lavadora':
+          case 'secadora':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="3" {...S} />
+                <circle cx={g.x + g.w / 2} cy={g.y + g.h * 0.56} r={Math.min(g.w, g.h) * 0.34} {...L} />
+                <circle cx={g.x + g.w / 2} cy={g.y + g.h * 0.56} r={Math.min(g.w, g.h) * 0.16} {...L} />
+                <line x1={g.x + 4} y1={g.y + 4} x2={g.x + g.w - 4} y2={g.y + 4} {...L} />
+                <circle cx={g.x + g.w - 6} cy={g.y + 8} r="1.6" {...L} />
+              </g>
+            )
+          case 'palmera':
+            return (
+              <g>
+                <circle cx={g.x + g.w / 2} cy={g.y + g.h / 2} r={Math.min(g.w, g.h) / 2}
+                  fill="rgba(16,185,129,0.10)" stroke="rgba(16,185,129,0.75)" strokeWidth="1.4" strokeDasharray="5 3" />
+                {[0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].map((a) => (
+                  <line key={a} x1={g.x + g.w / 2} y1={g.y + g.h / 2}
+                    x2={g.x + g.w / 2 + Math.cos((a * Math.PI) / 180) * (Math.min(g.w, g.h) / 2.6)}
+                    y2={g.y + g.h / 2 + Math.sin((a * Math.PI) / 180) * (Math.min(g.w, g.h) / 2.6)}
+                    stroke="rgba(16,185,129,0.55)" strokeWidth="1" />
+                ))}
+                <circle cx={g.x + g.w / 2} cy={g.y + g.h / 2} r={Math.min(g.w, g.h) * 0.14}
+                  fill="none" stroke="rgba(16,185,129,0.7)" strokeWidth="1.2" />
+                <circle cx={g.x + g.w / 2} cy={g.y + g.h / 2} r="2.6" fill="rgba(16,185,129,0.9)" />
+              </g>
+            )
+          case 'maceta':
+            return (
+              <g>
+                <circle cx={g.x + g.w / 2} cy={g.y + g.h / 2} r={Math.min(g.w, g.h) / 2}
+                  fill="rgba(16,185,129,0.18)" stroke="rgba(16,185,129,0.7)" strokeWidth="1.2" />
+                <circle cx={g.x + g.w / 2} cy={g.y + g.h / 2} r={Math.min(g.w, g.h) / 3}
+                  fill="none" stroke="rgba(16,185,129,0.5)" strokeWidth="0.9" strokeDasharray="3 2" />
+              </g>
+            )
+          case 'grama':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="4" fill="rgba(16,185,129,0.07)"
+                  stroke="rgba(16,185,129,0.55)" strokeWidth="1" strokeDasharray="7 4" />
+                {Array.from({ length: 5 }).map((_, r) =>
+                  Array.from({ length: 5 }).map((_, c) => {
+                    const px = g.x + (g.w / 6) * (c + 1) + (r % 2 === 0 ? g.w / 12 : 0)
+                    const py = g.y + (g.h / 6) * (r + 1)
+                    return <circle key={`${r}-${c}`} cx={px} cy={py} r="2.4" fill="none" stroke="rgba(16,185,129,0.45)" strokeWidth="0.9" />
+                  })
+                )}
+              </g>
+            )
+          case 'bancojardin':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="3" {...S} />
+                {[0.28, 0.5, 0.72].map((f) => (
+                  <line key={f} x1={g.x + 3} y1={g.y + g.h * f} x2={g.x + g.w - 3} y2={g.y + g.h * f} {...L} />
+                ))}
+                <rect x={g.x + 2} y={g.y + 1} width={5} height={g.h - 2} rx="1.5" {...L} />
+                <rect x={g.x + g.w - 7} y={g.y + 1} width={5} height={g.h - 2} rx="1.5" {...L} />
+              </g>
+            )
+          case 'pergola':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} fill="none"
+                  stroke="rgba(168,162,158,0.8)" strokeWidth="1.4" />
+                <rect x={g.x + 4} y={g.y + 4} width={g.w - 8} height={g.h - 8} rx="2" fill="none"
+                  stroke="rgba(168,162,158,0.4)" strokeWidth="0.8" strokeDasharray="4 3" />
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <line key={i} x1={g.x + (g.w / 5) * (i + 0.5)} y1={g.y} x2={g.x + (g.w / 5) * (i + 0.5)} y2={g.y + g.h}
+                    stroke="rgba(168,162,158,0.4)" strokeWidth="0.7" />
+                ))}
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <line key={`h${i}`} x1={g.x} y1={g.y + (g.h / 5) * (i + 0.5)} x2={g.x + g.w} y2={g.y + (g.h / 5) * (i + 0.5)}
+                    stroke="rgba(168,162,158,0.4)" strokeWidth="0.7" />
+                ))}
+              </g>
+            )
+          case 'parrilla':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="3" {...S} />
+                <rect x={g.x + 6} y={g.y + 5} width={g.w * 0.7 - 8} height={g.h - 10} rx="2" {...L} />
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <line key={i} x1={g.x + 8} y1={g.y + 8 + (i * (g.h - 16)) / 3} x2={g.x + g.w * 0.7 - 6} y2={g.y + 8 + (i * (g.h - 16)) / 3} {...L} />
+                ))}
+                <rect x={g.x + g.w * 0.72} y={g.y + 3} width={g.w * 0.28 - 3} height={g.h - 6} rx="2" {...L} />
+              </g>
+            )
+          case 'piscina':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="6" {...S} />
+                <rect x={g.x + 6} y={g.y + 6} width={g.w - 12} height={g.h - 12} rx="4" {...L} />
+                <line x1={g.x + g.w * 0.12} y1={g.y + g.h * 0.28} x2={g.x + g.w * 0.12} y2={g.y + g.h * 0.72}
+                  stroke="var(--jy-muted)" strokeWidth="1.6" />
+                <line x1={g.x + g.w * 0.12 + 6} y1={g.y + g.h * 0.28} x2={g.x + g.w * 0.12 + 6} y2={g.y + g.h * 0.72}
+                  stroke="var(--jy-muted)" strokeWidth="1.6" />
+                <path d={`M ${g.x + g.w - 6} ${g.y + 6} L ${g.x + g.w - 34} ${g.y + 6} L ${g.x + g.w - 34} ${g.y + 40}`}
+                  fill="none" stroke="var(--jy-muted)" strokeWidth="1" />
+                <path d={`M ${g.x + g.w - 10} ${g.y + 10} L ${g.x + g.w - 28} ${g.y + 10} L ${g.x + g.w - 28} ${g.y + 32}`}
+                  fill="none" stroke="var(--jy-muted)" strokeWidth="0.8" />
+              </g>
+            )
+          case 'camioneta':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} rx={Math.min(g.w, g.h) * 0.18} {...S} />
+                <rect x={g.x + g.w * 0.24} y={g.y + 4} width={g.w * 0.2} height={g.h - 8} rx="5" {...L} />
+                <rect x={g.x + g.w * 0.6} y={g.y + 5} width={g.w * 0.16} height={g.h - 10} rx="5" {...L} />
+                <line x1={g.x + g.w * 0.5} y1={g.y + 3} x2={g.x + g.w * 0.5} y2={g.y + g.h - 3} {...L} />
+                {[0.14, 0.86].map((fx, i) => (
+                  <g key={i}>
+                    <rect x={g.x + g.w * fx - 14} y={g.y - 2} width="28" height="6" rx="2.5" fill="#3f3f46" />
+                    <rect x={g.x + g.w * fx - 14} y={g.y + g.h - 4} width="28" height="6" rx="2.5" fill="#3f3f46" />
+                  </g>
+                ))}
+              </g>
+            )
+          case 'escalera':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} {...S} />
+                {Array.from({ length: 7 }).map((_, i) => (
+                  <line key={i} x1={g.x} y1={g.y + ((g.h - 8) / 7) * (i + 1) + 4} x2={g.x + g.w} y2={g.y + ((g.h - 8) / 7) * (i + 1) + 4} {...L} />
+                ))}
+                <line x1={g.x + g.w / 2} y1={g.y + g.h - 12} x2={g.x + g.w / 2} y2={g.y + 14}
+                  stroke="var(--jy-primary)" strokeWidth="1.6" />
+                <path d={`M ${g.x + g.w / 2 - 5} ${g.y + 20} L ${g.x + g.w / 2} ${g.y + 12} L ${g.x + g.w / 2 + 5} ${g.y + 20}`}
+                  fill="none" stroke="var(--jy-primary)" strokeWidth="1.6" />
+                <text x={g.x + g.w / 2 + 8} y={g.y + g.h / 2} fontSize="8" fontWeight="700" style={{ fill: 'var(--jy-primary)' }}>SUBE</text>
+              </g>
+            )
+          case 'ascensor':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} {...S} />
+                <line x1={g.x} y1={g.y} x2={g.x + g.w} y2={g.y + g.h} {...L} />
+                <line x1={g.x + g.w} y1={g.y} x2={g.x} y2={g.y + g.h} {...L} />
+                <line x1={g.x + g.w * 0.4} y1={g.y} x2={g.x + g.w * 0.6} y2={g.y} stroke="var(--jy-bg, #18181b)" strokeWidth="4" />
+              </g>
+            )
+          case 'rampa':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} {...S} />
+                {[0.25, 0.5, 0.75].map((f) => (
+                  <line key={f} x1={g.x + 4} y1={g.y + g.h * f} x2={g.x + g.w - 4} y2={g.y + g.h * f}
+                    stroke="var(--jy-muted)" strokeWidth="0.7" strokeDasharray="4 3" />
+                ))}
+                <line x1={g.x + g.w / 2} y1={g.y + g.h - 12} x2={g.x + g.w / 2} y2={g.y + 14}
+                  stroke="var(--jy-primary)" strokeWidth="1.6" />
+                <path d={`M ${g.x + g.w / 2 - 5} ${g.y + 20} L ${g.x + g.w / 2} ${g.y + 12} L ${g.x + g.w / 2 + 5} ${g.y + 20}`}
+                  fill="none" stroke="var(--jy-primary)" strokeWidth="1.6" />
+                <text x={g.x + g.w / 2 + 7} y={g.y + g.h / 2} fontSize="8" fontWeight="700" style={{ fill: 'var(--jy-primary)' }}>8%</text>
+              </g>
+            )
+          case 'chimenea':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} {...S} />
+                <rect x={g.x + 8} y={g.y + 8} width={g.w * 0.55} height={g.h * 0.55} rx="2" {...L} />
+                <rect x={g.x + g.w * 0.72} y={g.y + g.h * 0.2} width={g.w * 0.2} height={g.h * 0.2} {...L} />
+              </g>
+            )
+          case 'extintor':
+            return (
+              <g>
+                <circle cx={g.x + g.w / 2} cy={g.y + g.h / 2} r={Math.min(g.w, g.h) / 2 - 1}
+                  fill="rgba(239,68,68,0.14)" stroke="rgba(239,68,68,0.85)" strokeWidth="1.4" />
+                <text x={g.x + g.w / 2} y={g.y + g.h / 2 + 2.6} textAnchor="middle" fontSize="7" fontWeight="800" fill="rgba(239,68,68,0.95)">EXT</text>
+              </g>
+            )
+          case 'tablero':
+            return (
+              <g>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="2"
+                  fill="rgba(168,162,158,0.16)" stroke="rgba(250,204,21,0.85)" strokeWidth="1.3" />
+                <path d={`M ${g.x + g.w * 0.5} ${g.y + 2.5} L ${g.x + g.w * 0.28} ${g.y + g.h * 0.55} L ${g.x + g.w * 0.5} ${g.y + g.h * 0.55} L ${g.x + g.w * 0.72} ${g.y + g.h - 2.5}`}
+                  fill="none" stroke="rgba(250,204,21,0.9)" strokeWidth="1.2" strokeLinejoin="round" />
               </g>
             )
           default:

@@ -37,14 +37,14 @@ export default function RibbonToolbar({ hiddenCats = [] }: { hiddenCats?: string
       </div>
 
       {/* herramientas de la pestaña */}
-      <div className="flex items-stretch gap-1 px-2 py-2 overflow-x-auto jy-scroll min-h-[64px]">
+      <div className="flex items-stretch gap-1 px-2 py-1.5 sm:py-2 overflow-x-auto jy-scroll min-h-[56px] sm:min-h-[64px]">
         {cat.tools.map((t) => {
           const isDraw = t.options.some((o) => o.action.kind === 'draw')
           return (
             <Popover key={t.id} open={openToolId === t.id} onOpenChange={(v) => setOpenToolId(v ? t.id : null)}>
               <PopoverTrigger asChild>
                 <button
-                  className={`group flex flex-col items-center justify-start gap-1 w-[74px] shrink-0 rounded-lg border px-1 py-1.5 transition-all
+                  className={`group flex flex-col items-center justify-start gap-1 w-[66px] sm:w-[74px] shrink-0 rounded-lg border px-1 py-1.5 transition-all
                     ${openToolId === t.id
                       ? 'border-amber-500/70 bg-amber-500/10'
                       : 'border-transparent hover:bg-white/5 hover:border-white/10'}`}

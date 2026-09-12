@@ -21,6 +21,7 @@ export default function RadialMenu({ hover, containerW, containerH, elementName,
   const [openTool, setOpenTool] = useState<RadialTool | null>(null)
 
   const tools = RADIAL_TOOLS[hover.type] || []
+  const compact = containerW < 640 // teléfono: panel debajo del anillo, ancho ajustado
 
   // Posición del centro del menú, contenida dentro del lienzo
   const center = useMemo(() => {
@@ -30,9 +31,16 @@ export default function RadialMenu({ hover, containerW, containerH, elementName,
     return { x, y }
   }, [hover.cx, hover.cy, containerW, containerH])
 
-  // Panel de opciones a la derecha o izquierda según espacio
+  // Panel de opciones: lateral en pantallas anchas, debajo del anillo en móvil
   const panelSide = center.x < containerW / 2 ? 'right' : 'left'
   const panelTop = Math.min(Math.max(center.y - 95, 10), Math.max(containerH - 310, 10))
+  const panelW = compact ? Math.min(252, containerW - 20) : 252
+  const panelLeft = Math.max(
+    Math.min(-(panelW / 2), containerW - panelW - 10 - center.x),
+    10 - center.x,
+  )
+  const panelTopCompact = Math.min(118, Math.max(10, containerH - 296))
+  const labelW = compact ? Math.min(190, containerW - 24) : 190
 
   if (tools.length === 0) return null
 
@@ -119,7 +127,7 @@ export default function RadialMenu({ hover, containerW, containerH, elementName,
 
         {/* etiqueta del elemento */}
         <div className="absolute z-10 whitespace-nowrap text-center pointer-events-none"
-          style={{ top: 94, left: -95, width: 190 }}>
+          style={{ top: 94, left: -labelW / 2, width: labelW }}>
           <span className="text-[9px] font-semibold text-zinc-300/90 bg-zinc-950/70 rounded-full px-3 py-1 border border-zinc-700/50">
             {elementName}
           </span>
@@ -133,11 +141,13 @@ export default function RadialMenu({ hover, containerW, containerH, elementName,
           animate={{ opacity: 1, scale: 1 }}
           transition={{ type: 'spring', stiffness: 340, damping: 24 }}
           className="absolute z-50 jy-pop-in"
-          style={{
-            [panelSide === 'right' ? 'left' : 'right']: 104,
-            top: panelTop,
-            width: 252,
-          }}
+          style={compact
+            ? { left: panelLeft, top: panelTopCompact, width: panelW }
+            : {
+                [panelSide === 'right' ? 'left' : 'right']: 104,
+                top: panelTop,
+                width: panelW,
+              }}
         >
           <div className="rounded-xl border overflow-hidden shadow-2xl"
             style={{ background: 'rgba(24,24,27,0.97)', borderColor: 'rgba(245,158,11,0.5)' }}>
@@ -152,12 +162,12 @@ export default function RadialMenu({ hover, containerW, containerH, elementName,
                 <ToolIcon name="ChevronLeft" size={15} />
               </button>
             </div>
-            <div className="max-h-64 overflow-y-auto jy-scroll py-1">
+            <div className={`${compact ? 'max-h-40' : 'max-h-64'} overflow-y-auto jy-scroll py-1`}>
               {openTool.options.map((opt, idx) => (
                 <button
                   key={idx}
                   onClick={() => { onAction(opt.action); setOpenTool(null); onClose() }}
-                  className="w-full text-left px-3 py-2 flex items-center gap-2.5 hover:bg-amber-500/15 border-b border-zinc-800/60 group transition-colors"
+                  className="w-full text-left px-3 py-2.5 flex items-center gap-2.5 hover:bg-amber-500/15 border-b border-zinc-800/60 group transition-colors"
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500/70 group-hover:bg-amber-400 shrink-0" />
                   <span className="min-w-0">
