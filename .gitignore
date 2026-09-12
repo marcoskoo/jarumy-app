@@ -39,6 +39,9 @@ yarn-error.log*
 # env files (configura tus propias variables)
 .env*
 
+# plantilla de variables (sí se commitea)
+!.env.example
+
 # vercel
 .vercel
 
@@ -70,3 +73,8 @@ scripts/neon-auth.log
 scripts/*-bridge.log
 scripts/*-driver.out
 scripts/pty_driver.py
+
+# secretos/artefactos locales del sandbox (NO commitear)
+tool-results/
+scripts/neon_create.py
+scripts/neon_extract.py
