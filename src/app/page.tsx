@@ -12,6 +12,7 @@ import { LayersPanel, PropertiesPanel } from '@/components/jarumy/SidePanels'
 import { CommandConsole, StatusBar } from '@/components/jarumy/ConsoleBar'
 import { ScheduleDialog, CatalogDialog, EnergyDialog, ClashDialog } from '@/components/jarumy/Dialogs'
 import { BlockLibraryDialog } from '@/components/jarumy/BlockLibrary'
+import { ExportPdfDialog } from '@/components/jarumy/ExportPdfDialog'
 import AdminPanel, { PRIMARY_PRESETS } from '@/components/jarumy/AdminPanel'
 import { ToolIcon } from '@/components/jarumy/ToolIcon'
 
@@ -77,6 +78,14 @@ export default function JarumyApp() {
         </div>
 
         <div className="ml-auto flex items-center gap-1.5">
+          <button
+            onClick={() => s.setDialog('pdf')}
+            className="hidden md:flex items-center gap-1.5 rounded-lg border border-amber-400/50 bg-amber-500/10 px-3 py-1.5 text-[11px] font-bold text-amber-300 hover:bg-amber-500/20 transition-colors"
+            title="Exportar PDF a escala real (1:50 · 1:75 · 1:100) con cartela"
+          >
+            <ToolIcon name="FileDown" size={13} />
+            PDF a escala
+          </button>
           <button
             onClick={() => s.setDialog('blocks')}
             className="hidden md:flex items-center gap-1.5 rounded-lg border jy-border px-3 py-1.5 text-[11px] font-semibold jy-text hover:border-amber-500/60 hover:text-amber-300 transition-colors"
@@ -146,6 +155,7 @@ export default function JarumyApp() {
       <EnergyDialog />
       <ClashDialog />
       <BlockLibraryDialog />
+      <ExportPdfDialog />
 
       {/* ---------- panel de administración ---------- */}
       <AdminPanel onDesignChange={applyDesign} />

@@ -77,16 +77,20 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         ],
       },
       {
-        id: 'exportar', label: 'Exportar', icon: 'FileDown', desc: 'Exporta a PDF, DWG, PNG o IFC', source: 'AutoCAD / Revit',
+        id: 'exportar', label: 'Exportar', icon: 'FileDown', desc: 'Exporta a PDF a escala, DWG, PNG o IFC', source: 'AutoCAD / Revit',
         options: [
-          { label: 'Exportar PDF', action: G('print') },
+          { label: 'Exportar PDF a escala', detail: '1:50 · 1:75 · 1:100 · cartela y papel A4/A3/A2', action: G('showPdfExport') },
           { label: 'Exportar DWG', action: I('Exportación DWG 2024 configurada: capas conservadas, colores indexados, referencias externas enlazadas.') },
           { label: 'Exportar IFC (BIM)', action: I('Modelo IFC 4.0 generado con 26 elementos: 22 muros, 4 losas, 158 m² de espacios.') },
         ],
       },
       {
         id: 'imprimir', label: 'Imprimir', icon: 'Printer', desc: 'Trazado de lámina', source: 'AutoCAD',
-        options: [{ label: 'Imprimir lámina', detail: 'Ctrl+P', action: G('print') }, { label: 'Trazado por lotes', action: I('Batch Plot: 3 láminas en cola, impresora "Plotter A1 Jarumy".') }],
+        options: [
+          { label: 'Imprimir lámina', detail: 'Ctrl+P', action: G('print') },
+          { label: 'PDF a escala', detail: 'Vectorial con cartela y barra de escala', action: G('showPdfExport') },
+          { label: 'Trazado por lotes', action: I('Batch Plot: 3 láminas en cola, impresora "Plotter A1 Jarumy".') },
+        ],
       },
       {
         id: 'deshacer', label: 'Deshacer', icon: 'Undo2', desc: 'Deshace la última acción', source: 'AutoCAD',
@@ -326,6 +330,14 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
           { label: 'Mostrar áreas', detail: 'Nombre + m² + número en cada espacio', action: G('toggleAreas') },
           { label: 'Ocultar áreas', detail: 'Deja solo el nombre del ambiente', action: G('toggleAreas') },
           { label: 'Cuadro de espacios', detail: 'Tabla BIM con total techado', action: G('showSchedule') },
+        ],
+      },
+      {
+        id: 'acotacion-auto', label: 'Acotación automática', icon: 'Scaling', desc: 'Cotas interiores de cada ambiente (ancho y alto en metros), generadas y recalculadas en tiempo real (Revit: Auto Dimension)', source: 'Revit / ArchiCAD',
+        options: [
+          { label: 'Mostrar cotas', detail: 'Ancho + alto interior por ambiente, en m', action: G('toggleAutoDims') },
+          { label: 'Ocultar cotas', detail: 'Quita la acotación automática', action: G('toggleAutoDims') },
+          { label: 'Cota manual', detail: 'Dibujar cota con 2 clics (COTA)', action: D('cota') },
         ],
       },
       {
@@ -772,6 +784,7 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
       options: [
         { label: 'Mostrar áreas m²', detail: 'Rotulado automático en tiempo real', action: G('toggleAreas') },
         { label: 'Ocultar áreas', action: G('toggleAreas') },
+        { label: 'Acotar ambiente', detail: 'Cotas interiores de ancho y alto', action: G('toggleAutoDims') },
         { label: 'Cuadro de espacios', action: G('showSchedule') },
       ],
     },
@@ -1033,6 +1046,14 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
   ],
   lamina: [
     {
+      id: 'anotar', label: 'Anotar', icon: 'Ruler',
+      options: [
+        { label: 'Acotación automática', detail: 'Ancho + alto por ambiente (m)', action: G('toggleAutoDims') },
+        { label: 'Rotulado de áreas', detail: 'Etiquetas m² en tiempo real', action: G('toggleAreas') },
+        { label: 'Exportar PDF a escala', detail: 'Escala real · cartela · A4/A3/A2', action: G('showPdfExport') },
+      ],
+    },
+    {
       id: 'sol', label: 'Sol', icon: 'Sun',
       options: [
         { label: 'Heliodón y sombras', detail: 'Latitud · fecha · hora', action: G('toggleSun') },
@@ -1077,7 +1098,7 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
       id: 'salida', label: 'Salida', icon: 'Printer',
       options: [
         { label: 'Imprimir', action: G('print') },
-        { label: 'Exportar PDF', action: G('print') },
+        { label: 'Exportar PDF a escala', detail: 'Vectorial · cartela · barra de escala', action: G('showPdfExport') },
       ],
     },
   ],

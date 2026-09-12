@@ -7,9 +7,11 @@ import { VIEW_W, VIEW_H, PX_PER_M, elementSummary, BLOCK_LIBRARY, roomAreaM2, ty
 import { PlanElementNode, FurnShape } from './ElementRenderers'
 import RadialMenu from './RadialMenu'
 import HeliodonLayer from './HeliodonLayer'
+import AutoDimsLayer from './AutoDimsLayer'
 import SunPanel from './SunPanel'
 import { ToolIcon } from './ToolIcon'
 import type { ToolAction } from '@/lib/tools-data'
+import { autoDimensions } from '@/lib/auto-dims'
 
 const uid = () => `usr-${Math.random().toString(36).slice(2, 9)}`
 
@@ -375,6 +377,11 @@ export default function PlanCanvas() {
               ) : null
             )}
 
+            {/* acotación automática por ambiente (respeta la capa Cotas) */}
+            {s.autoDims && visibleLayers.has('cotas') && (
+              <AutoDimsLayer elements={s.elements} mods={s.mods} />
+            )}
+
             {/* diagrama solar del heliodón (encima de los elementos, sin captura) */}
             {s.sun.active && (
               <HeliodonLayer elements={s.elements} mods={s.mods} sun={s.sun} phase="over" />
@@ -562,6 +569,22 @@ export default function PlanCanvas() {
               title="Rotulado de áreas: clic para mostrar/ocultar etiquetas m²"
             >
               {s.areaLabels ? `Áreas · ${total.toFixed(1)} m² techados` : 'Áreas · ocultas'}
+            </button>
+          )
+        })()}
+        {(() => {
+          const n = autoDimensions(s.elements, s.mods).length
+          return (
+            <button
+              onClick={() => s.runGlobal('toggleAutoDims')}
+              className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                s.autoDims
+                  ? 'border-sky-400/40 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20'
+                  : 'border-zinc-600/50 bg-zinc-800/40 text-zinc-500 hover:text-zinc-300'
+              }`}
+              title="Acotación automática: clic para mostrar/ocultar cotas interiores por ambiente"
+            >
+              {s.autoDims ? `Cotas · ${n} automáticas` : 'Cotas · ocultas'}
             </button>
           )
         })()}

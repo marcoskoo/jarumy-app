@@ -89,9 +89,10 @@ interface JarumyState {
   showLayers: boolean
   showProperties: boolean
   areaLabels: boolean
+  autoDims: boolean
   insertRotation: number
   sun: SunSettings
-  dialog: 'schedule' | 'catalog' | 'energy' | 'clash' | 'blocks' | null
+  dialog: 'schedule' | 'catalog' | 'energy' | 'clash' | 'blocks' | 'pdf' | null
   adminOpen: boolean
   fitTick: number
   // consola
@@ -111,7 +112,7 @@ interface JarumyState {
   setView: (v: Partial<{ zoom: number; panX: number; panY: number }>) => void
   zoomBy: (f: number, cx?: number, cy?: number) => void
   fitView: () => void
-  toggle: (k: 'renderMode' | 'view3D' | 'showGrid' | 'snap' | 'ortho' | 'radialEnabled' | 'showLayers' | 'showProperties' | 'areaLabels') => void
+  toggle: (k: 'renderMode' | 'view3D' | 'showGrid' | 'snap' | 'ortho' | 'radialEnabled' | 'showLayers' | 'showProperties' | 'areaLabels' | 'autoDims') => void
   setDialog: (d: JarumyState['dialog']) => void
   setAdminOpen: (v: boolean) => void
   pushConsole: (l: ConsoleLine) => void
@@ -166,6 +167,7 @@ export const useJarumy = create<JarumyState>((set, get) => ({
   showLayers: true,
   showProperties: true,
   areaLabels: true,
+  autoDims: true,
   insertRotation: 0,
   sun: { active: false, lat: -12, day: dayOfYear(3, 21), hour: 12, wallH: 2.5, showPath: true },
   dialog: null,
@@ -445,6 +447,9 @@ export const useJarumy = create<JarumyState>((set, get) => ({
       case 'showBlockLibrary':
         set({ dialog: 'blocks' })
         break
+      case 'showPdfExport':
+        set({ dialog: 'pdf' })
+        break
       case 'energyReport':
         set({ dialog: 'energy' })
         break
@@ -455,6 +460,12 @@ export const useJarumy = create<JarumyState>((set, get) => ({
         set((st) => ({ areaLabels: !st.areaLabels }))
         s.pushConsole({ text: `ROTULADO DE ÁREAS ${!s.areaLabels ? 'activado' : 'desactivado'} — etiquetas m² ${!s.areaLabels ? 'visibles' : 'ocultas'}`, kind: 'out' })
         break
+      case 'toggleAutoDims': {
+        const nSpaces = s.elements.filter((e) => e.type === 'espacio' && !s.mods[e.id]?.deleted).length
+        set((st) => ({ autoDims: !st.autoDims }))
+        s.pushConsole({ text: `ACOTACIÓN AUTOMÁTICA ${!s.autoDims ? 'activada' : 'desactivada'} — ${nSpaces} ambientes · ${nSpaces * 2} cotas interiores (ancho y alto en m)`, kind: 'out' })
+        break
+      }
       case 'toggleSun': {
         const next = !s.sun.active
         set({ sun: { ...s.sun, active: next } })
@@ -607,6 +618,9 @@ export const useJarumy = create<JarumyState>((set, get) => ({
       'BLOQUES': () => s.runGlobal('showBlockLibrary'), 'BIBLIOTECA': () => s.runGlobal('showBlockLibrary'),
       'SOL': () => s.runGlobal('toggleSun'), 'HELIODON': () => s.runGlobal('toggleSun'), 'SOMBRAS': () => s.runGlobal('toggleSun'),
       'AREAS': () => s.runGlobal('toggleAreas'), 'ROTULAR': () => s.runGlobal('toggleAreas'),
+      'ACOTAR': () => s.runGlobal('toggleAutoDims'), 'AUTOCOTA': () => s.runGlobal('toggleAutoDims'),
+      'ACOTACION': () => s.runGlobal('toggleAutoDims'), 'COTASAUTO': () => s.runGlobal('toggleAutoDims'),
+      'PDF': () => s.runGlobal('showPdfExport'), 'EXPORTAR': () => s.runGlobal('showPdfExport'), 'EXPPDF': () => s.runGlobal('showPdfExport'),
       'U': () => s.runGlobal('undo'), 'DESHACER': () => s.runGlobal('undo'),
       'REHACER': () => s.runGlobal('redo'),
       'NUEVO': () => s.runGlobal('newPlan'),
@@ -622,6 +636,7 @@ export const useJarumy = create<JarumyState>((set, get) => ({
         'REJILLA · SNAP · ORTO · RENDER · 3D · AJUSTAR · RECORRIDO',
         'PURGA · AUDIT · CUADRO · COLISIONES · ENERGIA · CATALOGO · ADMIN · AYUDA',
         'NUEVO: BLOQUES (biblioteca visual) · SOL/HELIODON (sombras) · AREAS (rotulado m²)',
+        'NUEVO: ACOTAR (acotación automática por ambiente) · PDF (exportación a escala)',
       ]
       ayuda.forEach((l) => s.pushConsole({ text: l, kind: 'out' }))
       return
