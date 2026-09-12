@@ -7,8 +7,6 @@ import { roomAreaM2 } from '@/lib/plan-data'
 import type { Mod } from '@/lib/store'
 
 export interface ElHandlers {
-  onEnter: (el: PlanElement) => void
-  onLeave: () => void
   onClickEl: (el: PlanElement) => void
   onDownEl: (e: React.MouseEvent) => void
 }
@@ -65,8 +63,6 @@ export function PlanElementNode({ el, mod, handlers }: { el: PlanElement; mod?: 
   const transform = buildTransform(el, mod)
   const gProps = {
     className: 'jy-el',
-    onMouseEnter: (e: React.MouseEvent) => { e.stopPropagation(); handlers.onEnter(el) },
-    onMouseLeave: (e: React.MouseEvent) => { e.stopPropagation(); handlers.onLeave() },
     onMouseDown: (e: React.MouseEvent) => { e.stopPropagation(); handlers.onDownEl(e) },
     onClick: (e: React.MouseEvent) => { e.stopPropagation(); handlers.onClickEl(el) },
   }

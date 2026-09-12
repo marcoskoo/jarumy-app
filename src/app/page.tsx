@@ -51,7 +51,7 @@ export default function JarumyApp() {
   // aviso cuando cambia la sesión (ej. al cerrar desde admin)
   useEffect(() => {
     useJarumy.getState().pushConsole({
-      text: 'Sistema listo · pase el cursor sobre el plano para el menú radial de herramientas',
+      text: 'Sistema listo · haga clic sobre el plano para el menú radial de herramientas',
       kind: 'out',
     })
   }, [])

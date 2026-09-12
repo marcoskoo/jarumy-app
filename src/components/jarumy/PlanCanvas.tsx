@@ -15,8 +15,8 @@ export default function PlanCanvas() {
   const s = useJarumy()
   const containerRef = useRef<HTMLDivElement>(null)
   const mouseRef = useRef({ x: 0, y: 0 })
-  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const panRef = useRef<{ x: number; y: number; px: number; py: number } | null>(null)
+  const didPanRef = useRef(false)
   const [dragging, setDragging] = useState(false)
   const [size, setSize] = useState({ w: 900, h: 600 })
   const coordsRef = useRef<HTMLSpanElement>(null)
@@ -79,31 +79,16 @@ export default function PlanCanvas() {
     return Math.abs(p[0] - bx) >= Math.abs(p[1] - by) ? [p[0], by] : [bx, p[1]]
   }, [s.ortho])
 
-  // ---------- hover del menú radial ----------
-  const requestHide = useCallback(() => {
-    if (hideTimer.current) clearTimeout(hideTimer.current)
-    hideTimer.current = setTimeout(() => useJarumy.getState().setHovered(null), 300)
-  }, [])
-
-  const cancelHide = useCallback(() => {
-    if (hideTimer.current) clearTimeout(hideTimer.current)
-  }, [])
-
-  const handleEnter = useCallback((el: PlanElement) => {
+  // ---------- menú radial: se abre con clic y permanece hasta cerrarlo ----------
+  const openRadial = useCallback((el: PlanElement) => {
     const st = useJarumy.getState()
-    cancelHide()
     if (!st.radialEnabled || st.drawTool) return
     const h: HoverInfo = {
       id: el.id, type: el.type, name: el.name, layer: el.layer,
       cx: mouseRef.current.x, cy: mouseRef.current.y,
     }
     st.setHovered(h)
-  }, [cancelHide])
-
-  const handleLeave = useCallback(() => {
-    if (useJarumy.getState().drawTool) return
-    requestHide()
-  }, [requestHide])
+  }, [])
 
   const handleDownEl = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
@@ -126,17 +111,30 @@ export default function PlanCanvas() {
       st.pushConsole({ text: `MOVER: ${el.name} — ahora clic en el punto destino`, kind: 'cmd' })
       return
     }
-    // móvil: mostrar menú radial al tocar
-    if (!st.hovered || st.hovered.id !== el.id) {
-      handleEnter(el)
+    // sin herramienta activa: el clic abre el menú radial (o lo cierra si ya estaba abierto)
+    if (!st.drawTool) {
+      if (st.hovered?.id === el.id) st.setHovered(null)
+      else openRadial(el)
     }
-  }, [handleEnter])
+  }, [openRadial])
 
   // ---------- clic sobre el lienzo (herramientas de dibujo) ----------
   const handleCanvasClick = useCallback((e: React.MouseEvent) => {
     const st = useJarumy.getState()
+    // ignorar el clic que sigue a un paneo (arrastre)
+    if (didPanRef.current) { didPanRef.current = false; return }
+    if (!st.drawTool) {
+      // sin herramienta: clic en zona vacía → cierra el menú abierto o abre el menú de la lámina
+      if (st.hovered) { st.setHovered(null); return }
+      if (st.radialEnabled) {
+        st.setHovered({
+          id: 'lamina', type: 'lamina', layer: 'textos', name: 'Lámina A-01',
+          cx: mouseRef.current.x, cy: mouseRef.current.y,
+        })
+      }
+      return
+    }
     const raw = toSvg(e.clientX, e.clientY)
-    if (!st.drawTool) { st.setHovered(null); return }
     const p = snapPt(raw)
 
     if (st.drawTool === 'mover') {
@@ -237,6 +235,7 @@ export default function PlanCanvas() {
 
   const onBgDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return
+    didPanRef.current = false
     const st = useJarumy.getState()
     if (st.drawTool) return
     panRef.current = { x: e.clientX, y: e.clientY, px: s.panX, py: s.panY }
@@ -254,6 +253,7 @@ export default function PlanCanvas() {
         }
       }
       if (panRef.current) {
+        if (Math.abs(e.clientX - panRef.current.x) + Math.abs(e.clientY - panRef.current.y) > 5) didPanRef.current = true
         useJarumy.setState({
           panX: panRef.current.px + (e.clientX - panRef.current.x),
           panY: panRef.current.py + (e.clientY - panRef.current.y),
@@ -336,8 +336,8 @@ export default function PlanCanvas() {
               </pattern>
             </defs>
 
-            {/* lámina (fondo interactivo) */}
-            <g className="jy-el" onMouseEnter={() => handleEnter({ id: 'lamina', type: 'lamina', layer: 'textos', name: 'Lámina A-01', geo: {} })} onMouseLeave={handleLeave}>
+            {/* lámina (fondo; su menú se abre con clic en zona vacía) */}
+            <g className="jy-el">
               <rect x="16" y="14" width="1168" height="792" fill="none" stroke="var(--jy-muted)" strokeWidth="1.2" opacity="0.55" />
               <rect x="26" y="24" width="1148" height="772" fill="none" stroke="var(--jy-muted)" strokeWidth="0.6" opacity="0.3" />
               <rect x="0" y="0" width={VIEW_W} height={VIEW_H} fill="transparent" />
@@ -354,7 +354,6 @@ export default function PlanCanvas() {
                   el={el}
                   mod={s.mods[el.id]}
                   handlers={{
-                    onEnter: handleEnter, onLeave: handleLeave,
                     onClickEl: handleClickEl, onDownEl: handleDownEl,
                   }}
                 />
@@ -414,33 +413,26 @@ export default function PlanCanvas() {
         </div>
       </div>
 
-      {/* ---------- menú radial contextual ---------- */}
+      {/* ---------- menú radial contextual (abierto con clic; persiste hasta cerrarlo) ---------- */}
       {s.hovered && !s.drawTool && hoverEl && (
-        <div
-          onMouseEnter={cancelHide}
-          onMouseLeave={requestHide}
-        >
-          <RadialMenu
-            hover={s.hovered}
-            containerW={size.w}
-            containerH={size.h}
-            elementName={`${hoverEl.name} — ${elementSummary(hoverEl)}`}
-            onAction={onRadialAction}
-            onClose={() => s.setHovered(null)}
-          />
-        </div>
+        <RadialMenu
+          hover={s.hovered}
+          containerW={size.w}
+          containerH={size.h}
+          elementName={`${hoverEl.name} — ${elementSummary(hoverEl)}`}
+          onAction={onRadialAction}
+          onClose={() => s.setHovered(null)}
+        />
       )}
       {s.hovered && !s.drawTool && !hoverEl && s.hovered.type === 'lamina' && (
-        <div onMouseEnter={cancelHide} onMouseLeave={requestHide}>
-          <RadialMenu
-            hover={s.hovered}
-            containerW={size.w}
-            containerH={size.h}
-            elementName="Lámina A-01 · Esc. 1:60 · Unidades métricas"
-            onAction={onRadialAction}
-            onClose={() => s.setHovered(null)}
-          />
-        </div>
+        <RadialMenu
+          hover={s.hovered}
+          containerW={size.w}
+          containerH={size.h}
+          elementName="Lámina A-01 · Esc. 1:60 · Unidades métricas"
+          onAction={onRadialAction}
+          onClose={() => s.setHovered(null)}
+        />
       )}
 
       {/* ---------- indicador de herramienta activa ---------- */}
@@ -468,7 +460,7 @@ export default function PlanCanvas() {
       {hint && !s.drawTool && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 jy-pulse rounded-full border border-amber-500/40 bg-zinc-950/85 px-5 py-2 text-center jy-pop-in">
           <span className="text-[11.5px] font-semibold text-amber-200">
-            Pase el cursor sobre cualquier parte del plano — aparecerá el círculo de herramientas
+            Haga clic sobre un elemento del plano — se abrirá su círculo de herramientas
           </span>
         </div>
       )}

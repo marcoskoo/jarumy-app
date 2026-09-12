@@ -88,7 +88,7 @@ export function PropertiesPanel() {
         <div className="flex-1 flex flex-col items-center justify-center gap-2 px-4 text-center">
           <ToolIcon name="MousePointerClick" className="jy-muted" size={26} />
           <p className="text-[11px] jy-muted leading-relaxed">
-            Pase el cursor sobre un objeto del plano y elíjalo en el menú radial para ver sus propiedades.
+            Haga clic sobre un objeto del plano y elíjalo en el menú radial para ver sus propiedades.
           </p>
         </div>
       ) : (

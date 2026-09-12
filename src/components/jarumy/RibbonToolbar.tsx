@@ -100,7 +100,7 @@ export default function RibbonToolbar({ hiddenCats = [] }: { hiddenCats?: string
                 <div className="px-3 py-1.5 border-t jy-border text-[9.5px] jy-muted">
                   {s.selectedId
                     ? 'Se aplicará al elemento seleccionado'
-                    : 'Efectos: seleccione un objeto primero (pase el cursor)'}
+                    : 'Efectos: seleccione un objeto primero (clic sobre él)'}
                 </div>
               </PopoverContent>
             </Popover>
