@@ -4,7 +4,7 @@
 
 **Suite de diseño arquitectónico CAD en la web** — con menú radial contextual interactivo y panel de administración completo.
 
-`Next.js 16` · `React 19` · `TypeScript` · `Tailwind CSS 4` · `Prisma + SQLite` · `Framer Motion`
+`Next.js 16` · `React 19` · `TypeScript` · `Tailwind CSS 4` · `Prisma + PostgreSQL (Neon)` · `Framer Motion`
 
 🌐 **Demo en vivo:** https://jarumy-app-dusky.vercel.app · 📦 **Repositorio:** https://github.com/marcoskoo/jarumy-app
 
@@ -79,17 +79,22 @@ Desde el panel se configura:
 # 1. Instalar dependencias
 bun install        # o npm install
 
-# 2. Generar el cliente de Prisma y crear la BD
+# 2. Configurar la conexión a PostgreSQL (Neon, Supabase, local...)
+cp .env.example .env
+#    → edita DATABASE_URL con la cadena de tu proyecto Neon
+
+# 3. Generar el cliente de Prisma y crear el esquema
+bunx prisma generate
 bunx prisma db push
 
-# 3. Servidor de desarrollo
+# 4. Servidor de desarrollo
 bun run dev        # o npm run dev
 ```
 
 La aplicación se abre en `http://localhost:3000`. En el primer arranque, la BD se auto-siembra con el usuario administrador y los valores por defecto de seguridad y diseño.
 
-> Variables de entorno opcionales en `.env`:
-> `DATABASE_URL` (por defecto `file:./db/custom.db`) · `AUTH_SECRET` (firma HMAC de sesiones)
+> Variables de entorno (ver `.env.example`):
+> `DATABASE_URL` (PostgreSQL, p. ej. Neon) · `AUTH_SECRET` (firma HMAC de sesiones)
 
 ---
 
@@ -97,7 +102,7 @@ La aplicación se abre en `http://localhost:3000`. En el primer arranque, la BD 
 
 El proyecto incluye `vercel.json` con la configuración de build (`prisma generate && next build`).
 
-En entornos serverless el filesystem es efímero, por lo que la BD SQLite se crea automáticamente en `/tmp` con su esquema y seed en cada arranque en frío (`ensureSchema` + `ensureSeed`). Para datos persistentes en producción se recomienda reemplazar SQLite por PostgreSQL/Turso ajustando `prisma/schema.prisma` y `DATABASE_URL`.
+La persistencia usa **PostgreSQL gestionado (Neon)**: configura `DATABASE_URL` (host `-pooler` con `?pgbouncer=true&connection_limit=1`) y `AUTH_SECRET` como variables de entorno del proyecto en Vercel. Los datos (usuarios, configuración, auditoría) **persisten entre arranques en frío** y se comparten entre todas las instancias serverless.
 
 ```bash
 npm i -g vercel
@@ -133,7 +138,7 @@ src/
 │   │   └── ToolIcon.tsx
 │   └── ui/                       # Componentes shadcn/ui
 └── lib/
-    ├── db.ts                     # PrismaClient + bootstrap de esquema serverless
+    ├── db.ts                     # PrismaClient (PostgreSQL) + bootstrap idempotente del esquema
     ├── auth.ts                   # scrypt, sesiones firmadas, política de claves
     ├── settings.ts               # Seguridad/diseño: defaults, seed idempotente
     ├── plan-data.ts              # Geometría del plano arquitectónico
