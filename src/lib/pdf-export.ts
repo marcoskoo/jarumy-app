@@ -5,6 +5,9 @@
 // 1 m de plano = 1000/escala mm de papel. Incluye cartela con
 // datos del proyecto, barra de escala gráfica, rosa de los
 // vientos, cotas manuales y (opcional) acotación automática.
+// Todos los textos (rótulos de ambiente, áreas, cotas) se pintan
+// en una CAPA FINAL sobre el dibujo y con halo blanco, para que
+// nunca queden tapados por muros, mobiliario ni otras líneas.
 // ============================================================
 
 import type { jsPDF } from 'jspdf'
@@ -53,6 +56,8 @@ export const PDF_SCALES = [25, 50, 75, 100, 150, 200, 250]
 const FRAME = 7      // marco exterior (mm desde el borde)
 const MARGIN = 12    // margen interior
 const CART_H = 24    // altura de la cartela (mm)
+const SB = 12        // banda reservada sobre la cartela para la barra de escala (mm)
+const PAD = 2        // aire mínimo entre el plano y el marco interior (mm)
 
 const C = {
   wall: [38, 38, 44] as const,
@@ -183,6 +188,15 @@ export function drawArea(paper: PaperId, landscape: boolean) {
   }
 }
 
+/** Área real disponible para el plano: descuenta la banda de la
+ *  barra de escala (sobre la cartela) y deja aire con el marco. */
+export function planDrawArea(paper: PaperId, landscape: boolean) {
+  const a = drawArea(paper, landscape)
+  const x1 = a.x1 + PAD, y1 = a.y1 + PAD
+  const x2 = a.x2 - PAD, y2 = a.y2 - SB
+  return { ...a, x1, y1, x2, y2, w: x2 - x1, h: y2 - y1 }
+}
+
 export interface PdfFitInfo {
   planW: number   // metros
   planH: number
@@ -227,6 +241,7 @@ export async function exportPlanPdf(
 ): Promise<PdfExportResult> {
   const { jsPDF } = await import('jspdf')
   const area = drawArea(opts.paper, opts.landscape)
+  const parea = planDrawArea(opts.paper, opts.landscape) // zona real del plano (reserva barra de escala)
   const doc = new jsPDF({
     unit: 'mm',
     format: [area.W, area.H],
@@ -241,8 +256,15 @@ export async function exportPlanPdf(
   const k = mmPerM / PX_PER_M // px → mm
   const planWmm = (b.maxX - b.minX) * k
   const planHmm = (b.maxY - b.minY) * k
-  const ox = area.x1 + (area.w - planWmm) / 2 - b.minX * k
-  const oy = area.y1 + (area.h - planHmm) / 2 - b.minY * k
+  // zona de centrado del plano: reserva la banda de la barra de escala
+  // SOLO si el plano cabe; si no, usa toda el área útil (la barra de
+  // escala lleva franja blanca de respaldo y no pierde legibilidad)
+  const fitsBand = planWmm <= parea.w + 0.01 && planHmm <= parea.h + 0.01
+  const zx1 = area.x1 + PAD, zy1 = area.y1 + PAD
+  const zx2 = area.x2 - PAD, zy2 = fitsBand ? parea.y2 : area.y2 - PAD
+  const zw = zx2 - zx1, zh = zy2 - zy1
+  const ox = zx1 + (zw - planWmm) / 2 - b.minX * k
+  const oy = zy1 + (zh - planHmm) / 2 - b.minY * k
   const X = (x: number) => ox + x * k
   const Y = (y: number) => oy + y * k
   const L = (px: number) => px * k
@@ -251,6 +273,46 @@ export async function exportPlanPdf(
   const setFill = (c: readonly number[]) => doc.setFillColor(c[0], c[1], c[2])
   const setText = (c: readonly number[]) => doc.setTextColor(c[0], c[1], c[2])
   const line = (x1: number, y1: number, x2: number, y2: number) => doc.line(X(x1), Y(y1), X(x2), Y(y2))
+
+  // ---------- capa de texto final (encima de los objetos) ----------
+  // Los rótulos y textos de cota se encolan y se pintan al final
+  // con un halo blanco: nunca quedan tapados por muros/mobiliario
+  // y las líneas quedan "cortadas" al pasar por el texto (estilo CAD).
+  interface TextJob {
+    val: string
+    x: number            // mm de página (baseline / ancla)
+    y: number
+    angle?: number       // 0 | 90
+    size: number
+    bold?: boolean
+    color: readonly number[]
+    align?: 'center' | 'left' | 'right'
+    mask?: boolean       // halo blanco detrás del texto
+  }
+  const textJobs: TextJob[] = []
+  const flushText = () => {
+    for (const j of textJobs) {
+      doc.setFont('helvetica', j.bold ? 'bold' : 'normal')
+      doc.setFontSize(j.size)
+      const w = doc.getTextWidth(j.val)
+      const asc = j.size * 0.75   // ascendentes (mm)
+      const desc = j.size * 0.25  // descendentes (mm)
+      const pad = 0.45
+      if (j.mask) {
+        doc.setFillColor(255, 255, 255)
+        if (j.angle === 90) {
+          // texto vertical (lee de abajo hacia arriba): baseline vertical en x
+          const yA = j.align === 'left' ? j.y : j.align === 'right' ? j.y - w : j.y - w / 2
+          doc.rect(j.x - asc - pad, yA - pad, asc + desc + 2 * pad, w + 2 * pad, 'F')
+        } else {
+          const xA = j.align === 'left' ? j.x : j.align === 'right' ? j.x - w : j.x - w / 2
+          doc.rect(xA - pad, j.y - asc - pad, w + 2 * pad, asc + desc + 2 * pad, 'F')
+        }
+      }
+      setText(j.color)
+      doc.text(j.val, j.x, j.y, { align: j.align ?? 'center', angle: j.angle ?? 0 })
+    }
+  }
 
   // ---------- lámina: marco + fondo ----------
   setFill([255, 255, 255])
@@ -264,25 +326,16 @@ export async function exportPlanPdf(
   const drawable = elements.filter((el) => visible.has(el.layer) && !mods[el.id]?.deleted)
   const byType = (t: string) => drawable.filter((el) => el.type === t)
 
-  // espacios
+  // espacios (solo el rectángulo: el rótulo se pinta al final,
+  // encima del mobiliario, para que nunca quede tapado)
+  const roomLabels: Array<{ g: RoomGeo; m: Mod | undefined }> = []
   for (const el of byType('espacio')) {
     const g = el.geo as RoomGeo
     const m = mods[el.id]
     const x = X(g.x + (m?.translate?.[0] ?? 0)), y = Y(g.y + (m?.translate?.[1] ?? 0))
     setFill(C.roomFill); setDraw(C.roomStroke, 0.12)
     doc.rect(x, y, L(g.w), L(g.h), 'FD')
-    if (opts.includeAreas) {
-      setText(C.ink)
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(7.5)
-      const fs = Math.min(g.w, g.h) < 150 ? 5.8 : 7.5
-      doc.setFontSize(fs)
-      doc.text(g.name, x + L(g.w) / 2, y + L(g.h) / 2 - 0.6, { align: 'center' })
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(fs === 7.5 ? 6 : 4.8)
-      setText(C.muted)
-      doc.text(`${roomAreaM2(g).toFixed(2)} m² · ${g.num}`, x + L(g.w) / 2, y + L(g.h) / 2 + 2.2, { align: 'center' })
-    }
+    if (opts.includeAreas) roomLabels.push({ g, m })
   }
 
   // muros
@@ -464,11 +517,9 @@ export async function exportPlanPdf(
   }
 
   // ---------- cotas manuales ----------
+  // el texto de las cotas se encola en la capa final, con halo blanco
   const dimText = (val: string, x: number, y: number, angle = 0) => {
-    setText(C.dim)
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(6)
-    doc.text(val, x, y, { align: 'center', angle })
+    textJobs.push({ val, x, y, angle, size: 6, bold: true, color: C.dim, align: 'center', mask: true })
   }
   const tick = (x: number, y: number) => {
     const s = 1.1 // mm
@@ -517,20 +568,14 @@ export async function exportPlanPdf(
         line(d.x2, d.y2 + 3, d.x2, dy - 3)
         line(d.x1, dy, d.x2, dy)
         aTick(d.x1, dy); aTick(d.x2, dy)
-        setText(C.autoDim)
-        doc.setFont('helvetica', 'bold')
-        doc.setFontSize(5.5)
-        doc.text(`${val} m`, X((d.x1 + d.x2) / 2), Y(dy) + 2.2, { align: 'center' })
+        textJobs.push({ val: `${val} m`, x: X((d.x1 + d.x2) / 2), y: Y(dy) + 2.2, size: 5.5, bold: true, color: C.autoDim, align: 'center', mask: true })
       } else {
         const dx = d.x1 + d.off
         line(d.x1 + 3, d.y1, dx - 3, d.y1)
         line(d.x2 + 3, d.y2, dx - 3, d.y2)
         line(dx, d.y1, dx, d.y2)
         aTick(dx, d.y1); aTick(dx, d.y2)
-        setText(C.autoDim)
-        doc.setFont('helvetica', 'bold')
-        doc.setFontSize(5.5)
-        doc.text(`${val} m`, X(dx) + 2.2, Y((d.y1 + d.y2) / 2), { align: 'center', angle: 90 })
+        textJobs.push({ val: `${val} m`, x: X(dx) + 2.2, y: Y((d.y1 + d.y2) / 2), angle: 90, size: 5.5, bold: true, color: C.autoDim, align: 'center', mask: true })
       }
     }
   }
@@ -555,10 +600,7 @@ export async function exportPlanPdf(
       case 'circulo':
         doc.circle(X(g.pts[0][0]), Y(g.pts[0][1]), L(g.r || 40), 'S'); break
       case 'texto':
-        setText(col)
-        doc.setFont('helvetica', 'bold')
-        doc.setFontSize(8)
-        doc.text(g.text || '', X(g.pts[0][0]), Y(g.pts[0][1]))
+        textJobs.push({ val: g.text || '', x: X(g.pts[0][0]), y: Y(g.pts[0][1]), size: 8, bold: true, color: col, align: 'left' })
         break
       case 'cota': {
         const [xa, ya] = g.pts[0], [xb, yb] = g.pts[1]
@@ -583,6 +625,102 @@ export async function exportPlanPdf(
       default: break
     }
   }
+
+  // ---------- rótulos de ambientes: capa final con colocación inteligente ----------
+  // Busca el hueco más libre del ambiente (evitando mobiliario, sanitarios
+  // y giro de puertas); si no lo hay, se apoya sobre los objetos con halo
+  // blanco, siempre legible. Dibuja el nombre + área en mm de página.
+  const drawRoomLabels = () => {
+    if (!roomLabels.length) return
+    // obstáculos en px del plano (con 6 px de margen)
+    const obstacles: Bbox[] = []
+    for (const el of drawable) {
+      if (el.type !== 'mobiliario' && el.type !== 'sanitario' && el.type !== 'puerta') continue
+      const bb = elBounds(el, mods[el.id], opts.includeFurniture)
+      if (!bb) continue
+      obstacles.push({ minX: bb.minX - 6, minY: bb.minY - 6, maxX: bb.maxX + 6, maxY: bb.maxY + 6 })
+    }
+    const hits = (r: Bbox) => obstacles.some((o) => r.minX < o.maxX && r.maxX > o.minX && r.minY < o.maxY && r.maxY > o.minY)
+    const overlapPx = (r: Bbox) => obstacles.reduce((acc, o) =>
+      acc + Math.max(0, Math.min(r.maxX, o.maxX) - Math.max(r.minX, o.minX))
+        * Math.max(0, Math.min(r.maxY, o.maxY) - Math.max(r.minY, o.minY)), 0)
+    interface Place { x: number; y: number; fs: number; fsA: number; areaStr: string }
+    for (const { g, m } of roomLabels) {
+      const tx = m?.translate?.[0] ?? 0
+      const ty = m?.translate?.[1] ?? 0
+      const rx = g.x + tx, ry = g.y + ty
+      const cx0 = rx + g.w / 2, cy0 = ry + g.h / 2
+      const small = Math.min(g.w, g.h) < 150
+      const areaStr = `${roomAreaM2(g).toFixed(2)} m² · ${g.num}`
+      const attempts: Array<[number, number]> = small ? [[5.8, 5]] : [[7.5, 6], [6.2, 5.2]]
+      let place: Place | null = null
+      let fallback: Place | null = null
+      for (const [fs, fsA] of attempts) {
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(fs)
+        const wName = Math.max(doc.getTextWidth(g.name), 3)
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(fsA)
+        const wArea = Math.max(doc.getTextWidth(areaStr), 3)
+        const blockW = Math.max(wName, wArea) + 1.4
+        const topOff = -0.6 - fs * 0.78 - 0.4
+        const botOff = 2.2 + fsA * 0.3 + 0.4
+        const bw = blockW / k, bh = (botOff - topOff) / k
+        const mx = Math.max(14, bw / 2 + 6)
+        const my = Math.max(16, bh / 2 + 8)
+        const iw = g.w - 2 * mx, ih = g.h - 2 * my
+        const cand: Array<[number, number]> = []
+        if (iw > 0 && ih > 0) {
+          for (let iy = 0; iy < 5; iy++) for (let ix = 0; ix < 7; ix++) {
+            cand.push([rx + mx + (iw * ix) / 6, ry + my + (ih * iy) / 4])
+          }
+        }
+        cand.push([cx0, cy0])
+        let best: [number, number] | null = null
+        let bestScore = Infinity
+        for (const [cxx, cyy] of cand) {
+          const r: Bbox = { minX: cxx - bw / 2, minY: cyy - bh / 2, maxX: cxx + bw / 2, maxY: cyy + bh / 2 }
+          if (r.minX < rx + 4 || r.maxX > rx + g.w - 4 || r.minY < ry + 4 || r.maxY > ry + g.h - 4) continue
+          if (hits(r)) continue
+          const score = (cxx - cx0) ** 2 + (cyy - cy0) ** 2
+          if (score < bestScore) { best = [cxx, cyy]; bestScore = score }
+        }
+        if (best) { place = { x: best[0], y: best[1], fs, fsA, areaStr }; break }
+        if (!fallback) {
+          // ambiente lleno: mínimo solape y, a igualdad, lo más centrado
+          let bestScore = Infinity
+          let bestPos: [number, number] = [cx0, cy0]
+          for (const [cxx, cyy] of cand) {
+            const r: Bbox = { minX: cxx - bw / 2, minY: cyy - bh / 2, maxX: cxx + bw / 2, maxY: cyy + bh / 2 }
+            if (r.minX < rx + 4 || r.maxX > rx + g.w - 4 || r.minY < ry + 4 || r.maxY > ry + g.h - 4) continue
+            const score = overlapPx(r) * 4 + (cxx - cx0) ** 2 + (cyy - cy0) ** 2
+            if (score < bestScore) { bestScore = score; bestPos = [cxx, cyy] }
+          }
+          fallback = { x: bestPos[0], y: bestPos[1], fs, fsA, areaStr }
+        }
+      }
+      const P: Place = place ?? fallback ?? { x: cx0, y: cy0, fs: 7.5, fsA: 6, areaStr }
+      const cxM = X(P.x), cyM = Y(P.y)
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(P.fs)
+      const wName = Math.max(doc.getTextWidth(g.name), 3)
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(P.fsA)
+      const wArea = Math.max(doc.getTextWidth(P.areaStr), 3)
+      const blockW = Math.max(wName, wArea) + 1.4
+      const topOff = -0.6 - P.fs * 0.78 - 0.4
+      const botOff = 2.2 + P.fsA * 0.3 + 0.4
+      // halo blanco del bloque completo (nombre + área)
+      doc.setFillColor(255, 255, 255)
+      doc.rect(cxM - blockW / 2 - 0.5, cyM + topOff, blockW + 1, botOff - topOff, 'F')
+      setText(C.ink)
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(P.fs)
+      doc.text(g.name, cxM, cyM - 0.6, { align: 'center' })
+      setText(C.muted)
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(P.fsA)
+      doc.text(P.areaStr, cxM, cyM + 2.2, { align: 'center' })
+    }
+  }
+
+  // ---------- capa de texto final (encima de todo el dibujo) ----------
+  flushText()
+  drawRoomLabels()
 
   // ---------- anotaciones de lámina ----------
   drawCartela(doc, area, opts)
@@ -670,7 +808,12 @@ function drawCartela(doc: jsPDF, area: ReturnType<typeof drawArea>, opts: PdfExp
 
 function drawNorth(doc: jsPDF, area: ReturnType<typeof drawArea>) {
   const cx = area.x2 - 12, cy = area.y1 + 12, r = 6
+  // panel blanco: la rosa de los vientos nunca pierde legibilidad
+  // aunque el plano llegue hasta la esquina superior derecha
+  doc.setFillColor(255, 255, 255)
   doc.setDrawColor(C.ink[0], C.ink[1], C.ink[2])
+  doc.setLineWidth(0.2)
+  doc.rect(cx - 9.5, cy - 12.5, 19, 22, 'FD')
   doc.setLineWidth(0.25)
   doc.circle(cx, cy, r)
   doc.setFillColor(C.ink[0], C.ink[1], C.ink[2])
@@ -687,6 +830,10 @@ function drawScaleBar(doc: jsPDF, area: ReturnType<typeof drawArea>, mmPerM: num
   const x0 = area.x1 + 2
   const y0 = area.H - MARGIN - CART_H - 9
   const h = 1.6
+  // franja blanca de respaldo: la barra sigue legible aunque el plano
+  // llegue a esta zona (cuando no cupo en el área con banda reservada)
+  doc.setFillColor(255, 255, 255)
+  doc.rect(x0 - 2, y0 - 5.2, barW + 10, h + 10.8, 'F')
   doc.setLineWidth(0.18)
   for (let i = 0; i < nSeg; i++) {
     if (i % 2 === 0) { doc.setFillColor(C.ink[0], C.ink[1], C.ink[2]); doc.rect(x0 + i * mmPerM, y0, mmPerM, h, 'FD') }

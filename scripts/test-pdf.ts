@@ -10,6 +10,7 @@ import { BASE_ELEMENTS, LAYERS } from '../src/lib/plan-data'
 
 async function main() {
   const cases = [
+    { scale: 75, paper: 'a4' as const, landscape: true },   // caso reportado por el usuario
     { scale: 50, paper: 'a3' as const, landscape: true },
     { scale: 75, paper: 'a3' as const, landscape: true },
     { scale: 100, paper: 'a4' as const, landscape: false },
