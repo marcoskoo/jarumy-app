@@ -14,7 +14,7 @@
 
 ## 📖 Descripción
 
-**Jarumy app** es una aplicación web de diseño arquitectónico inspirada en las suites profesionales de CAD y BIM (AutoCAD, Revit, ArchiCAD, SketchUp, Rhino, Vectorworks, Lumion, Enscape, V-Ray, Corona y D5 Render). Recopila **73 herramientas** de las mejores aplicaciones de arquitectura en su versión PRO y las unifica en una sola interfaz web moderna.
+**Jarumy app** es una aplicación web de diseño arquitectónico inspirada en las suites profesionales de CAD y BIM (AutoCAD, Revit, ArchiCAD, SketchUp, Rhino, Vectorworks, Lumion, Enscape, V-Ray, Corona y D5 Render). Recopila **97 herramientas** de las mejores aplicaciones de arquitectura en su versión PRO y las unifica en una sola interfaz web moderna: CAD interactivo con OSNAP y multi-selección, planos en la nube con colaboración en vivo, IA generativa, analítica RNE completa y PWA offline.
 
 Su característica distintiva es el **menú radial contextual**: al colocar el cursor sobre cualquier elemento del plano (muro, puerta, ventana, espacio, mobiliario, sanitario, cota, columna…), aparece un **círculo de herramientas** específicas para ese elemento; al escoger una, se despliegan **todas sus opciones** (rotar, cambiar material, espesor, sombreado, giro de puerta, etc.).
 
@@ -30,16 +30,38 @@ Su característica distintiva es el **menú radial contextual**: al colocar el c
 ### 📐 Plano arquitectónico interactivo
 - Vivienda de 15×10 m renderizada en SVG: **23 muros**, 5 puertas con arcos de giro, 8 ventanas, 6 espacios con áreas, 26 mobiliarios/sanitarios, 6 columnas, 6 cotas, vanos, rejilla de 1 m, rosa de los vientos, escala gráfica y cajetín
 - **Zoom a cursor** con rueda, paneo por arrastre, ajuste inicial automático (fit)
-- **Snap** y **Orto** con vista previa de dibujo en vivo
+- **Snap**, **Orto** y **OSNAP real** (F3): imanes a extremo, punto medio, centro, cuadrante e intersección con glifos AutoCAD en vivo
+- **Multi-selección**: ventana (marquee), Ctrl+clic, Seleccionar todo y edición grupal (mover/rotar/borrar/pegar conjuntos)
+- **Drag-and-drop** de elementos, **grips** editables en vértices de muros/dibujos/ventanas y **menú contextual de clic derecho**
+- **Atajos de teclado**: Ctrl+Z/Y/S/P/C/X/V/A, Supr, flechas (nudge) y F3/F8/F9
+- Prompt in-app elegante (adiós `window.prompt`) en todos los flujos de entrada
+
+### ☁️ Nube, colaboración y IA
+- **Planos en la nube** por usuario (Prisma + PostgreSQL): guardar/abrir/eliminar, **versionado en BD** (máx. 20) y papelera
+- **Enlaces para compartir** con permiso de vista o edición (`?plano=token`) — el receptor abre en su navegador
+- **Sesión colaborativa en vivo** (socket.io): sincronización del plano a ~0.7 s, presencia y chat de sesión
+- **IA generativa**: plantas esquemáticas desde texto (muros, espacios RNE, puertas y ventanas reales)
+- **Revisor IA de normativa**: interpreta los checks RNE del plano y propone correcciones dimensionadas
+- **Comandos de voz** (Web Speech API, es-PE) sobre la consola
+
+### 📥 Importación y exportación total
+- **Importar DXF R12+** (líneas, círculos, arcos, textos, polilíneas) con detección de unidades y re-encuadre
+- **Underlay de referencia**: imagen PNG/JPG o 1ª página de PDF rasterizada — calque encima con opacidad ajustable
+- Exporta **PDF a escala**, **DXF**, **IFC4 (BIM)**, **OBJ/STL (3D)**, **PNG/SVG**, **Excel BIM/S10** y **.jarumy.json**
+
+### 🏃 3D y análisis extendidos
+- **Walkthrough en 1ª persona** (WASD + perspectiva real a 1.60 m con colisión de muros) y axonometría orbital
+- **Térmica RNE E.020**: transmitancia U por zona climática + riesgo de condensación (Glaser)
+- **Accesibilidad** (A.010/A.050), **evacuación A.130** (rutas, aforo, anchos de salida) y **potencial fotovoltaico** (kWp, kWh/año, payback)
 
 ### 🖊️ Dibujo real
 - Línea, polilínea, rectángulo, círculo, texto, cota, mover, copiar, borrar e inserción de bloques
 - **Deshacer / Rehacer** completo
 - Consola de comandos estilo AutoCAD: `L`, `C`, `REC`, `TXT`, `CO`, `M`, `ROT`, `DEL`, `U`, `REDO`, `RENDER`, `3D`, `RECORRIDO`, `PURGA`, `AYUDA`…
 
-### 🧰 73 herramientas PRO recopiladas
-Organizadas en **10 pestañas de cinta** (ribbon estilo AutoCAD):
-Dibujo (10) · Modificación (14) · Anotación (8) · Arquitectura/BIM (11) · Bloques (7) · Visualización (8) · Análisis (6) · Productividad (8)
+### 🧰 97 herramientas PRO recopiladas
+Organizadas en **11 pestañas de cinta** (ribbon estilo AutoCAD):
+Inicio (13) · Dibujo (9) · Modificación (15) · Anotación (10) · Arquitectura (9) · Bloques (6) · Instalaciones (5) · BIM (6) · Visualización (6) · Análisis (11) · Productividad (8)
 
 ### 🏢 BIM y análisis
 - Cuadro de espacios en vivo con áreas
@@ -54,12 +76,17 @@ Dibujo (10) · Modificación (14) · Anotación (8) · Arquitectura/BIM (11) · 
 
 ## 🔐 Panel de Administración
 
-Acceso con las credenciales del administrador:
+Acceso del administrador (sin credenciales fijas):
 
 ```
-Usuario:  J. Burga
-Clave:    BurgaKoo
+Usuario:            J. Burga
+Contraseña inicial: se imprime en el registro del servidor al primer
+                    arranque — o defínela con la variable
+                    JARUMY_ADMIN_PASSWORD
 ```
+
+Cámbiela desde *Cuenta y clave* y active el **2FA real (TOTP)** con su
+app autenticadora (Google Authenticator, Authy…).
 
 Desde el panel se configura:
 
@@ -129,7 +156,7 @@ src/
 │   ├── jarumy/
 │   │   ├── PlanCanvas.tsx        # Lienzo SVG: zoom, paneo, dibujo, snap/orto, undo/redo
 │   │   ├── RadialMenu.tsx        # ⭐ Menú radial contextual con subopciones
-│   │   ├── RibbonToolbar.tsx     # Cinta de 73 herramientas en 10 pestañas
+│   │   ├── RibbonToolbar.tsx     # Cinta de 97 herramientas en 11 pestañas
 │   │   ├── SidePanels.tsx        # Capas, biblioteca de bloques, propiedades
 │   │   ├── ElementRenderers.tsx  # Muros, puertas, ventanas, mobiliario, cotas…
 │   │   ├── ConsoleBar.tsx        # Consola de comandos + barra de estado

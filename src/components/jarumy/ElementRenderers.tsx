@@ -4,7 +4,7 @@ import React from 'react'
 import type { PlanElement } from '@/lib/plan-data'
 import type {
   WallGeo, DoorGeo, WindowGeo, RoomGeo, FurnGeo, DimGeo, TextGeo, ColGeo, OpenGeo, DrawGeo,
-  StairGeo, RoofGeo, InstGeo, SymGeo, TerrainGeo, PinGeo,
+  StairGeo, RoofGeo, InstGeo, SymGeo, TerrainGeo, PinGeo, ImageGeo,
 } from '@/lib/plan-data'
 import { roomAreaM2, polygonAreaM2, polygonPerimeterM, WALL_TYPES, sampleArc3, sampleCatmullRom, scallopPts, pathFromPts } from '@/lib/plan-data'
 import type { Phase } from '@/lib/plan-data'
@@ -13,7 +13,7 @@ import { useJarumy } from '@/lib/store'
 
 export interface ElHandlers {
   onClickEl: (el: PlanElement) => void
-  onDownEl: (e: React.MouseEvent) => void
+  onDownEl: (e: React.MouseEvent, el: PlanElement) => void
 }
 
 const polar = (cx: number, cy: number, r: number, deg: number): [number, number] => {
@@ -32,7 +32,7 @@ function elementCenter(el: PlanElement): [number, number] {
   return [x[0] + (x[1] - x[0]) / 2, y[0] + (y[1] - y[0]) / 2]
 }
 
-function elementBBox(el: PlanElement): [[number, number], [number, number]] {
+function elementBBoxLocal(el: PlanElement): [[number, number], [number, number]] {
   const inf = 1e9
   let x0 = inf, y0 = inf, x1 = -inf, y1 = -inf
   const acc = (px: number, py: number) => { x0 = Math.min(x0, px); y0 = Math.min(y0, py); x1 = Math.max(x1, px); y1 = Math.max(y1, py) }
@@ -62,6 +62,10 @@ function elementBBox(el: PlanElement): [[number, number], [number, number]] {
   return [[x0, y0], [x1, y1]]
 }
 
+export function elementBBox(el: PlanElement): [[number, number], [number, number]] {
+  return elementBBoxLocal(el)
+}
+
 function buildTransform(el: PlanElement, m?: Mod): string | undefined {
   if (!m) return undefined
   const [cx, cy] = elementCenter(el)
@@ -79,7 +83,7 @@ export function PlanElementNode({ el, mod, handlers, showArea }: { el: PlanEleme
   const transform = buildTransform(el, mod)
   const gProps = {
     className: 'jy-el',
-    onMouseDown: (e: React.MouseEvent) => { e.stopPropagation(); handlers.onDownEl(e) },
+    onMouseDown: (e: React.MouseEvent) => { e.stopPropagation(); handlers.onDownEl(e, el) },
     onClick: (e: React.MouseEvent) => { e.stopPropagation(); handlers.onClickEl(el) },
   }
 
@@ -101,6 +105,7 @@ export function PlanElementNode({ el, mod, handlers, showArea }: { el: PlanEleme
     case 'simbolo': content = <SymNode el={el} />; break
     case 'terreno': content = <TerrainNode el={el} />; break
     case 'pin': content = <PinNode el={el} />; break
+    case 'imagen': content = <ImageNode el={el} mod={mod} />; break
     default: content = <DibujoNode el={el} mod={mod} />; break
   }
 
@@ -1643,6 +1648,7 @@ function PinNode({ el }: { el: PlanElement }) {
   const g = el.geo as PinGeo
   const idx = parseInt((el.name.match(/\d+/) || ['1'])[0], 10)
   const color = g.resolved ? '#10b981' : '#fb7185'
+  const replies = g.replies || []
   return (
     <g>
       {/* marcador tipo chincheta */}
@@ -1658,7 +1664,53 @@ function PinNode({ el }: { el: PlanElement }) {
           {g.resolved ? '✓ ' : ''}{g.text.length > 34 ? `${g.text.slice(0, 33)}…` : g.text}
         </text>
       </g>
+      {/* hilo de respuestas (conversación del pin) */}
+      {replies.length > 0 && (
+        <g>
+          {replies.slice(-3).map((r, i) => {
+            const yy = g.y + 18 + i * 12
+            const line = `${i === 0 && replies.length > 3 ? '… ' : ''}${r.author}: ${r.text}`
+            return (
+              <g key={r.at + i}>
+                <rect x={g.x + 8} y={yy - 9} width={Math.min(210, 10 + line.length * 4.6)} height="11.5" rx="3" fill="rgba(56,189,248,0.16)" stroke="rgba(56,189,248,0.45)" strokeWidth="0.6" />
+                <text x={g.x + 13} y={yy - 1} fontSize="8" fill="#7dd3fc" fontWeight="600">
+                  {line.length > 42 ? `${line.slice(0, 41)}…` : line}
+                </text>
+              </g>
+            )
+          })}
+          <circle cx={g.x + 5} cy={g.y - 27} r="6.5" fill="#0ea5e9" stroke="rgba(24,24,27,0.6)" strokeWidth="0.8" />
+          <text x={g.x + 5} y={g.y - 24} textAnchor="middle" fontSize="7.5" fontWeight="900" fill="#e0f2fe">{replies.length}</text>
+        </g>
+      )}
       <circle className="jy-hover-ring" cx={g.x} cy={g.y - 18} r="12" fill="none" stroke="var(--jy-primary)" strokeWidth="1.8" />
+    </g>
+  )
+}
+
+// ---------------- UNDERLAY DE REFERENCIA (imagen / PDF) ----------------
+
+function ImageNode({ el }: { el: PlanElement; mod?: Mod }) {
+  const g = el.geo as ImageGeo
+  const op = Math.min(1, Math.max(0.1, g.opacity ?? 0.85))
+  return (
+    <g>
+      {/* la imagen vive debajo de los elementos: rectángulo con <image> + marco punteado */}
+      <image
+        href={g.src}
+        x={g.x} y={g.y} width={g.w} height={g.h}
+        opacity={op}
+        preserveAspectRatio="none"
+        style={{ imageRendering: 'auto' }}
+      />
+      <rect
+        x={g.x} y={g.y} width={g.w} height={g.h}
+        fill="none" stroke="#64748b" strokeWidth="1" strokeDasharray="8 5"
+      />
+      <text x={g.x + 6} y={g.y + 14} fontSize="9.5" fontWeight="700" fill="#64748b">
+        {g.kind === 'pdf' ? `PDF ref. pág. ${g.page ?? 1}` : 'imagen de referencia'} · {(g.w / 60).toFixed(1)}×{(g.h / 60).toFixed(1)} m
+      </text>
+      <rect className="jy-hover-ring" x={g.x + 4} y={g.y + 4} width={Math.max(0, g.w - 8)} height={Math.max(0, g.h - 8)} fill="none" stroke="var(--jy-primary)" strokeWidth="1.6" rx="4" />
     </g>
   )
 }

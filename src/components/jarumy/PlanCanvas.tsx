@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useRef, useState, useCallback, useEffect } from 'react'
+import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react'
 import { useJarumy, type HoverInfo } from '@/lib/store'
 import type { PlanElement, DrawGeo } from '@/lib/plan-data'
 import { VIEW_W, VIEW_H, PX_PER_M, elementSummary, BLOCK_LIBRARY, roomAreaM2, type RoomGeo, sampleArc3, sampleCatmullRom, scallopPts, pathFromPts, type HatchPattern } from '@/lib/plan-data'
@@ -14,6 +14,8 @@ import type { ToolAction } from '@/lib/tools-data'
 import { autoDimensions } from '@/lib/auto-dims'
 import { registerSvg } from '@/lib/raster-export'
 import type { SymKind } from '@/lib/plan-data'
+import { buildOsnapIndex, findOsnap, OSNAP_GLYPHS, type OsnapCandidate } from '@/lib/osnap'
+import { elementBBox } from './ElementRenderers'
 
 const uid = () => `usr-${Math.random().toString(36).slice(2, 9)}`
 
@@ -41,6 +43,17 @@ export default function PlanCanvas() {
   // MATRIZ POR TRAYECTO: elemento a copiar (1er clic)
   const arrayTargetRef = useRef<string | null>(null)
   const [hint, setHint] = useState(true)
+  // ---------- OLA 1: marquee / drag / grips / osnap / menú contextual ----------
+  const marqueeRef = useRef<{ x0: number; y0: number } | null>(null)
+  const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
+  const shiftAddRef = useRef(false) // Shift+arrastre conserva la selección previa al capturar la ventana
+  const dragElRef = useRef<{ id: string; sx: number; sy: number; moved: boolean } | null>(null)
+  const didDragElRef = useRef(false)
+  const gripRef = useRef<{ elId: string; kind: 'muro-end' | 'dibujo-vtx' | 'ventana-end'; idx: number } | null>(null)
+  const [osnapHit, setOsnapHit] = useState<OsnapCandidate | null>(null)
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; elId: string | null } | null>(null)
+  // índice de imanes OSnap (se recalcula solo cuando cambia el plano)
+  const osnapIndex = useMemo(() => buildOsnapIndex(s.elements, s.mods), [s.elements, s.mods])
 
   useEffect(() => {
     const el = containerRef.current
@@ -100,6 +113,16 @@ export default function PlanCanvas() {
     return [Math.round(p[0] / g) * g, Math.round(p[1] / g) * g]
   }, [s.snap, s.gridSpacing])
 
+  // ---------- OSNAP: el imán (extremo/medio/centro/intersección) vence a la rejilla ----------
+  const smartSnap = useCallback((raw: [number, number]): [number, number] => {
+    const st = useJarumy.getState()
+    if (st.osnap) {
+      const hit = findOsnap(osnapIndex, raw, st.zoom, st.osnapModes)
+      if (hit) return hit.pt
+    }
+    return snapPt(raw)
+  }, [snapPt, osnapIndex])
+
   const orthoPt = useCallback((p: [number, number], basePt?: number[]): [number, number] => {
     if (!s.ortho || !basePt || basePt.length < 2) return p
     const [bx, by] = basePt
@@ -117,14 +140,31 @@ export default function PlanCanvas() {
     st.setHovered(h)
   }, [])
 
-  const handleDownEl = useCallback((e: React.MouseEvent) => {
+  // ---------- mousedown sobre un elemento: potencial ARRASTRE (drag-and-drop) ----------
+  const handleDownEl = useCallback((e: React.MouseEvent, el: PlanElement) => {
+    const st = useJarumy.getState()
+    if (e.button !== 0) return
+    // SELECCIONAR armado o Shift: el arrastre es VENTANA de selección aunque
+    // empiece sobre un objeto — se deja propagar al contenedor (marquee)
+    if (st.drawTool === 'seleccionar' || e.shiftKey) return
     e.stopPropagation()
+    // el arrastre solo aplica sin herramienta activa
+    if (st.drawTool) return
+    dragElRef.current = { id: el.id, sx: e.clientX, sy: e.clientY, moved: false }
   }, [])
 
   // ---------- clic sobre un elemento ----------
   const handleClickEl = useCallback((el: PlanElement) => {
     const st = useJarumy.getState()
+    // si acabamos de arrastrar (drag-and-drop), usar un grip o dibujar una ventana,
+    // el clic subsiguiente no debe abrir el menú ni alterar la selección
+    if (didDragElRef.current || didPanRef.current) { didDragElRef.current = false; didPanRef.current = false; return }
     st.setSelected(el.id)
+    // SELECCIONAR: Ctrl+clic agrega/quita de la selección múltiple
+    if (st.drawTool === 'seleccionar') {
+      st.toggleSelection(el.id)
+      return
+    }
     if (st.drawTool === 'borrar') {
       st.applyEffect(el.id, 'delete')
       return
@@ -222,7 +262,7 @@ export default function PlanCanvas() {
       return
     }
     const raw = toSvg(e.clientX, e.clientY)
-    const p = snapPt(raw)
+    const p = smartSnap(raw) as number[]
 
     if (st.drawTool === 'mover') {
       if (moveTargetRef.current) {
@@ -279,12 +319,12 @@ export default function PlanCanvas() {
       return
     }
 
-    // pin de comentario: clic + texto
+    // pin de comentario: clic + texto (diálogo in-app)
     if (st.drawTool === 'pin') {
-      const text = typeof window !== 'undefined' ? window.prompt('Texto del comentario:', '') : null
-      if (text && text.trim()) st.insertPin(p[0], p[1], text.trim())
-      else st.armDraw(null)
-      if (text && text.trim()) st.armDraw(null)
+      void st.requestPrompt('Texto del comentario:', '').then((text) => {
+        if (text && text.trim()) { st.insertPin(p[0], p[1], text.trim()); st.armDraw(null) }
+        else st.armDraw(null)
+      })
       return
     }
 
@@ -335,14 +375,13 @@ export default function PlanCanvas() {
         st.addDrawPoint(p)
         break
       case 'texto': {
-        if (typeof window !== 'undefined') {
-          const t = window.prompt('Texto a insertar:')
-          if (t) {
-            const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'dibujo', name: `Texto: ${t}`, geo: { kind: 'texto', pts: [p], text: t } }
+        void st.requestPrompt('Texto a insertar:', '').then((t) => {
+          if (t && t.trim()) {
+            const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'textos', name: `Texto: ${t}`, geo: { kind: 'texto', pts: [[p[0], p[1]]], text: t } }
             useJarumy.setState((prev) => ({ elements: [...prev.elements, newEl] }))
           }
-        }
-        st.armDraw(null)
+          st.armDraw(null)
+        })
         break
       }
       case 'punto': {
@@ -390,22 +429,23 @@ export default function PlanCanvas() {
         break
       }
       case 'directriz': {
-        // 2 clics + texto: flecha → codo → rótulo
+        // 2 clics + texto: flecha → codo → rótulo (diálogo in-app)
         if (st.drawPts.length === 0) {
           st.addDrawPoint(p)
         } else {
           const a = st.drawPts[0] as [number, number]
-          const t = typeof window !== 'undefined' ? window.prompt('Texto de la directriz:', 'UMBRAL GRANITO NEGRO PULIDO e=0.02') : null
-          if (t) {
-            const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'dibujo', name: `Directriz: ${t.slice(0, 28)}`, geo: { kind: 'directriz', pts: [[a[0], a[1]], [p[0], p[1]]], text: t } }
-            useJarumy.setState((prev) => ({
-              undoStack: [...prev.undoStack.slice(-29), { elements: JSON.parse(JSON.stringify(prev.elements)), mods: JSON.parse(JSON.stringify(prev.mods)), gridSpacing: prev.gridSpacing }],
-              elements: [...prev.elements, newEl],
-              drawPts: [],
-            }))
-          } else {
-            useJarumy.setState({ drawPts: [] })
-          }
+          void st.requestPrompt('Texto de la directriz:', 'UMBRAL GRANITO NEGRO PULIDO e=0.02').then((t) => {
+            if (t) {
+              const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'textos', name: `Directriz: ${t.slice(0, 28)}`, geo: { kind: 'directriz', pts: [[a[0], a[1]], [p[0], p[1]]], text: t } }
+              useJarumy.setState((prev) => ({
+                undoStack: [...prev.undoStack.slice(-29), { elements: JSON.parse(JSON.stringify(prev.elements)), mods: JSON.parse(JSON.stringify(prev.mods)), gridSpacing: prev.gridSpacing }],
+                elements: [...prev.elements, newEl],
+                drawPts: [],
+              }))
+            } else {
+              useJarumy.setState({ drawPts: [] })
+            }
+          })
         }
         break
       }
@@ -444,7 +484,7 @@ export default function PlanCanvas() {
       default:
         break
     }
-  }, [toSvg, snapPt, orthoPt, stretchBase])
+  }, [toSvg, snapPt, smartSnap, orthoPt, stretchBase])
 
   // ---------- zoom y paneo ----------
   const onWheel = useCallback((e: React.WheelEvent) => {
@@ -465,14 +505,46 @@ export default function PlanCanvas() {
     })
   }, [])
 
+  // ---------- menú contextual (clic derecho) ----------
+  const onCtxMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const rect = containerRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const st = useJarumy.getState()
+    const sv = toSvg(e.clientX, e.clientY)
+    // hit-test: último elemento pintado bajo el cursor (aprox. orden de pintura)
+    let elId: string | null = null
+    for (const el of st.elements) {
+      if (st.mods[el.id]?.deleted) continue
+      const [[bx0, by0], [bx1, by1]] = elementBBox(el)
+      const tx = st.mods[el.id]?.translate?.[0] ?? 0
+      const ty = st.mods[el.id]?.translate?.[1] ?? 0
+      if (sv[0] >= bx0 + tx - 2 && sv[0] <= bx1 + tx + 2 && sv[1] >= by0 + ty - 2 && sv[1] <= by1 + ty + 2) elId = el.id
+    }
+    setCtxMenu({ x: e.clientX - rect.left, y: e.clientY - rect.top, elId })
+  }, [toSvg])
+
+  const ctxTarget = ctxMenu?.elId ? s.elements.find((e) => e.id === ctxMenu.elId) : null
+  const closeCtx = () => setCtxMenu(null)
+
   const onBgDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return
     didPanRef.current = false
+    setCtxMenu(null)
     const st = useJarumy.getState()
+    // SELECCIONAR armado o Shift: el arrastre dibuja VENTANA DE SELECCIÓN (marquee)
+    if (st.drawTool === 'seleccionar' || e.shiftKey) {
+      const sv = toSvg(e.clientX, e.clientY)
+      marqueeRef.current = { x0: sv[0], y0: sv[1] }
+      shiftAddRef.current = !!e.shiftKey
+      setMarquee({ x0: sv[0], y0: sv[1], x1: sv[0], y1: sv[1] })
+      didPanRef.current = true // el marquee nunca debe disparar un clic de dibujo
+      return
+    }
     if (st.drawTool) return
     panRef.current = { x: e.clientX, y: e.clientY, px: s.panX, py: s.panY }
     setDragging(true)
-  }, [s.panX, s.panY])
+  }, [s.panX, s.panY, toSvg])
 
   useEffect(() => {
     const move = (e: MouseEvent) => {
@@ -480,11 +552,75 @@ export default function PlanCanvas() {
       if (rect) {
         mouseRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
         const sv = toSvg(e.clientX, e.clientY)
+        const stNow = useJarumy.getState()
         // el cursor SVG solo se rastrea con una herramienta armada (evita re-render en cada mousemove)
-        if (useJarumy.getState().drawTool) useJarumy.getState().setCursorSvg(sv)
+        if (stNow.drawTool) stNow.setCursorSvg(sv)
+        // OSNAP: busca el imán más cercano al cursor (solo con herramienta de dibujo armada)
+        if (stNow.drawTool && stNow.osnap) {
+          const hit = findOsnap(osnapIndex, sv, stNow.zoom, stNow.osnapModes)
+          setOsnapHit((prev) => {
+            if (!hit) return prev === null ? prev : null
+            if (prev && prev.kind === hit.kind && prev.pt[0] === hit.pt[0] && prev.pt[1] === hit.pt[1]) return prev
+            return hit
+          })
+        } else if (osnapHit) setOsnapHit(null)
         if (coordsRef.current) {
-          coordsRef.current.textContent = `X ${(sv[0] / PX_PER_M).toFixed(2)}   Y ${(sv[1] / PX_PER_M).toFixed(2)} m`
+          const shown = (stNow.drawTool && stNow.osnap ? findOsnap(osnapIndex, sv, stNow.zoom, stNow.osnapModes)?.pt : null) ?? sv
+          coordsRef.current.textContent = `X ${(shown[0] / PX_PER_M).toFixed(2)}   Y ${(shown[1] / PX_PER_M).toFixed(2)} m`
         }
+      }
+      // VENTANA DE SELECCIÓN (marquee)
+      if (marqueeRef.current && rect) {
+        const sv = toSvg(e.clientX, e.clientY)
+        setMarquee((m) => (m ? { ...m, x1: sv[0], y1: sv[1] } : m))
+      }
+      // ARRASTRE DE ELEMENTO (drag-and-drop)
+      if (dragElRef.current && rect) {
+        const d = dragElRef.current
+        if (!d.moved && Math.abs(e.clientX - d.sx) + Math.abs(e.clientY - d.sy) > 5) {
+          d.moved = true
+          didDragElRef.current = true
+          // historial UNA sola vez al iniciar el arrastre real
+          useJarumy.getState().beginHistory()
+        }
+        if (d.moved) {
+          const z = useJarumy.getState().zoom
+          const dx = (e.clientX - d.sx) / z
+          const dy = (e.clientY - d.sy) / z
+          useJarumy.setState((prev) => ({
+            mods: {
+              ...prev.mods,
+              [d.id]: { ...(prev.mods[d.id] || {}), translate: [dx, dy] },
+            },
+          }))
+        }
+      }
+      // GRIP (edición de vértices en vivo)
+      if (gripRef.current && rect) {
+        const g = gripRef.current
+        const sv = smartSnap(toSvg(e.clientX, e.clientY))
+        const stNow = useJarumy.getState()
+        stNow.updateElementGeo(g.elId, (geo) => {
+          if (g.kind === 'muro-end') {
+            if (g.idx === 0) { geo.x1 = sv[0]; geo.y1 = sv[1] }
+            else { geo.x2 = sv[0]; geo.y2 = sv[1] }
+          } else if (g.kind === 'dibujo-vtx') {
+            const pts = geo.pts as number[][]
+            if (pts && g.idx < pts.length) pts[g.idx] = [sv[0], sv[1]]
+          } else if (g.kind === 'ventana-end') {
+            const orient = geo.orient as 'h' | 'v'
+            if (orient === 'h') {
+              const x0 = g.idx === 0 ? sv[0] : (geo.x as number)
+              geo.len = Math.max(12, Math.abs(sv[0] - x0))
+              geo.x = Math.min(x0, sv[0])
+            } else {
+              const y0 = g.idx === 0 ? sv[1] : (geo.y as number)
+              geo.len = Math.max(12, Math.abs(sv[1] - y0))
+              geo.y = Math.min(y0, sv[1])
+            }
+          }
+          return geo
+        })
       }
       if (panRef.current) {
         if (Math.abs(e.clientX - panRef.current.x) + Math.abs(e.clientY - panRef.current.y) > 5) {
@@ -497,25 +633,112 @@ export default function PlanCanvas() {
         })
       }
     }
-    const up = () => { panRef.current = null; setDragging(false) }
+    const up = () => {
+      // finaliza marquee → selección por ventana
+      if (marqueeRef.current) {
+        const m = marquee
+        if (m && Math.abs(m.x1 - m.x0) > 4 && Math.abs(m.y1 - m.y0) > 4) {
+          const stNow = useJarumy.getState()
+          const rx0 = Math.min(m.x0, m.x1), rx1 = Math.max(m.x0, m.x1)
+          const ry0 = Math.min(m.y0, m.y1), ry1 = Math.max(m.y0, m.y1)
+          const hits = stNow.elements.filter((el) => {
+            if (stNow.mods[el.id]?.deleted) return false
+            const [[bx0, by0], [bx1, by1]] = elementBBox(el)
+            const tx = stNow.mods[el.id]?.translate?.[0] ?? 0
+            const ty = stNow.mods[el.id]?.translate?.[1] ?? 0
+            return bx0 + tx <= rx1 && bx1 + tx >= rx0 && by0 + ty <= ry1 && by1 + ty >= ry0
+          }).map((el) => el.id)
+          if (shiftAddRef.current) {
+            const merged = new Set([...stNow.selectedIds, ...hits])
+            stNow.setSelection([...merged])
+          } else {
+            stNow.setSelection(hits)
+          }
+          stNow.pushConsole({ text: `VENTANA DE SELECCIÓN: ${hits.length} objeto${hits.length !== 1 ? 's' : ''} capturado${hits.length !== 1 ? 's' : ''} (Ctrl+clic para agregar/quita · Shift+arrastre conserva la selección previa)`, kind: 'out' })
+          if (stNow.drawTool === 'seleccionar') stNow.armDraw(null)
+        }
+        marqueeRef.current = null
+        setMarquee(null)
+      }
+      // finaliza arrastre de elemento
+      if (dragElRef.current?.moved) {
+        const el = useJarumy.getState().elements.find((x) => x.id === dragElRef.current?.id)
+        if (el) useJarumy.getState().pushConsole({ text: `ARRASTRE: ${el.name} desplazado (Ctrl+Z para revertir)`, kind: 'out' })
+      }
+      dragElRef.current = null
+      // finaliza grip
+      if (gripRef.current) {
+        const el = useJarumy.getState().elements.find((x) => x.id === gripRef.current?.elId)
+        if (el) useJarumy.getState().pushConsole({ text: `GRIP: vértice de ${el.name} editado con imán OSNAP (Ctrl+Z para revertir)`, kind: 'out' })
+      }
+      gripRef.current = null
+      panRef.current = null
+      setDragging(false)
+    }
     window.addEventListener('mousemove', move)
     window.addEventListener('mouseup', up)
     return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
-  }, [toSvg])
+  }, [toSvg, smartSnap, marquee, osnapHit, osnapIndex])
 
-  // ESC cancela herramienta / cierra menú · R rota el bloque pendiente de inserción · ENTER termina polilíneas/tuberías
+  // ---------- atajos de teclado (Ctrl+Z/S/P/C/V/X · Supr · flechas · F3/F8/F9) ----------
   useEffect(() => {
+    const isTyping = (t: EventTarget | null) => {
+      if (!(t instanceof HTMLElement)) return false
+      return t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable
+    }
     const key = (e: KeyboardEvent) => {
+      const st = useJarumy.getState()
+      // ESC siempre disponible: cancela herramienta / cierra menús / limpia selección
       if (e.key === 'Escape') {
-        const st = useJarumy.getState()
         if (st.drawTool) st.armDraw(null)
         st.setHovered(null)
+        setCtxMenu(null)
+        if (st.selectedIds.length && !isTyping(e.target)) st.setSelection([])
+        return
       }
+      if (isTyping(e.target)) return // no robar teclas mientras se escribe en inputs
+      const mod = e.ctrlKey || e.metaKey
+
+      // --- atajos con Ctrl/Cmd ---
+      if (mod) {
+        const k = e.key.toLowerCase()
+        if (k === 'z') { e.preventDefault(); if (e.shiftKey) st.redo(); else st.undo(); return }
+        if (k === 'y') { e.preventDefault(); st.redo(); return }
+        if (k === 's') { e.preventDefault(); st.runGlobal('saveNow'); return }
+        if (k === 'p') { e.preventDefault(); st.runGlobal('print'); return }
+        if (k === 'c') { e.preventDefault(); st.copySelection(); return }
+        if (k === 'x') { e.preventDefault(); st.cutSelection(); return }
+        if (k === 'v') { e.preventDefault(); st.pasteClipboard(); return }
+        if (k === 'a') { e.preventDefault(); st.selectAll(); return }
+        return
+      }
+
+      // --- teclas de función (como AutoCAD) ---
+      if (e.key === 'F3') { e.preventDefault(); st.toggleOsnap(); return }
+      if (e.key === 'F8') { e.preventDefault(); st.toggle('ortho'); return }
+      if (e.key === 'F9') { e.preventDefault(); st.toggle('snap'); return }
+
+      // --- borrar selección ---
+      if ((e.key === 'Delete' || e.key === 'Backspace') && (st.selectedIds.length || st.selectedId)) {
+        e.preventDefault()
+        st.deleteSelection()
+        return
+      }
+
+      // --- desplazamiento fino con flechas (1 px · Shift = 1 rejilla) ---
+      if (e.key.startsWith('Arrow') && (st.selectedIds.length || st.selectedId)) {
+        e.preventDefault()
+        const step = e.shiftKey ? (st.snap ? st.gridSpacing : 30) : 2
+        const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0
+        const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0
+        st.nudgeSelection(dx, dy)
+        return
+      }
+
       const polyFamily = MULTI_FAMILY
       if (e.key === 'Enter' && polyFamily.includes(useJarumy.getState().drawTool || '')) {
         useJarumy.getState().finishPolyline()
       }
-      const st = useJarumy.getState()
       if ((e.key === 'r' || e.key === 'R') && st.drawTool?.startsWith('ins:')) {
         st.rotateInsert()
         st.pushConsole({ text: `Inserción rotada a ${useJarumy.getState().insertRotation}°`, kind: 'out' })
@@ -628,7 +851,7 @@ export default function PlanCanvas() {
   const gridId = 'jygrid'
   const cursorStyle = s.drawTool ? 'crosshair' : dragging ? 'grabbing' : 'default'
   const geometricTool = !!s.drawTool &&
-    !['borrar', 'copiar', 'mover'].includes(s.drawTool)
+    !['borrar', 'copiar', 'mover', 'seleccionar', 'recorta', 'alarga', 'estira'].includes(s.drawTool)
 
   return (
     <div
@@ -636,6 +859,7 @@ export default function PlanCanvas() {
       className="relative flex-1 overflow-hidden jy-viewport jy-3d-stage select-none"
       onWheel={onWheel}
       onMouseDown={onBgDown}
+      onContextMenu={onCtxMenu}
       style={{ cursor: cursorStyle }}
     >
       {/* ---------- transformación de vista ---------- */}
@@ -695,9 +919,92 @@ export default function PlanCanvas() {
                     }}
                     showArea={s.areaLabels}
                   />
+                  {/* anillo de selección múltiple */}
+                  {s.selectedIds.includes(el.id) && (() => {
+                    const [[bx, by], [bx1, by1]] = elementBBox(el)
+                    const tx = s.mods[el.id]?.translate?.[0] ?? 0
+                    const ty = s.mods[el.id]?.translate?.[1] ?? 0
+                    return (
+                      <rect
+                        pointerEvents="none"
+                        x={bx + tx - 3} y={by + ty - 3} width={bx1 - bx + 6} height={by1 - by + 6}
+                        fill="rgba(245,158,11,0.07)" stroke="var(--jy-primary)" strokeWidth="1.4" strokeDasharray="5 4" rx="3"
+                      />
+                    )
+                  })()}
                 </g>
               ) : null
             )}
+
+            {/* GRIPS: vértices editables de la selección única (muro · dibujo · ventana) */}
+            {!s.drawTool && s.selectedIds.length === 1 && (() => {
+              const el = s.elements.find((x) => x.id === s.selectedIds[0])
+              if (!el || s.mods[el.id]?.deleted) return null
+              const tx = s.mods[el.id]?.translate?.[0] ?? 0
+              const ty = s.mods[el.id]?.translate?.[1] ?? 0
+              const grips: Array<{ x: number; y: number; kind: 'muro-end' | 'dibujo-vtx' | 'ventana-end'; idx: number }> = []
+              if (el.type === 'muro') {
+                const g = el.geo as { x1: number; y1: number; x2: number; y2: number }
+                grips.push({ x: g.x1 + tx, y: g.y1 + ty, kind: 'muro-end', idx: 0 }, { x: g.x2 + tx, y: g.y2 + ty, kind: 'muro-end', idx: 1 })
+              } else if (el.type === 'ventana') {
+                const g = el.geo as { x: number; y: number; len: number; orient: 'h' | 'v' }
+                if (g.orient === 'h') grips.push({ x: g.x + tx, y: g.y + ty, kind: 'ventana-end', idx: 0 }, { x: g.x + g.len + tx, y: g.y + ty, kind: 'ventana-end', idx: 1 })
+                else grips.push({ x: g.x + tx, y: g.y + ty, kind: 'ventana-end', idx: 0 }, { x: g.x + tx, y: g.y + g.len + ty, kind: 'ventana-end', idx: 1 })
+              } else if (el.type === 'dibujo') {
+                const g = el.geo as DrawGeo
+                if (g.pts && ['linea', 'polilinea', 'arco', 'nube', 'hatch', 'spline', 'cota', 'cota-ang'].includes(g.kind)) {
+                  g.pts.forEach((p, i) => grips.push({ x: p[0] + tx, y: p[1] + ty, kind: 'dibujo-vtx', idx: i }))
+                }
+              }
+              if (!grips.length) return null
+              return (
+                <g>
+                  {grips.map((gr, i) => (
+                    <g key={i} style={{ cursor: 'move' }}
+                      onMouseDown={(e) => {
+                        e.stopPropagation()
+                        useJarumy.getState().beginHistory()
+                        gripRef.current = { elId: el.id, kind: gr.kind, idx: gr.idx }
+                      }}
+                    >
+                      <circle cx={gr.x} cy={gr.y} r="9" fill="transparent" />
+                      <rect x={gr.x - 3.5} y={gr.y - 3.5} width="7" height="7" fill="var(--jy-primary)" stroke="#0a0a0c" strokeWidth="1" rx="1.5" pointerEvents="none" />
+                    </g>
+                  ))}
+                </g>
+              )
+            })()}
+
+            {/* VENTANA DE SELECCIÓN (marquee) */}
+            {marquee && (
+              <g pointerEvents="none">
+                <rect
+                  x={Math.min(marquee.x0, marquee.x1)} y={Math.min(marquee.y0, marquee.y1)}
+                  width={Math.abs(marquee.x1 - marquee.x0)} height={Math.abs(marquee.y1 - marquee.y0)}
+                  fill="rgba(245,158,11,0.10)" stroke="var(--jy-primary)" strokeWidth="1.2" strokeDasharray="6 4" rx="2"
+                />
+                <text x={Math.min(marquee.x0, marquee.x1) + 4} y={Math.min(marquee.y0, marquee.y1) - 5} fontSize="10" fontWeight="700" style={{ fill: 'var(--jy-primary)' }}>
+                  ventana de selección
+                </text>
+              </g>
+            )}
+
+            {/* indicador OSNAP (glifo AutoCAD + etiqueta del tipo de imán) */}
+            {s.drawTool && osnapHit && (() => {
+              const [x, y] = osnapHit.pt
+              const g = OSNAP_GLYPHS[osnapHit.kind]
+              const col = '#f43f5e'
+              return (
+                <g pointerEvents="none">
+                  {g.shape === 'square' && <rect x={x - 4.5} y={y - 4.5} width="9" height="9" fill="none" stroke={col} strokeWidth="2" />}
+                  {g.shape === 'circle' && <circle cx={x} cy={y} r="5" fill="none" stroke={col} strokeWidth="2" />}
+                  {g.shape === 'triangle' && <path d={`M ${x} ${y - 5.5} L ${x + 5} ${y + 4} L ${x - 5} ${y + 4} Z`} fill="none" stroke={col} strokeWidth="2" />}
+                  {g.shape === 'cross' && <g stroke={col} strokeWidth="2"><line x1={x - 5} y1={y} x2={x + 5} y2={y} /><line x1={x} y1={y - 5} x2={x} y2={y + 5} /></g>}
+                  {g.shape === 'diamond' && <path d={`M ${x} ${y - 5.5} L ${x + 5.5} ${y} L ${x} ${y + 5.5} L ${x - 5.5} ${y} Z`} fill="none" stroke={col} strokeWidth="2" />}
+                  <text x={x + 8} y={y - 7} fontSize="9.5" fontWeight="800" fill={col}>{g.label}</text>
+                </g>
+              )
+            })()}
 
             {/* acotación automática por ambiente (respeta la capa Cotas) */}
             {s.autoDims && visibleLayers.has('cotas') && (
@@ -711,7 +1018,7 @@ export default function PlanCanvas() {
 
             {/* vista previa de ESTIRA: ventana de cruces + vector de estiramiento */}
             {s.drawTool === 'estira' && (() => {
-              const cur = snapPt(s.cursorSvg)
+              const cur = smartSnap(s.cursorSvg)
               const R = 90
               if (!stretchBase) {
                 return <g pointerEvents="none">
@@ -733,11 +1040,11 @@ export default function PlanCanvas() {
             {/* vista previa de dibujo */}
             {s.drawTool && !s.drawTool.startsWith('ins:') && !s.drawTool.startsWith('simbolo:') && (() => {
               const base = s.drawPts[s.drawPts.length - 1]
-              const cur = orthoPt(snapPt(s.cursorSvg), base)
+              const cur = orthoPt(smartSnap(s.cursorSvg), base)
               // sin ancla todavía: solo herramientas de un clic muestran fantasma
               if (!base) {
                 if (s.drawTool === 'punto') {
-                  const c0 = snapPt(s.cursorSvg)
+                  const c0 = smartSnap(s.cursorSvg)
                   return <g stroke="#f59e0b" strokeWidth="1.6" opacity="0.8" pointerEvents="none">
                     <line x1={c0[0] - 5} y1={c0[1]} x2={c0[0] + 5} y2={c0[1]} />
                     <line x1={c0[0]} y1={c0[1] - 5} x2={c0[0]} y2={c0[1] + 5} />
@@ -817,7 +1124,7 @@ export default function PlanCanvas() {
                 </g>
               }
               if (s.drawTool === 'punto') {
-                const cur0 = snapPt(s.cursorSvg)
+                const cur0 = smartSnap(s.cursorSvg)
                 return <g {...dash}>
                   <line x1={cur0[0] - 5} y1={cur0[1]} x2={cur0[0] + 5} y2={cur0[1]} stroke={toolColor} strokeWidth="1.6" />
                   <line x1={cur0[0]} y1={cur0[1] - 5} x2={cur0[0]} y2={cur0[1] + 5} stroke={toolColor} strokeWidth="1.6" />
@@ -836,7 +1143,7 @@ export default function PlanCanvas() {
 
             {/* fantasma del símbolo de instalación pendiente */}
             {s.drawTool?.startsWith('simbolo:') && (() => {
-              const cur = snapPt(s.cursorSvg)
+              const cur = smartSnap(s.cursorSvg)
               const col = '#38bdf8'
               return (
                 <g pointerEvents="none" opacity="0.8">
@@ -848,7 +1155,7 @@ export default function PlanCanvas() {
 
             {/* fantasma del pin de comentario */}
             {s.drawTool === 'pin' && (() => {
-              const cur = snapPt(s.cursorSvg)
+              const cur = smartSnap(s.cursorSvg)
               return (
                 <g pointerEvents="none" opacity="0.8">
                   <circle cx={cur[0]} cy={cur[1] - 18} r="7.5" fill="rgba(251,113,133,0.5)" stroke="#fb7185" strokeWidth="1.4" />
@@ -862,7 +1169,7 @@ export default function PlanCanvas() {
               const kind = s.drawTool.slice(4)
               const b = BLOCK_LIBRARY.find((x) => x.kind === kind)
               if (!b) return null
-              const cur = snapPt(s.cursorSvg)
+              const cur = smartSnap(s.cursorSvg)
               const gx = cur[0] - b.w / 2
               const gy = cur[1] - b.h / 2
               return (
@@ -938,6 +1245,8 @@ export default function PlanCanvas() {
               ? `toque o clic para colocar${s.insertRotation ? ` · ${s.insertRotation}°` : ''}`
               : s.drawTool === 'borrar' || s.drawTool === 'copiar' || s.drawTool === 'mover'
                 ? 'toque o clic en el objeto'
+              : s.drawTool === 'seleccionar'
+                ? 'arrastre la ventana de selección · Shift conserva lo ya seleccionado'
               : s.drawTool === 'recorta' || s.drawTool === 'alarga'
                 ? '1er clic: línea · 2º clic: tramo/límite'
               : s.drawTool === 'arco'
@@ -1011,6 +1320,69 @@ export default function PlanCanvas() {
           <span className="text-[11.5px] font-semibold text-amber-200">
             Toque o haga clic sobre un elemento del plano — se abrirá su círculo de herramientas
           </span>
+        </div>
+      )}
+
+      {/* ---------- menú contextual de clic derecho ---------- */}
+      {ctxMenu && (
+        <div
+          className="absolute z-40 min-w-[210px] rounded-xl border jy-border jy-bg2 shadow-2xl py-1.5 jy-pop-in"
+          style={{ left: Math.min(ctxMenu.x, size.w - 230), top: Math.min(ctxMenu.y, size.h - 320) }}
+        >
+          <p className="px-3 pb-1.5 pt-0.5 text-[9px] font-bold jy-muted uppercase tracking-wider border-b jy-border mb-1 truncate max-w-[210px]">
+            {ctxTarget ? `${ctxTarget.name} · ${ctxTarget.type}` : 'Lienzo del plano'}
+          </p>
+          {ctxTarget && (
+            <>
+              <button onClick={() => { openRadial(ctxTarget); closeCtx() }} className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left text-[12px] jy-text hover:bg-amber-500/10 hover:text-amber-300 transition-colors">
+                <ToolIcon name="CircleDot" size={13} /> Menú radial de {ctxTarget.type}
+              </button>
+              <button onClick={() => { s.setSelection([ctxTarget.id]); s.copySelection(); closeCtx() }} className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left text-[12px] jy-text hover:bg-amber-500/10 hover:text-amber-300 transition-colors">
+                <ToolIcon name="Copy" size={13} /> Copiar <span className="ml-auto text-[9px] jy-muted font-mono">Ctrl+C</span>
+              </button>
+              <button onClick={() => { s.setSelection([ctxTarget.id]); s.cutSelection(); closeCtx() }} className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left text-[12px] jy-text hover:bg-amber-500/10 hover:text-amber-300 transition-colors">
+                <ToolIcon name="Scissors" size={13} /> Cortar <span className="ml-auto text-[9px] jy-muted font-mono">Ctrl+X</span>
+              </button>
+              <button onClick={() => { s.setSelection([ctxTarget.id]); s.rotateSelectionBy(90); closeCtx() }} className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left text-[12px] jy-text hover:bg-amber-500/10 hover:text-amber-300 transition-colors">
+                <ToolIcon name="RotateCw" size={13} /> Girar 90°
+              </button>
+              <button onClick={() => { s.setSelection([ctxTarget.id]); s.deleteSelection(); closeCtx() }} className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left text-[12px] jy-text hover:bg-amber-500/10 hover:text-amber-300 transition-colors">
+                <ToolIcon name="Trash2" size={13} /> Borrar <span className="ml-auto text-[9px] jy-muted font-mono">Supr</span>
+              </button>
+              {ctxTarget.type === 'pin' && (
+                <button onClick={() => {
+                  const target = ctxTarget
+                  closeCtx()
+                  void s.requestPrompt('Respuesta al comentario:', '').then((t) => { if (t && t.trim()) s.addPinReply(target.id, t.trim()) })
+                }} className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left text-[12px] jy-text hover:bg-amber-500/10 hover:text-amber-300 transition-colors">
+                  <ToolIcon name="Reply" size={13} /> Responder comentario
+                </button>
+              )}
+              <div className="my-1 border-t jy-border" />
+            </>
+          )}
+          <button onClick={() => { s.pasteClipboard(toSvg(mouseRef.current.x, mouseRef.current.y)); closeCtx() }} className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left text-[12px] jy-text hover:bg-amber-500/10 hover:text-amber-300 transition-colors">
+            <ToolIcon name="ClipboardPaste" size={13} /> Pegar aquí <span className="ml-auto text-[9px] jy-muted font-mono">Ctrl+V</span>
+          </button>
+          <button onClick={() => { s.runGlobal('armSeleccionar'); closeCtx() }} className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left text-[12px] jy-text hover:bg-amber-500/10 hover:text-amber-300 transition-colors">
+            <ToolIcon name="BoxSelect" size={13} /> Ventana de selección
+          </button>
+          <button onClick={() => { s.selectAll(); closeCtx() }} className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left text-[12px] jy-text hover:bg-amber-500/10 hover:text-amber-300 transition-colors">
+            <ToolIcon name="ListChecks" size={13} /> Seleccionar todo <span className="ml-auto text-[9px] jy-muted font-mono">Ctrl+A</span>
+          </button>
+          <div className="my-1 border-t jy-border" />
+          <button onClick={() => { s.runGlobal('importDxf'); closeCtx() }} className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left text-[12px] jy-text hover:bg-amber-500/10 hover:text-amber-300 transition-colors">
+            <ToolIcon name="FileUp" size={13} /> Importar DXF (AutoCAD)
+          </button>
+          <button onClick={() => { s.runGlobal('showUnderlay'); closeCtx() }} className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left text-[12px] jy-text hover:bg-amber-500/10 hover:text-amber-300 transition-colors">
+            <ToolIcon name="ImagePlus" size={13} /> Underlay de referencia
+          </button>
+          <button onClick={() => { s.toggleOsnap(); closeCtx() }} className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left text-[12px] jy-text hover:bg-amber-500/10 hover:text-amber-300 transition-colors">
+            <ToolIcon name="Magnet" size={13} /> OSNAP {s.osnap ? 'activo' : 'inactivo'} <span className="ml-auto text-[9px] jy-muted font-mono">F3</span>
+          </button>
+          <button onClick={() => { s.fitView(); closeCtx() }} className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left text-[12px] jy-text hover:bg-amber-500/10 hover:text-amber-300 transition-colors">
+            <ToolIcon name="Frame" size={13} /> Ajustar vista
+          </button>
         </div>
       )}
 

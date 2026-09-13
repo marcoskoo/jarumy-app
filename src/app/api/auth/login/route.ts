@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyPassword, createSessionToken } from '@/lib/auth'
+import { verifyTotp } from '@/lib/totp'
 import { ensureSeed, getSettings, logAudit } from '@/lib/settings'
 
 // Control de intentos fallidos (en memoria por proceso)
@@ -29,7 +30,7 @@ export async function POST(req: NextRequest) {
     const user = await db.user.findFirst({ where: { username: key } })
     const ok = user ? verifyPassword(String(password), user.passwordHash) : false
 
-    if (!ok) {
+    if (!ok || !user) {
       const prev = failedAttempts.get(key)?.count ?? 0
       const count = prev + 1
       const lockedUntil = count >= security.maxAttempts ? Date.now() + security.lockMinutes * 60_000 : 0
@@ -43,30 +44,29 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Autenticación en dos factores simulada
-    if (security.twoFactor) {
+    // ---------- 2FA REAL (TOTP RFC 6238 — app autenticadora) ----------
+    // Activo cuando el usuario configuró su secreto TOTP desde el Panel Admin
+    // (cuenta › Seguridad). Tolerancia ±30 s (1 ventana) por desfase de reloj.
+    if (user.totpSecret) {
       if (!otp) {
-        const code = String(Math.floor(100000 + Math.random() * 900000))
-        ;(globalThis as Record<string, unknown>).__jarumy_otp = code
-        if (security.auditEnabled) await logAudit(key, '2fa_codigo_generado', 'App autenticadora Jarumy')
-        return NextResponse.json({ requires2FA: true, hint: code })
+        if (security.auditEnabled) await logAudit(key, '2fa_codigo_requerido', 'TOTP')
+        return NextResponse.json({ requires2FA: true, method: 'totp' }, { status: 401 })
       }
-      const expected = (globalThis as Record<string, unknown>).__jarumy_otp
-      if (String(otp) !== String(expected)) {
-        if (security.auditEnabled) await logAudit(key, '2fa_fallido', 'Código incorrecto')
-        return NextResponse.json({ error: 'Código 2FA incorrecto', requires2FA: true }, { status: 401 })
+      if (!verifyTotp(user.totpSecret, String(otp))) {
+        if (security.auditEnabled) await logAudit(key, '2fa_fallido', 'Código TOTP incorrecto')
+        return NextResponse.json({ error: 'Código de autenticador incorrecto (6 dígitos, vence cada 30 s)', requires2FA: true, method: 'totp' }, { status: 401 })
       }
     }
 
     failedAttempts.delete(key)
     const token = createSessionToken(user.id, user.username, security.sessionTimeout)
     if (security.auditEnabled) {
-      await logAudit(user.username, 'login_exitoso', 'Panel de administración')
+      await logAudit(user.username, 'login_exitoso', user.totpSecret ? 'Panel de administración · 2FA TOTP' : 'Panel de administración')
     }
 
     const res = NextResponse.json({
       ok: true,
-      user: { username: user.username, displayName: user.displayName, role: user.role },
+      user: { username: user.username, displayName: user.displayName, role: user.role, twoFactor: !!user.totpSecret },
     })
     res.cookies.set('jarumy_session', token, {
       httpOnly: true,

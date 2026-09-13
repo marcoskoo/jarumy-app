@@ -39,8 +39,11 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [otp, setOtp] = useState('')
+  const [totp, setTotp] = useState<{ active: boolean; secret?: string | null } | null>(null)
+  const [totpSetup, setTotpSetup] = useState<{ secret: string; uri: string } | null>(null)
+  const [totpCode, setTotpCode] = useState('')
+  const [totpBusy, setTotpBusy] = useState(false)
   const [needs2FA, setNeeds2FA] = useState(false)
-  const [otpHint, setOtpHint] = useState('')
   const [loginError, setLoginError] = useState('')
   const [logging, setLogging] = useState(false)
 
@@ -78,6 +81,15 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
     }
   }, [])
 
+  // estado del 2FA TOTP del usuario (pestaña cuenta)
+  useEffect(() => {
+    if (!user || tab !== 'cuenta') return
+    fetch('/api/auth/totp')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) setTotp({ active: !!d.active, secret: d.secret ?? null }) })
+      .catch(() => { /* sin servidor */ })
+  }, [user, tab])
+
   useEffect(() => { if (s.adminOpen) refresh() }, [s.adminOpen, refresh])
 
   const doLogin = async (e?: React.FormEvent, otpVal?: string) => {
@@ -93,9 +105,10 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
       const data = await res.json()
       if (data.requires2FA) {
         setNeeds2FA(true)
-        setOtpHint(data.hint || '')
-        if (otpVal && data.error) setLoginError(data.error)
-        else toast.info('Se requiere código 2FA — se generó un código simulado')
+        if (data.method === 'totp') {
+          if (otpVal && data.error) setLoginError(data.error)
+          else toast.info('Escriba el código de 6 dígitos de su app autenticadora')
+        }
       } else if (!res.ok) {
         setLoginError(data.error || 'Error de autenticación')
       } else {
@@ -246,14 +259,9 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
                     </div>
                     {needs2FA && (
                       <div className="space-y-1.5 rounded-lg border border-amber-500/40 bg-amber-500/8 p-3">
-                        <Label className="text-[11px] text-amber-300">Código 2FA (simulado)</Label>
+                        <Label className="text-[11px] text-amber-300">Código del autenticador (TOTP · 6 dígitos)</Label>
                         <Input value={otp} onChange={(e) => setOtp(e.target.value)}
-                          placeholder="6 dígitos" inputMode="numeric" className="h-9 bg-black/20 font-mono" />
-                        {otpHint && (
-                          <p className="text-[10px] text-amber-400/80">
-                            App autenticadora Jarumy: <b className="font-mono">{otpHint}</b>
-                          </p>
-                        )}
+                          placeholder="123 456" inputMode="numeric" className="h-9 bg-black/20 font-mono" />
                         <Button type="button" size="sm" className="w-full h-8"
                           onClick={() => doLogin(undefined, otp)} disabled={logging}>
                           Verificar código
@@ -265,9 +273,10 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
                       {logging ? 'Verificando…' : 'Iniciar sesión'}
                     </Button>
                     <div className="rounded-md border jy-border bg-black/15 px-3 py-2 text-[10px] jy-muted leading-relaxed">
-                      <b className="jy-text">Credenciales demo:</b><br />
-                      Usuario: <span className="font-mono text-amber-300">J. Burga</span><br />
-                      Contraseña: <span className="font-mono text-amber-300">BurgaKoo</span>
+                      <b className="jy-text">Primer acceso:</b> el usuario administrador se crea la primera vez que el
+                      servidor arranca. Su contraseña inicial se imprime en el registro del servidor (variable
+                      <span className="font-mono text-amber-300"> JARUMY_ADMIN_PASSWORD</span> para fijarla usted mismo).
+                      Cámbiela luego desde <b>Cuenta y clave</b> y active el 2FA real (TOTP).
                     </div>
                   </form>
                 )}
@@ -477,6 +486,76 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
                     Actualizar contraseña
                   </Button>
                 </form>
+
+                {/* ---------- 2FA REAL (TOTP RFC 6238) ---------- */}
+                <SectionTitle icon="ShieldCheck" title="Doble factor (TOTP real)" desc="App autenticadora: Google Authenticator, Authy, 1Password, Bitwarden…" />
+                <div className="rounded-xl border jy-border jy-bg2 p-4 space-y-3">
+                  {totp?.active && !totpSetup && (
+                    <div className="flex items-center gap-2 text-[12px] text-emerald-400 font-bold">
+                      <ToolIcon name="ShieldCheck" size={15} /> 2FA ACTIVO — el login exige el código de 6 dígitos
+                      <span className="ml-auto" />
+                      <Button type="button" variant="outline" size="sm" className="h-8"
+                        onClick={async () => {
+                          const pw = await useJarumy.getState().requestPrompt('Código actual del autenticador (para confirmar la desactivación):')
+                          if (!pw || !pw.trim()) return
+                          setTotpBusy(true)
+                          try {
+                            const r = await fetch('/api/auth/totp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'disable', code: pw }) })
+                            const d = await r.json()
+                            if (r.ok) { setTotp({ active: false }); toast.success('2FA desactivado') } else toast.error(d.error || 'No se pudo desactivar')
+                          } finally { setTotpBusy(false) }
+                        }} disabled={totpBusy}>
+                        Desactivar
+                      </Button>
+                    </div>
+                  )}
+                  {!totp?.active && !totpSetup && (
+                    <Button type="button" className="w-full"
+                      onClick={async () => {
+                        setTotpBusy(true)
+                        try {
+                          const r = await fetch('/api/auth/totp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'setup' }) })
+                          const d = await r.json()
+                          if (r.ok) { setTotpSetup({ secret: d.secret, uri: d.uri }); toast.success('Secreto generado — añádalo a su autenticadora') }
+                          else toast.error(d.error || 'No se pudo generar el secreto')
+                        } finally { setTotpBusy(false) }
+                      }} disabled={totpBusy}>
+                      <ToolIcon name="QrCode" size={14} className="mr-1.5" /> Configurar 2FA con app autenticadora
+                    </Button>
+                  )}
+                  {totpSetup && (
+                    <div className="space-y-2.5">
+                      <p className="text-[11px] jy-muted leading-relaxed">
+                        1. Añada esta cuenta en su app autenticadora (ingreso manual con la clave o el URI otpauth).
+                      </p>
+                      <div className="rounded-lg border jy-border bg-black/30 px-3 py-2 font-mono text-[12px] tracking-[0.18em] text-amber-300 select-all text-center">
+                        {totpSetup.secret}
+                      </div>
+                      <p className="text-[9.5px] jy-muted break-all font-mono">{totpSetup.uri}</p>
+                      <p className="text-[11px] jy-muted">2. Escriba el código de 6 dígitos que muestra la app para confirmar:</p>
+                      <div className="flex gap-2">
+                        <Input value={totpCode} onChange={(e) => setTotpCode(e.target.value)} placeholder="123 456"
+                          inputMode="numeric" className="h-9 bg-black/20 font-mono" />
+                        <Button type="button" disabled={totpCode.length < 6 || totpBusy}
+                          onClick={async () => {
+                            setTotpBusy(true)
+                            try {
+                              const r = await fetch('/api/auth/totp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'verify', code: totpCode }) })
+                              const d = await r.json()
+                              if (r.ok) { setTotp({ active: true }); setTotpSetup(null); setTotpCode(''); toast.success('2FA activado — el login exigirá su código') }
+                              else toast.error(d.error || 'Código incorrecto')
+                            } finally { setTotpBusy(false) }
+                          }}>
+                          Confirmar
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  <p className="text-[10px] jy-muted leading-relaxed">
+                    Estándar RFC 6238 (SHA-1, 30 s, 6 dígitos) verificado contra los vectores oficiales.
+                    Sin códigos simulados: el secreto vive solo en la base de datos y en su app.
+                  </p>
+                </div>
               </div>
             )}
 

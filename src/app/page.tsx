@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { useJarumy } from '@/lib/store'
 import { TOTAL_TOOLS } from '@/lib/tools-data'
@@ -23,6 +23,14 @@ import {
 } from '@/components/jarumy/FeatureDialogs'
 import AdminPanel, { PRIMARY_PRESETS } from '@/components/jarumy/AdminPanel'
 import { ToolIcon } from '@/components/jarumy/ToolIcon'
+import { PromptDialog } from '@/components/jarumy/PromptDialog'
+import { UnderlayDialog } from '@/components/jarumy/UnderlayDialog'
+import { ThermalDialog, AccessibilityDialog, EvacuationDialog, PvDialog } from '@/components/jarumy/AnalysisDialogs'
+import { CloudDialog } from '@/components/jarumy/CloudDialog'
+import { AiPlanDialog, AiNormaDialog } from '@/components/jarumy/AiDialogs'
+import { Walkthrough3DDialog } from '@/components/jarumy/Walkthrough3DDialog'
+import { readDxfFile } from '@/lib/dxf-import'
+import { stopCollabSession } from '@/lib/collab-client'
 
 type MobileSheet = 'menu' | 'layers' | 'props' | null
 
@@ -38,7 +46,6 @@ function HeaderLogo({ initial, className }: { initial: string; className?: strin
     )
   }
   return (
-    // eslint-disable-next-line @next/next/no-img-element
     <img
       src="/logo-jarumy.png"
       alt="Arq. Jarumy"
@@ -103,16 +110,60 @@ export default function JarumyApp() {
     })
   }, [])
 
+  // ---------- PWA: registro del service worker (offline) ----------
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => { /* sin SW */ })
+    }
+  }, [])
+
+  // ---------- importación de DXF (input oculto + evento de la consola) ----------
+  const dxfInputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    const trigger = () => dxfInputRef.current?.click()
+    window.addEventListener('jarumy-import-dxf', trigger)
+    return () => window.removeEventListener('jarumy-import-dxf', trigger)
+  }, [])
+
+  // ---------- apertura de enlaces compartidos (?plano=token) ----------
+  useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get('plano')
+    if (!token) return
+    useJarumy.getState().pushConsole({ text: `PLANO COMPARTIDO detectado (${token.slice(0, 10)}…) — ábralo desde NUBE › Sesión en vivo › Unirme con enlace`, kind: 'out' })
+    // precarga el plano compartido (solo lectura o edición según permiso)
+    fetch(`/api/share/${token}`).then((r) => (r.ok ? r.json() : null)).then((d) => {
+      if (!d?.data) return
+      try {
+        const data = JSON.parse(d.data)
+        if (Array.isArray(data.elements)) {
+          useJarumy.setState({ elements: data.elements, mods: data.mods || {}, undoStack: [], redoStack: [] })
+          useJarumy.getState().setCloud({ planId: d.plan.id, planName: d.plan.name, projectName: d.plan.projectName, status: 'saved' })
+          useJarumy.getState().setCollab({ token, permission: d.permission === 'edit' ? 'edit' : 'view' })
+          useJarumy.getState().pushConsole({ text: `PLANO COMPARTIDO cargado: "${d.plan.name}" (${d.permission === 'edit' ? 'EDICIÓN' : 'solo lectura'}) — inicie la sesión en vivo para colaborar`, kind: 'out' })
+          toast.success('Plano compartido cargado', { description: `${d.plan.name} · ${d.permission === 'edit' ? 'permiso de edición' : 'solo lectura'}` })
+        }
+      } catch { /* enlace corrupto */ }
+    }).catch(() => { /* sin servidor */ })
+  }, [])
+
+  // cierra el canal colaborativo al salir de la página
+  useEffect(() => () => stopCollabSession(true), [])
+
   // ---------- acciones del menú móvil ----------
   const menuActions = [
     { icon: 'FileDown', label: 'PDF a escala', detail: 'Exportación vectorial 1:25 – 1:250 con cartela', fn: () => s.setDialog('pdf'), highlight: true },
+    { icon: 'CloudUpload', label: 'Nube y colaboración', detail: 'Planos en el servidor · enlaces · sesión en vivo', fn: () => s.setDialog('cloud') },
+    { icon: 'Sparkles', label: 'IA arquitectónica', detail: 'Genera plantas desde texto · revisor RNE', fn: () => s.setDialog('aiplan') },
+    { icon: 'Footprints', label: 'Walkthrough 3D', detail: 'Recorrido en 1ª persona (WASD)', fn: () => s.setDialog('walkthrough') },
     { icon: 'Blocks', label: `Bloques (${BLOCK_LIBRARY.length})`, detail: 'Biblioteca con vista previa y buscador', fn: () => s.setDialog('blocks') },
     { icon: 'Box', label: 'Vista 3D', detail: 'Axonometría interactiva con órbita', fn: () => s.setDialog('iso3d') },
     { icon: 'Landmark', label: 'Elevaciones', detail: 'Vistas N/S/E/O y sección automática', fn: () => s.setDialog('elevations') },
     { icon: 'Scale', label: 'Normativa RNE', detail: 'Verificación A.010 · A.130 en el plano', fn: () => s.setDialog('normativa') },
     { icon: 'Calculator', label: 'Metrados S10', detail: 'Presupuesto por partidas → Excel', fn: () => s.setDialog('metrados') },
+    { icon: 'Thermometer', label: 'Térmica E.020', detail: 'U de muros/techos + condensación', fn: () => s.setDialog('thermal') },
+    { icon: 'SolarPower', label: 'Fotovoltaico', detail: 'kWp · kWh/año · ahorro · payback', fn: () => s.setDialog('fotovoltaico') },
     { icon: 'Sun', label: 'Heliodón', detail: 'Sol, sombras y trayectorias reales', fn: () => s.runGlobal('toggleSun') },
-    { icon: 'Library', label: `Catálogo (${TOTAL_TOOLS})`, detail: 'Herramientas recopiladas de 10 apps', fn: () => s.setDialog('catalog') },
+    { icon: 'Library', label: `Catálogo (${TOTAL_TOOLS})`, detail: 'Herramientas recopiladas de 11 apps', fn: () => s.setDialog('catalog') },
     { icon: 'ClipboardList', label: 'Cuadro BIM', detail: 'Espacios, áreas y acabados + exportar a Excel', fn: () => s.setDialog('schedule') },
     { icon: 'Share2', label: 'Compartir e historial', detail: 'Plano .json + versiones guardadas', fn: () => s.setDialog('share') },
   ]
@@ -345,6 +396,44 @@ export default function JarumyApp() {
       <CollabDialog />
       <FamiliasDialog />
       <BlockEditorDialog />
+
+      {/* ---------- diálogos nuevos (Olas 1–7) ---------- */}
+      <PromptDialog />
+      <UnderlayDialog />
+      <ThermalDialog />
+      <AccessibilityDialog />
+      <EvacuationDialog />
+      <PvDialog />
+      <CloudDialog />
+      <AiPlanDialog />
+      <AiNormaDialog />
+      <Walkthrough3DDialog />
+
+      {/* ---------- entrada oculta de DXF ---------- */}
+      <input
+        ref={dxfInputRef}
+        type="file"
+        accept=".dxf,text/plain,application/dxf"
+        className="hidden"
+        onChange={async (e) => {
+          const f = e.target.files?.[0]
+          e.target.value = ''
+          if (!f) return
+          useJarumy.getState().pushConsole({ text: `IMPORTAR DXF: leyendo "${f.name}" (${(f.size / 1024).toFixed(1)} KB)…`, kind: 'out' })
+          try {
+            const els = await readDxfFile(f)
+            if (!els.length) {
+              useJarumy.getState().pushConsole({ text: 'IMPORTAR DXF: el archivo no contiene entidades soportadas (LINE/CIRCLE/ARC/TEXT/POLYLINE)', kind: 'err' })
+              return
+            }
+            useJarumy.getState().importElements(els, 'DXF importado')
+            useJarumy.getState().fitView()
+            toast.success('DXF importado', { description: `${els.length} entidades trazadas sobre el plano` })
+          } catch (err) {
+            useJarumy.getState().pushConsole({ text: `IMPORTAR DXF: archivo corrupto o incompatible (${(err as Error).message.slice(0, 60)})`, kind: 'err' })
+          }
+        }}
+      />
 
       {/* ---------- panel de administración ---------- */}
       <AdminPanel onDesignChange={applyDesign} />

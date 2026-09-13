@@ -1364,7 +1364,7 @@ export function FamiliasDialog() {
   const placed = useMemo(() => {
     const alive = s.elements.filter((e) => !s.mods[e.id]?.deleted)
     return alive.filter((e) => e.type === 'mobiliario' || e.type === 'sanitario').length
-  }, [s.elements])
+  }, [s.elements, s.mods])
 
   const list = cat === 'todas' ? BLOCK_LIBRARY : BLOCK_LIBRARY.filter((b) => b.cat === cat)
 

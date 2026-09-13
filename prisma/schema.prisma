@@ -13,8 +13,49 @@ model User {
   passwordHash String
   displayName  String?
   role         String   @default("admin")
+  totpSecret   String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  plans        Plan[]
+}
+
+// ---------- Planos en la nube (Ola 3) + colaboración (Ola 4) ----------
+
+model Plan {
+  id          String        @id @default(cuid())
+  ownerId     String
+  owner       User          @relation(fields: [ownerId], references: [id])
+  name        String
+  projectName String        @default("Proyecto sin nombre")
+  data        String // JSON { elements, mods, layers, gridSpacing, savedAt }
+  thumbnail   String? // dataURL PNG
+  revision    Int           @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  deletedAt   DateTime?
+  versions    PlanVersion[]
+  shares      SharedLink[]
+}
+
+model PlanVersion {
+  id        String   @id @default(cuid())
+  planId    String
+  plan      Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  name      String
+  data      String
+  createdAt DateTime @default(now())
+}
+
+model SharedLink {
+  id           String    @id @default(cuid())
+  token        String    @unique
+  planId       String
+  plan         Plan      @relation(fields: [planId], references: [id], onDelete: Cascade)
+  permission   String    @default("view") // view | edit
+  createdBy    String
+  createdAt    DateTime  @default(now())
+  lastAccessAt DateTime?
+  revoked      Boolean   @default(false)
 }
 
 model Setting {

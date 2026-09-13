@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client'
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
   schemaReady: boolean | undefined
+  plansSchemaReady: boolean | undefined
 }
 
 // ---------- Base de datos (PostgreSQL) ----------
@@ -60,6 +61,58 @@ const SCHEMA_DDL = [
   )`,
 ]
 
+// ---------- Planos en la nube (Ola 3) + enlaces compartidos (Ola 4) ----------
+// DDL idempotente (IF NOT EXISTS en cada sentencia): se ejecuta una vez por
+// proceso y auto-repara tanto una BD en frío como una BD existente a la que
+// falten las tablas/columnas nuevas (equivalente a `prisma db push` parcial).
+
+const PLANS_DDL = [
+  `CREATE TABLE IF NOT EXISTS "Plan" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "ownerId" TEXT NOT NULL REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    "name" TEXT NOT NULL,
+    "projectName" TEXT NOT NULL DEFAULT 'Proyecto sin nombre',
+    "data" TEXT NOT NULL,
+    "thumbnail" TEXT,
+    "revision" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "deletedAt" TIMESTAMP(3)
+  )`,
+  `CREATE TABLE IF NOT EXISTS "PlanVersion" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "planId" TEXT NOT NULL REFERENCES "Plan"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    "name" TEXT NOT NULL,
+    "data" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE TABLE IF NOT EXISTS "SharedLink" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "token" TEXT NOT NULL UNIQUE,
+    "planId" TEXT NOT NULL REFERENCES "Plan"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    "permission" TEXT NOT NULL DEFAULT 'view',
+    "createdBy" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "lastAccessAt" TIMESTAMP(3),
+    "revoked" BOOLEAN NOT NULL DEFAULT false
+  )`,
+  // Evolución de columnas (BD pre-existentes)
+  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "totpSecret" TEXT`,
+  `ALTER TABLE "Plan" ADD COLUMN IF NOT EXISTS "projectName" TEXT NOT NULL DEFAULT 'Proyecto sin nombre'`,
+  `ALTER TABLE "Plan" ADD COLUMN IF NOT EXISTS "thumbnail" TEXT`,
+  `ALTER TABLE "Plan" ADD COLUMN IF NOT EXISTS "revision" INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE "Plan" ADD COLUMN IF NOT EXISTS "deletedAt" TIMESTAMP(3)`,
+  `ALTER TABLE "PlanVersion" ADD COLUMN IF NOT EXISTS "name" TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE "SharedLink" ADD COLUMN IF NOT EXISTS "lastAccessAt" TIMESTAMP(3)`,
+  `ALTER TABLE "SharedLink" ADD COLUMN IF NOT EXISTS "revoked" BOOLEAN NOT NULL DEFAULT false`,
+  // Índices (mismos nombres que genera Prisma)
+  `CREATE INDEX IF NOT EXISTS "Plan_ownerId_idx" ON "Plan"("ownerId")`,
+  `CREATE INDEX IF NOT EXISTS "Plan_ownerId_deletedAt_idx" ON "Plan"("ownerId", "deletedAt")`,
+  `CREATE INDEX IF NOT EXISTS "PlanVersion_planId_idx" ON "PlanVersion"("planId")`,
+  `CREATE INDEX IF NOT EXISTS "SharedLink_planId_idx" ON "SharedLink"("planId")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "SharedLink_token_key" ON "SharedLink"("token")`,
+]
+
 export async function ensureSchema(): Promise<void> {
   if (globalForPrisma.schemaReady) return
   try {
@@ -70,6 +123,11 @@ export async function ensureSchema(): Promise<void> {
     if (!exists) {
       for (const ddl of SCHEMA_DDL) await db.$executeRawUnsafe(ddl)
       console.log('[jarumy] ensureSchema: esquema creado')
+    }
+    if (!globalForPrisma.plansSchemaReady) {
+      for (const ddl of PLANS_DDL) await db.$executeRawUnsafe(ddl)
+      globalForPrisma.plansSchemaReady = true
+      console.log('[jarumy] ensureSchema: esquema de planos verificado (Plan/PlanVersion/SharedLink)')
     }
   } catch (err) {
     console.error('[jarumy] ensureSchema:', err)

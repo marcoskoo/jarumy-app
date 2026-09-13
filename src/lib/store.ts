@@ -13,6 +13,8 @@ import {
   downloadPlanJson, parsePlanFile, listVersions, saveVersion, deleteVersion, type PlanSnapshotData,
 } from '@/lib/plan-files'
 import { saveAutosave, loadAutosave, clearAutosave, readAutosavePref, writeAutosavePref } from './autosave'
+import { DEFAULT_OSNAP_MODES, type OsnapModes } from './osnap'
+import type { ImageGeo, PinGeo } from './plan-data'
 
 // ---------------- tipos ----------------
 
@@ -96,6 +98,7 @@ interface JarumyState {
   // ui
   hovered: HoverInfo | null
   selectedId: string | null
+  selectedIds: string[]          // multi-selección (marquee / Ctrl+clic)
   activeTab: string
   drawTool: string | null
   drawPts: number[][]
@@ -106,11 +109,42 @@ interface JarumyState {
   areaLabels: boolean
   autoDims: boolean
   insertRotation: number
+  // osnap (referencias de objeto reales — F3)
+  osnap: boolean
+  osnapModes: OsnapModes
+  // voz (Web Speech API)
+  voiceActive: boolean
+  // portapapeles interno de elementos (Ctrl+C/V/X)
+  clipboard: { elements: PlanElement[]; mods: Record<string, Mod> } | null
+  // prompt in-app (reemplaza window.prompt)
+  promptState: { label: string; def: string; resolve: (v: string | null) => void } | null
+  // nube: plano sincronizado en el servidor
+  cloud: {
+    planId: string | null
+    planName: string
+    projectName: string
+    status: 'off' | 'idle' | 'saving' | 'saved' | 'error'
+    lastSyncAt: number | null
+    revision: number
+    dirty: boolean
+  }
+  // sesión colaborativa en vivo (socket.io)
+  collab: {
+    active: boolean
+    token: string | null
+    permission: 'view' | 'edit'
+    peers: string[]
+    user: string
+    messages: Array<{ user: string; text: string; at: number }>
+  }
+  // guard: aplicando un plano remoto (evita eco en el puente de sync)
+  applyingRemote: boolean
   sun: SunSettings
   dialog: 'schedule' | 'catalog' | 'energy' | 'clash' | 'blocks' | 'pdf'
     | 'elevations' | 'iso3d' | 'normativa' | 'metrados' | 'versions' | 'escalera' | 'techo' | 'share'
     | 'quickselect' | 'lighting' | 'acoustic' | 'phases' | 'structural' | 'collab' | 'familias'
-    | 'blockeditor' | null
+    | 'blockeditor' | 'cloud' | 'thermal' | 'accesibilidad' | 'evacuacion' | 'fotovoltaico'
+    | 'aiplan' | 'ainorma' | 'walkthrough' | 'underlay' | null
   phaseFilter: Phase | null
   adminOpen: boolean
   fitTick: number
@@ -134,6 +168,27 @@ interface JarumyState {
   // acciones
   setHovered: (h: HoverInfo | null) => void
   setSelected: (id: string | null) => void
+  setSelection: (ids: string[]) => void
+  toggleSelection: (id: string) => void
+  selectAll: () => void
+  copySelection: () => void
+  cutSelection: () => void
+  pasteClipboard: (at?: [number, number]) => void
+  deleteSelection: () => void
+  nudgeSelection: (dx: number, dy: number) => void
+  rotateSelectionBy: (deg: number) => void
+  requestPrompt: (label: string, def?: string) => Promise<string | null>
+  answerPrompt: (value: string | null) => void
+  toggleOsnap: () => void
+  setOsnapModes: (m: Partial<OsnapModes>) => void
+  insertUnderlay: (src: string, w: number, h: number, name: string, kind: 'imagen' | 'pdf', page?: number) => void
+  addPinReply: (pinId: string, text: string) => void
+  importElements: (els: PlanElement[], source?: string, mods?: Record<string, Mod>) => void
+  updateElementGeo: (id: string, mutate: (geo: Record<string, unknown>) => Record<string, unknown>) => void
+  beginHistory: () => void
+  setCloud: (p: Partial<JarumyState['cloud']>) => void
+  setCollab: (p: Partial<JarumyState['collab']>) => void
+  applyRemotePlan: (data: { elements: PlanElement[]; mods: Record<string, Mod>; layers?: unknown; gridSpacing?: number }) => void
   setActiveTab: (t: string) => void
   armDraw: (tool: string | null) => void
   addDrawPoint: (p: number[]) => void
@@ -317,6 +372,7 @@ export const useJarumy = create<JarumyState>((set, get) => ({
   ortho: true,
   hovered: null,
   selectedId: null,
+  selectedIds: [],
   activeTab: 'inicio',
   drawTool: null,
   drawPts: [],
@@ -327,6 +383,14 @@ export const useJarumy = create<JarumyState>((set, get) => ({
   areaLabels: true,
   autoDims: true,
   insertRotation: 0,
+  osnap: true,
+  osnapModes: { ...DEFAULT_OSNAP_MODES },
+  voiceActive: false,
+  clipboard: null,
+  promptState: null,
+  cloud: { planId: null, planName: '', projectName: 'Proyecto sin nombre', status: 'off', lastSyncAt: null, revision: 0, dirty: false },
+  collab: { active: false, token: null, permission: 'view', peers: [], user: 'Invitado', messages: [] },
+  applyingRemote: false,
   sun: { active: false, lat: -12, day: dayOfYear(3, 21), hour: 12, wallH: 2.5, showPath: true },
   dialog: null,
   phaseFilter: null,
@@ -352,7 +416,217 @@ export const useJarumy = create<JarumyState>((set, get) => ({
     hovered: h,
     selectedId: h ? h.id : s.selectedId,
   })),
-  setSelected: (id) => set({ selectedId: id }),
+  setSelected: (id) => set({ selectedId: id, selectedIds: id ? [id] : [] }),
+
+  // ---------- multi-selección / portapapeles / edición grupal ----------
+  setSelection: (ids) => set((s) => ({
+    selectedIds: ids,
+    selectedId: ids.length === 1 ? ids[0] : (ids.length ? s.selectedId : null),
+  })),
+  toggleSelection: (id) => set((s) => {
+    const has = s.selectedIds.includes(id)
+    const ids = has ? s.selectedIds.filter((x) => x !== id) : [...s.selectedIds, id]
+    return { selectedIds: ids, selectedId: ids.length === 1 ? ids[0] : null }
+  }),
+  selectAll: () => {
+    const s = get()
+    const ids = s.elements.filter((e) => !s.mods[e.id]?.deleted).map((e) => e.id)
+    set({ selectedIds: ids })
+    s.pushConsole({ text: `SELECCIONAR TODO: ${ids.length} objetos en el conjunto de selección (Ctrl+clic agrega/quita · arrastre con Shift = ventana)`, kind: 'out' })
+  },
+  copySelection: () => {
+    const s = get()
+    const ids = s.selectedIds.length ? s.selectedIds : (s.selectedId ? [s.selectedId] : [])
+    if (!ids.length) { s.pushConsole({ text: 'COPIAR: no hay selección activa (clic sobre objetos o arrastre con Shift)', kind: 'err' }); return }
+    const els = s.elements.filter((e) => ids.includes(e.id) && !s.mods[e.id]?.deleted)
+    const mods: Record<string, Mod> = {}
+    ids.forEach((id) => { if (s.mods[id]) mods[id] = clone(s.mods[id]) })
+    set({ clipboard: { elements: clone(els), mods } })
+    s.pushConsole({ text: `COPIAR: ${els.length} objeto${els.length !== 1 ? 's' : ''} al portapapeles de la app (Ctrl+V para pegar)`, kind: 'out' })
+  },
+  cutSelection: () => {
+    const s = get()
+    const ids = s.selectedIds.length ? s.selectedIds : (s.selectedId ? [s.selectedId] : [])
+    if (!ids.length) return
+    get().copySelection()
+    set((st) => ({
+      undoStack: [...st.undoStack.slice(-29), snapshot(st)], redoStack: [],
+      mods: ids.reduce((acc, id) => { acc[id] = { ...(st.mods[id] || {}), deleted: true }; return acc }, { ...st.mods }),
+    }))
+    s.pushConsole({ text: `CORTAR: ${ids.length} objeto${ids.length !== 1 ? 's' : ''} al portapapeles (pegar con Ctrl+V)`, kind: 'out' })
+  },
+  pasteClipboard: (at) => {
+    const s = get()
+    if (!s.clipboard || !s.clipboard.elements.length) { s.pushConsole({ text: 'PEGAR: el portapapeles está vacío (Ctrl+C sobre una selección)', kind: 'err' }); return }
+    set((st) => ({ undoStack: [...st.undoStack.slice(-29), snapshot(st)], redoStack: [] }))
+    const src = s.clipboard
+    // punto de pegado: cursor del plano o desplazamiento fijo de 0.40 m
+    let ax = 0, ay = 0
+    if (at) { ax = at[0]; ay = at[1] }
+    else if (s.drawTool === null && (s.cursorSvg[0] || s.cursorSvg[1])) { ax = s.cursorSvg[0]; ay = s.cursorSvg[1] }
+    const xs = src.elements.flatMap((e) => {
+      const g = e.geo as unknown as Record<string, unknown>
+      if (Array.isArray(g.pts) && (g.pts as number[][]).length) return (g.pts as number[][]).map((p) => p[0])
+      if (g.x1 !== undefined) return [g.x1 as number, g.x2 as number]
+      if (g.cx !== undefined) return [g.cx as number]
+      if (g.x !== undefined) return [g.x as number]
+      return [0]
+    })
+    const ys = src.elements.flatMap((e) => {
+      const g = e.geo as unknown as Record<string, unknown>
+      if (Array.isArray(g.pts) && (g.pts as number[][]).length) return (g.pts as number[][]).map((p) => p[1])
+      if (g.y1 !== undefined) return [g.y1 as number, g.y2 as number]
+      if (g.cy !== undefined) return [g.cy as number]
+      if (g.y !== undefined) return [g.y as number]
+      return [0]
+    })
+    const ox = xs.length ? ax - (Math.min(...xs) + Math.max(...xs)) / 2 : 24
+    const oy = ys.length ? ay - (Math.min(...ys) + Math.max(...ys)) / 2 : 24
+    const newEls: PlanElement[] = src.elements.map((e) => {
+      const g = clone(e.geo) as Record<string, unknown>
+      if (Array.isArray(g.pts)) g.pts = (g.pts as number[][]).map((p) => [p[0] + ox, p[1] + oy])
+      for (const k of ['x', 'x1', 'x2', 'cx']) if (g[k] !== undefined) g[k] = (g[k] as number) + ox
+      for (const k of ['y', 'y1', 'y2', 'cy']) if (g[k] !== undefined) g[k] = (g[k] as number) + oy
+      return { ...e, id: uid(), geo: g as unknown as typeof e.geo, name: `${e.name} (pegado)` }
+    })
+    const newMods: Record<string, Mod> = {}
+    // los mods pegados conservan estilo pero no posición de origen (la geometría ya se movió)
+    src.elements.forEach((e, i) => {
+      const m = src.mods[e.id]
+      if (m) newMods[newEls[i].id] = { ...m, deleted: false, translate: undefined }
+    })
+    set((st) => ({
+      elements: [...st.elements, ...newEls],
+      mods: { ...st.mods, ...newMods },
+      selectedIds: newEls.map((e) => e.id),
+      selectedId: newEls[0]?.id ?? null,
+    }))
+    s.pushConsole({ text: `PEGAR: ${newEls.length} objeto${newEls.length !== 1 ? 's' : ''} insertado${newEls.length !== 1 ? 's' : ''} en X ${(ax / PX_PER_M).toFixed(2)} · Y ${(ay / PX_PER_M).toFixed(2)} m`, kind: 'out' })
+  },
+  deleteSelection: () => {
+    const s = get()
+    const ids = s.selectedIds.length ? s.selectedIds : (s.selectedId ? [s.selectedId] : [])
+    if (!ids.length) { s.pushConsole({ text: 'BORRAR: no hay selección activa', kind: 'err' }); return }
+    set((st) => ({
+      undoStack: [...st.undoStack.slice(-29), snapshot(st)], redoStack: [],
+      mods: ids.reduce((acc, id) => { acc[id] = { ...(st.mods[id] || {}), deleted: true }; return acc }, { ...st.mods }),
+      selectedIds: [], selectedId: null,
+    }))
+    s.pushConsole({ text: `BORRAR: ${ids.length} objeto${ids.length !== 1 ? 's' : ''} eliminado${ids.length !== 1 ? 's' : ''} (Supr o Ctrl+Z para deshacer)`, kind: 'out' })
+  },
+  nudgeSelection: (dx, dy) => {
+    const s = get()
+    const ids = s.selectedIds.length ? s.selectedIds : (s.selectedId ? [s.selectedId] : [])
+    if (!ids.length) return
+    set((st) => ({
+      mods: ids.reduce((acc, id) => {
+        const t = (st.mods[id]?.translate) || [0, 0] as [number, number]
+        acc[id] = { ...(st.mods[id] || {}), translate: [t[0] + dx, t[1] + dy] }
+        return acc
+      }, { ...st.mods }),
+    }))
+  },
+  rotateSelectionBy: (deg) => {
+    const s = get()
+    const ids = s.selectedIds.length ? s.selectedIds : (s.selectedId ? [s.selectedId] : [])
+    if (!ids.length) { s.pushConsole({ text: 'GIRAR: no hay selección activa', kind: 'err' }); return }
+    set((st) => ({
+      undoStack: [...st.undoStack.slice(-29), snapshot(st)], redoStack: [],
+      mods: ids.reduce((acc, id) => {
+        acc[id] = { ...(st.mods[id] || {}), rotation: ((st.mods[id]?.rotation ?? 0) + deg) % 360 }
+        return acc
+      }, { ...st.mods }),
+    }))
+    s.pushConsole({ text: `GIRAR: ${ids.length} objeto${ids.length !== 1 ? 's' : ''} rotado${ids.length !== 1 ? 's' : ''} ${deg}° alrededor de su centroide`, kind: 'out' })
+  },
+
+  // ---------- prompt in-app (reemplaza window.prompt) ----------
+  requestPrompt: (label, def = '') => new Promise<string | null>((resolve) => {
+    set({ promptState: { label, def, resolve } })
+  }),
+  answerPrompt: (value) => {
+    const p = get().promptState
+    if (p) { p.resolve(value); set({ promptState: null }) }
+  },
+
+  // ---------- osnap ----------
+  toggleOsnap: () => {
+    const next = !get().osnap
+    set({ osnap: next })
+    get().pushConsole({ text: `OSNAP ${next ? 'ACTIVADO — imanes a extremos, medios, centros e intersecciones (F3)' : 'desactivado — solo rejilla'}`, kind: 'out' })
+  },
+  setOsnapModes: (m) => set((s) => ({ osnapModes: { ...s.osnapModes, ...m } })),
+
+  // ---------- underlay de referencia (imagen / PDF) ----------
+  insertUnderlay: (src, w, h, name, kind, page) => {
+    set((st) => ({ undoStack: [...st.undoStack.slice(-29), snapshot(st)], redoStack: [] }))
+    // escala para caber en el área de dibujo (máx 900×600 px) conservando aspecto
+    const k = Math.min(900 / w, 600 / h, 1)
+    const geo: ImageGeo = {
+      kind, x: 150 + (900 - w * k) / 2, y: 100 + (600 - h * k) / 2,
+      w: w * k, h: h * k, src, opacity: 0.85, name, page: page ?? 1,
+    }
+    const id = uid()
+    set((st) => ({
+      elements: [...st.elements, {
+        id, type: 'imagen', layer: 'referencias',
+        name: kind === 'pdf' ? `Underlay PDF: ${name}` : `Underlay imagen: ${name}`,
+        geo,
+      }],
+      dialog: null,
+    }))
+    get().pushConsole({ text: `UNDERLAY ${kind === 'pdf' ? 'PDF' : 'IMAGEN'} insertado: ${name} · ${(geo.w / PX_PER_M).toFixed(1)}×${(geo.h / PX_PER_M).toFixed(1)} m · calque encima y ajuste opacidad desde el menú radial (capa Referencias)`, kind: 'out' })
+  },
+
+  // ---------- respuestas en pins (conversaciones) ----------
+  addPinReply: (pinId, text) => {
+    const s = get()
+    const pin = s.elements.find((e) => e.id === pinId && e.type === 'pin')
+    if (!pin) return
+    set((st) => ({ undoStack: [...st.undoStack.slice(-29), snapshot(st)], redoStack: [] }))
+    set((st) => ({
+      elements: st.elements.map((e) => {
+        if (e.id !== pinId) return e
+        const g = e.geo as PinGeo
+        return { ...e, geo: { ...g, replies: [...(g.replies || []), { author: s.collab.user === 'Invitado' ? 'J. Burga' : s.collab.user, text, at: Date.now() }] } as typeof e.geo }
+      }),
+    }))
+    const n = ((pin.geo as PinGeo).replies?.length ?? 0) + 1
+    s.pushConsole({ text: `RESPUESTA #${n} añadida al pin "${(pin.geo as PinGeo).text.slice(0, 40)}…" — el hilo se muestra junto al pin`, kind: 'out' })
+  },
+
+  // ---------- importación de elementos (DXF / IA) ----------
+  importElements: (els, source = 'importación', extraMods) => {
+    if (!els.length) return
+    set((st) => ({ undoStack: [...st.undoStack.slice(-29), snapshot(st)], redoStack: [] }))
+    set((st) => ({
+      elements: [...st.elements, ...els],
+      mods: extraMods && Object.keys(extraMods).length ? { ...st.mods, ...extraMods } : st.mods,
+    }))
+    get().pushConsole({ text: `${source.toUpperCase()}: ${els.length} elementos agregados al plano (capas conservadas · Ctrl+Z para revertir)`, kind: 'out' })
+  },
+
+  // ---------- edición de geometría directa (grips) ----------
+  beginHistory: () => set((st) => ({ undoStack: [...st.undoStack.slice(-29), snapshot(st)], redoStack: [] })),
+  updateElementGeo: (id, mutate) => set((st) => ({
+    elements: st.elements.map((e) => e.id === id
+      ? { ...e, geo: mutate(clone(e.geo) as unknown as Record<string, unknown>) as unknown as typeof e.geo }
+      : e),
+  })),
+
+  setCloud: (p) => set((s) => ({ cloud: { ...s.cloud, ...p } })),
+  setCollab: (p) => set((s) => ({ collab: { ...s.collab, ...p } })),
+  applyRemotePlan: (data) => {
+    // aplica un plano recibido del colaborativo (sin empujar historial ni disparar eco)
+    set((st) => ({
+      applyingRemote: true,
+      elements: data.elements,
+      mods: data.mods,
+      gridSpacing: data.gridSpacing ?? st.gridSpacing,
+    }))
+    setTimeout(() => useJarumy.setState({ applyingRemote: false }), 60)
+  },
+
   setActiveTab: (t) => set({ activeTab: t }),
   armDraw: (tool) => set((s) => ({
     drawTool: tool,
@@ -368,7 +642,39 @@ export const useJarumy = create<JarumyState>((set, get) => ({
     if (polyFamily.includes(t || '') && s.drawPts.length >= 2) {
       const tool = t as string
       const pts = [...s.drawPts]
-      set((st) => ({ undoStack: [...st.undoStack.slice(-29), snapshot(st)] }))
+      if (tool === 'hatch') {
+        // patrón elegido en diálogo in-app (1 = ANSI31 · 2 = AR-B816 · 3 = GRAVEL · 4 = AR-CONC)
+        void s.requestPrompt('Patrón de hachurado (1=ANSI31 concreto · 2=AR-B816 ladrillo · 3=GRAVEL grava · 4=AR-CONC mosaico):', '2').then((patIdx) => {
+          if (patIdx === null || patIdx.trim() === '') { set({ drawPts: [] }); return }
+          const pattern = (HATCH_PATTERNS[Math.min(4, Math.max(1, Number(patIdx) || 2)) - 1] || HATCH_PATTERNS[1]).id
+          set((st) => ({
+            undoStack: [...st.undoStack.slice(-29), snapshot(st)], redoStack: [],
+            elements: [...st.elements, {
+              id: uid(), type: 'dibujo', layer: 'dibujo', name: `Hachurado ${pattern.toUpperCase()}`,
+              geo: { kind: 'hatch', pts: [...pts, pts[0]], pattern },
+            }],
+            drawPts: [],
+          }))
+          get().pushConsole({ text: `HATCH aplicado: ${pattern.toUpperCase()} — región cerrada rellenada con patrón`, kind: 'out' })
+        })
+        return
+      }
+      if (tool === 'curvanivel') {
+        void s.requestPrompt('Cota de elevación de la curva (m):', '100.00').then((elev) => {
+          if (elev === null) { set({ drawPts: [] }); return }
+          set((st) => ({
+            undoStack: [...st.undoStack.slice(-29), snapshot(st)], redoStack: [],
+            elements: [...st.elements, {
+              id: uid(), type: 'terreno', layer: 'terreno', name: `Curva nivel ${elev}`,
+              geo: { kind: 'curva', pts, elev: Number(elev) || 0 },
+            }],
+            drawPts: [],
+          }))
+          get().pushConsole({ text: `CURVA DE NIVEL trazada — cota ${elev} m`, kind: 'out' })
+        })
+        return
+      }
+      set((st) => ({ undoStack: [...st.undoStack.slice(-29), snapshot(st)], redoStack: [] }))
       if (tool === 'spline') {
         set((st) => ({
           elements: [...st.elements, {
@@ -387,18 +693,6 @@ export const useJarumy = create<JarumyState>((set, get) => ({
           drawPts: [],
         }))
         get().pushConsole({ text: 'NUBE DE CONTROL trazada — región de revisión marcada (festones de arco)', kind: 'out' })
-      } else if (tool === 'hatch') {
-        const patIdx = typeof window !== 'undefined' ? window.prompt('Patrón de hachurado:\n1 = ANSI31 concreto · 2 = AR-B816 ladrillo · 3 = GRAVEL grava · 4 = AR-CONC mosaico', '2') : null
-        if (patIdx === null) { set({ drawPts: [] }); return }
-        const pattern = (HATCH_PATTERNS[Number(patIdx) - 1] || HATCH_PATTERNS[1]).id
-        set((st) => ({
-          elements: [...st.elements, {
-            id: uid(), type: 'dibujo', layer: 'dibujo', name: `Hachurado ${pattern.toUpperCase()}`,
-            geo: { kind: 'hatch', pts: [...pts, pts[0]], pattern },
-          }],
-          drawPts: [],
-        }))
-        get().pushConsole({ text: `HATCH aplicado: ${pattern.toUpperCase()} — región cerrada rellenada con patrón`, kind: 'out' })
       } else if (tool === 'polilinea') {
         set((st) => ({
           elements: [...st.elements, {
@@ -417,17 +711,6 @@ export const useJarumy = create<JarumyState>((set, get) => ({
           drawPts: [],
         }))
         get().pushConsole({ text: 'TERRENO: lote trazado — área y perímetro calculados (capa Terreno)', kind: 'out' })
-      } else if (tool === 'curvanivel') {
-        const elev = typeof window !== 'undefined' ? window.prompt('Cota de elevación de la curva (m):', '100.00') : null
-        if (elev === null) { set({ drawPts: [] }); return }
-        set((st) => ({
-          elements: [...st.elements, {
-            id: uid(), type: 'terreno', layer: 'terreno', name: `Curva nivel ${elev}`,
-            geo: { kind: 'curva', pts, elev: Number(elev) || 0 },
-          }],
-          drawPts: [],
-        }))
-        get().pushConsole({ text: `CURVA DE NIVEL trazada — cota ${elev} m`, kind: 'out' })
       } else {
         const kind = tool === 'tuberia-agua' ? 'agua' : tool === 'tuberia-desague' ? 'desague' : 'electrico'
         set((st) => ({
@@ -1227,6 +1510,21 @@ export const useJarumy = create<JarumyState>((set, get) => ({
         }
         break
       }
+      case 'underlayOpacity': {
+        pushHistory()
+        set((st) => ({
+          elements: st.elements.map((e) => e.id === eid && e.type === 'imagen'
+            ? { ...e, geo: { ...e.geo, opacity: Math.min(1, Math.max(0.1, Number(value))) } as typeof e.geo }
+            : e),
+        }))
+        get().pushConsole({ text: `UNDERLAY: opacidad → ${(Number(value) * 100).toFixed(0)}% — calque encima con la capa Referencias encendida`, kind: 'out' })
+        break
+      }
+      case 'pinReply': {
+        const t = String(value ?? '').trim()
+        if (t) get().addPinReply(eid, t)
+        break
+      }
       default:
         break
     }
@@ -1526,6 +1824,113 @@ export const useJarumy = create<JarumyState>((set, get) => ({
       case 'showCollab':
         set({ dialog: 'collab' })
         break
+      case 'showCloud':
+        set({ dialog: 'cloud' })
+        break
+      case 'showThermal':
+        set({ dialog: 'thermal' })
+        break
+      case 'showAccesibilidad':
+        set({ dialog: 'accesibilidad' })
+        break
+      case 'showEvacuacion':
+        set({ dialog: 'evacuacion' })
+        break
+      case 'showPv':
+        set({ dialog: 'fotovoltaico' })
+        break
+      case 'showAiPlan':
+        set({ dialog: 'aiplan' })
+        break
+      case 'showAiNorma':
+        set({ dialog: 'ainorma' })
+        break
+      case 'showWalkthrough':
+        set({ dialog: 'walkthrough' })
+        break
+      case 'showUnderlay':
+        set({ dialog: 'underlay' })
+        break
+      case 'toggleOsnap':
+        s.toggleOsnap()
+        break
+      case 'selectAll':
+        s.selectAll()
+        break
+      case 'copySel':
+        s.copySelection()
+        break
+      case 'cutSel':
+        s.cutSelection()
+        break
+      case 'pasteSel':
+        s.pasteClipboard()
+        break
+      case 'armSeleccionar':
+        s.armDraw('seleccionar')
+        s.pushConsole({ text: 'SELECCIONAR: arrastre una ventana sobre los objetos (o Shift+arrastre directo) · Ctrl+clic agrega/quita', kind: 'cmd' })
+        break
+      case 'importDxf': {
+        // dispara el input de archivo oculto montado en la página
+        if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('jarumy-import-dxf'))
+        break
+      }
+      case 'exportIfc': {
+        const nIfc = s.elements.filter((e) => !s.mods[e.id]?.deleted).length
+        set({ dialog: null })
+        import('@/lib/ifc-export').then(({ exportPlanIfc }) => {
+          try {
+            const r = exportPlanIfc(s.elements, s.mods)
+            const url = URL.createObjectURL(new Blob([r.content], { type: 'application/x-step' }))
+            const a = document.createElement('a')
+            a.href = url; a.download = r.filename
+            document.body.appendChild(a); a.click(); a.remove()
+            setTimeout(() => URL.revokeObjectURL(url), 4000)
+            s.pushConsole({ text: `IFC EXPORTADO: ${r.filename} · ${(r.bytes / 1024).toFixed(1)} KB · ${nIfc} objetos como IfcWall/IfcDoor/IfcWindow/IfcColumn/IfcSpace/IfcStair — ábralo en Revit, ArchiCAD, BIMcollab o Solibri (esquema IFC4)`, kind: 'out' })
+          } catch {
+            s.pushConsole({ text: 'IFC: error al generar el archivo', kind: 'err' })
+          }
+        })
+        break
+      }
+      case 'exportObj':
+      case 'exportStl': {
+        const isStl = g === 'exportStl'
+        const n3d = s.elements.filter((e) => !s.mods[e.id]?.deleted).length
+        set({ dialog: null })
+        import('@/lib/mesh-export').then(({ exportPlanObj, exportPlanStl }) => {
+          try {
+            const r = isStl ? exportPlanStl(s.elements, s.mods) : exportPlanObj(s.elements, s.mods)
+            const url = URL.createObjectURL(new Blob([r.content], { type: isStl ? 'model/stl' : 'model/obj' }))
+            const a = document.createElement('a')
+            a.href = url; a.download = r.filename
+            document.body.appendChild(a); a.click(); a.remove()
+            setTimeout(() => URL.revokeObjectURL(url), 4000)
+            s.pushConsole({ text: `${isStl ? 'STL' : 'OBJ'} EXPORTADO: ${r.filename} · ${(r.bytes / 1024).toFixed(1)} KB · malla de ${n3d} objetos extruidos (${isStl ? 'listo para impresión 3D' : 'listo para Blender/SketchUp/3ds Max'})`, kind: 'out' })
+          } catch {
+            s.pushConsole({ text: `${isStl ? 'STL' : 'OBJ'}: error al generar la malla`, kind: 'err' })
+          }
+        })
+        break
+      }
+      case 'toggleVoice': {
+        const next = !s.voiceActive
+        set({ voiceActive: next })
+        s.pushConsole({ text: `VOZ ${next ? 'ACTIVADA — haga clic en el micrófono de la consola y hable su comando («línea», «guardar», «vista tres de»…)' : 'desactivada'}`, kind: 'out' })
+        break
+      }
+      case 'listPins': {
+        const pins = s.elements.filter((e) => e.type === 'pin' && !s.mods[e.id]?.deleted)
+        if (!pins.length) { s.pushConsole({ text: 'PINES: no hay comentarios en el plano — use la herramienta PIN (capa Comentarios)', kind: 'err' }); break }
+        const resolved = pins.filter((p) => (p.geo as PinGeo).resolved).length
+        const withReplies = pins.filter((p) => (p.geo as PinGeo).replies?.length).length
+        s.pushConsole({ text: `PINES DE COMENTARIO: ${pins.length} en el plano · ${resolved} resueltos · ${withReplies} con respuestas`, kind: 'out' })
+        pins.forEach((p) => {
+          const g = p.geo as PinGeo
+          s.pushConsole({ text: `  · ${p.name}: "${g.text.slice(0, 50)}" — ${g.resolved ? 'RESUELTO' : 'PENDIENTE'}${g.replies?.length ? ` · ${g.replies.length} respuesta${g.replies.length > 1 ? 's' : ''} (última de ${g.replies[g.replies.length - 1].author})` : ''}`, kind: 'out' })
+        })
+        break
+      }
       case 'showFamilias':
         set({ dialog: 'familias' })
         break
@@ -1611,19 +2016,15 @@ export const useJarumy = create<JarumyState>((set, get) => ({
         s.pushConsole({ text: action.info!, kind: 'out' })
         break
       case 'prompt': {
-        if (typeof window === 'undefined') return
-        const val = window.prompt(action.prompt!.label, action.prompt!.def || '')
-        if (val === null) return
         const target = elId || s.selectedId
         if (!target && action.prompt!.effect !== 'stretch') {
           s.pushConsole({ text: `${action.prompt!.label.split('—')[0].trim()}: seleccione primero un elemento del plano (clic derecho sobre él)`, kind: 'err' })
           return
         }
-        if (action.prompt!.effect === 'dimOverride') {
-          s.applyEffect(target, 'dimOverride', val)
-        } else {
+        void s.requestPrompt(action.prompt!.label, action.prompt!.def || '').then((val) => {
+          if (val === null) return
           s.applyEffect(target, action.prompt!.effect, val)
-        }
+        })
         break
       }
       default:
@@ -1817,6 +2218,8 @@ export const useJarumy = create<JarumyState>((set, get) => ({
       autoDims: data.autoDims,
       insertRotation: data.insertRotation,
       phaseFilter: data.phaseFilter,
+      osnap: data.osnap,
+      osnapModes: { ...DEFAULT_OSNAP_MODES, ...(data.osnapModes || {}) },
       autosaveOn: true,
     })
     // la vista se aplica tras el auto-encuadre inicial del lienzo
@@ -1838,12 +2241,13 @@ export const useJarumy = create<JarumyState>((set, get) => ({
     layers: s.layers.map((l) => ({ ...l, visible: l.id === id })),
   })),
 
-  runCommand: (raw) => {
+  runCommand: async (raw) => {
     const s = get()
     const cmd = raw.trim().toUpperCase()
     s.pushConsole({ text: `Comando: ${cmd}`, kind: 'cmd' })
     if (!cmd) return
-    const alias: Record<string, () => void> = {
+    const ask = (label: string, def = '') => s.requestPrompt(label, def)
+    const alias: Record<string, () => void | Promise<void>> = {
       'L': () => s.armDraw('linea'), 'LINEA': () => s.armDraw('linea'),
       'PL': () => s.armDraw('polilinea'), 'POLILINEA': () => s.armDraw('polilinea'),
       'C': () => s.armDraw('circulo'), 'CIRCULO': () => s.armDraw('circulo'),
@@ -1883,26 +2287,26 @@ export const useJarumy = create<JarumyState>((set, get) => ({
       'HATCH': () => s.armDraw('hatch'), 'ACHURA': () => s.armDraw('hatch'), 'ACHURADO': () => s.armDraw('hatch'),
       'ACOTANG': () => s.armDraw('cota-ang'), 'ACOTRAD': () => s.armDraw('cota-rad'), 'PUNTO': () => s.armDraw('punto'),
       // --- edición pro ---
-      'MATRIZ': () => {
-        const v = typeof window !== 'undefined' ? window.prompt('MATRIZ RECTANGULAR — columnas,filas,sepX m,sepY m:', '3,2,2.00,2.00') : null
+      'MATRIZ': async () => {
+        const v = await ask('MATRIZ RECTANGULAR — columnas,filas,sepX m,sepY m:', '3,2,2.00,2.00')
         if (v) s.applyEffect(s.selectedId, 'arrayRect', v)
       },
-      'MATRIZPOLAR': () => {
-        const v = typeof window !== 'undefined' ? window.prompt('MATRIZ POLAR — cantidad,ángulo total (°):', '6,360') : null
+      'MATRIZPOLAR': async () => {
+        const v = await ask('MATRIZ POLAR — cantidad,ángulo total (°):', '6,360')
         if (v) s.applyEffect(s.selectedId, 'arrayPolar', v)
       },
-      'EQUISDIST': () => {
-        const v = typeof window !== 'undefined' ? window.prompt('EQUISDIST — distancia de offset (m):', '0.15') : null
+      'EQUISDIST': async () => {
+        const v = await ask('EQUISDIST — distancia de offset (m):', '0.15')
         if (v) s.applyEffect(s.selectedId, 'offset', Number(v) || 0.15)
       },
-      'OFFSET': () => {
-        const v = typeof window !== 'undefined' ? window.prompt('EQUISDIST — distancia de offset (m):', '0.15') : null
+      'OFFSET': async () => {
+        const v = await ask('EQUISDIST — distancia de offset (m):', '0.15')
         if (v) s.applyEffect(s.selectedId, 'offset', Number(v) || 0.15)
       },
       'RECORTA': () => s.armDraw('recorta'), 'ALARGA': () => s.armDraw('alarga'),
       'EXPLOT': () => s.applyEffect(s.selectedId, 'explode'), 'EXPLOTA': () => s.applyEffect(s.selectedId, 'explode'),
-      'FASE': () => {
-        const v = typeof window !== 'undefined' ? window.prompt('FASE (existente / demolicion / nueva):', 'demolicion') : null
+      'FASE': async () => {
+        const v = await ask('FASE (existente / demolicion / nueva):', 'demolicion')
         if (v && ['existente', 'demolicion', 'nueva'].includes(v.trim().toLowerCase())) s.applyEffect(s.selectedId, 'phase', v.trim().toLowerCase())
         else if (v) s.pushConsole({ text: 'FASE: valor no válido — use existente, demolicion o nueva', kind: 'err' })
       },
@@ -1929,30 +2333,48 @@ export const useJarumy = create<JarumyState>((set, get) => ({
       'COLABORACION': () => s.runGlobal('showCollab'), 'FAMILIAS': () => s.runGlobal('showFamilias'),
       'LAYERSTATES': () => s.runGlobal('layerStateSave'), 'ESTADOCAPA': () => s.runGlobal('layerStateSave'),
       'ESTIRA': () => s.armDraw('estira'),
-      'EMPALME': () => {
-        const v = typeof window !== 'undefined' ? window.prompt('EMPALME — radio de empalme (m):', '0.15') : null
+      'EMPALME': async () => {
+        const v = await ask('EMPALME — radio de empalme (m):', '0.15')
         if (v) s.applyEffect(s.selectedId, 'fillet', Number(v) || 0.15)
       },
-      'SIMETRIA': () => {
-        const v = typeof window !== 'undefined' ? window.prompt('SIMETRÍA — eje y posición (ej. "x,7.50" o "y,3.00"):', 'x,7.50') : null
+      'SIMETRIA': async () => {
+        const v = await ask('SIMETRÍA — eje y posición (ej. "x,7.50" o "y,3.00"):', 'x,7.50')
         if (v) s.applyEffect(s.selectedId, 'mirrorErase', v)
       },
-      'TRAYECTO': () => {
-        const v = typeof window !== 'undefined' ? window.prompt('MATRIZ POR TRAYECTO — cantidad de copias:', '6') : null
+      'TRAYECTO': async () => {
+        const v = await ask('MATRIZ POR TRAYECTO — cantidad de copias:', '6')
         if (v) { s.armDraw(`matriztrayecto:${Number(v) || 6}`) }
       },
-      'UNIDADES': () => {
-        const v = typeof window !== 'undefined' ? window.prompt('UNIDADES — m (métrico) o ft (pies-pulgadas):', 'm') : null
+      'UNIDADES': async () => {
+        const v = await ask('UNIDADES — m (métrico) o ft (pies-pulgadas):', 'm')
         if (v) s.runGlobal(String(v).trim().toLowerCase().startsWith('f') ? 'unitsImperial' : 'unitsMetric')
       },
-      'ESCALA': () => {
-        const v = typeof window !== 'undefined' ? window.prompt('ESCALA DE LÁMINA — 50, 75 o 100 (1:X):', '75') : null
+      'ESCALA': async () => {
+        const v = await ask('ESCALA DE LÁMINA — 50, 75 o 100 (1:X):', '75')
         if (v) s.runGlobal(String(v).trim() === '50' ? 'scale50' : String(v).trim() === '100' ? 'scale100' : 'scale75')
       },
       'BATCHPLOT': () => s.runGlobal('batchPlot'),
       'MUROS': () => s.runGlobal('showScheduleMuros'),
       'PUERTAS': () => s.runGlobal('showSchedulePuertas'),
       'VENTANAS': () => s.runGlobal('showScheduleVentanas'),
+      // --- nube / colaboración / importación / IA / análisis nuevos ---
+      'PLANOS': () => s.runGlobal('showCloud'), 'CLOUD': () => s.runGlobal('showCloud'), 'NUBEWEB': () => s.runGlobal('showCloud'),
+      'IFC': () => s.runGlobal('exportIfc'), 'OBJ': () => s.runGlobal('exportObj'), 'STL': () => s.runGlobal('exportStl'),
+      'IMPORTARDXF': () => s.runGlobal('importDxf'), 'DXFIMPORT': () => s.runGlobal('importDxf'), 'IMPORTAR': () => s.runGlobal('importDxf'),
+      'UNDERLAY': () => s.runGlobal('showUnderlay'), 'REFERENCIA': () => s.runGlobal('showUnderlay'), 'CALCAR': () => s.runGlobal('showUnderlay'),
+      'IA': () => s.runGlobal('showAiPlan'), 'GENERAR': () => s.runGlobal('showAiPlan'), 'AIPLAN': () => s.runGlobal('showAiPlan'),
+      'IANORMA': () => s.runGlobal('showAiNorma'), 'REVISOR': () => s.runGlobal('showAiNorma'),
+      'VOZ': () => set((st) => ({ voiceActive: !st.voiceActive })), 'MICROFONO': () => set((st) => ({ voiceActive: !st.voiceActive })),
+      'TERMICA': () => s.runGlobal('showThermal'), 'UVALUE': () => s.runGlobal('showThermal'), 'E020': () => s.runGlobal('showThermal'),
+      'ACCESIBILIDAD': () => s.runGlobal('showAccesibilidad'), 'A010ACC': () => s.runGlobal('showAccesibilidad'),
+      'EVACUACION': () => s.runGlobal('showEvacuacion'), 'A130': () => s.runGlobal('showEvacuacion'), 'SALIDAS': () => s.runGlobal('showEvacuacion'),
+      'FOTOVOLTAICO': () => s.runGlobal('showPv'), 'FV': () => s.runGlobal('showPv'), 'SOLARFV': () => s.runGlobal('showPv'),
+      'WALKTHROUGH': () => s.runGlobal('showWalkthrough'), 'FPS': () => s.runGlobal('showWalkthrough'), 'PRIMERAPERSONA': () => s.runGlobal('showWalkthrough'),
+      'OSNAP': () => s.toggleOsnap(), 'IMANES': () => s.toggleOsnap(), 'F3': () => s.toggleOsnap(),
+      'SELECCIONAR': () => s.runGlobal('armSeleccionar'), 'SELECT': () => s.runGlobal('armSeleccionar'),
+      'PEGAR': () => s.pasteClipboard(), 'PASTE': () => s.pasteClipboard(),
+      'COPIARSEL': () => s.copySelection(), 'CORTAR': () => s.cutSelection(),
+      'TODOSEL': () => s.selectAll(), 'SELECTALL': () => s.selectAll(),
     }
     if (alias[cmd]) { alias[cmd](); return }
     if (cmd === 'AYUDA' || cmd === '?') {
@@ -1963,14 +2385,19 @@ export const useJarumy = create<JarumyState>((set, get) => ({
         'ANOTAR: DIRECTRIZ · NUBE/NUBEDECTRL · ACOTANG (angular) · ACOTRAD (radio)',
         'M/MOVER · CO/COPIA · E/BORRAR · U/DESHACER · REHACER · NUEVO',
         'EDICION: MATRIZ · MATRIZPOLAR · EQUISDIST/OFFSET · RECORTA · ALARGA · EXPLOTA · ESTIRA · EMPALME · SIMETRÍA · TRAYECTO',
-        'REJILLA · SNAP · ORTO · RENDER · 3D · AJUSTAR · RECORRIDO',
+        'SELECCION: SELECCIONAR (ventana) · TODOSEL · COPIARSEL/CORTAR/PEGAR (Ctrl+C/V/X) · OSNAP (F3)',
+        'REJILLA · SNAP · ORTO · RENDER · 3D · AJUSTAR · RECORRIDO · WALKTHROUGH/FPS (1ª persona)',
         'PURGA · AUDIT · CUADRO · MUROS · PUERTAS · VENTANAS · COLISIONES · ENERGIA · ESTRUCTURAL · CATALOGO · ADMIN · AYUDA',
         'INSTALACIONES: AGUA · DESAGUE · CIRCUITO · ELECTRICO (ENTER termina el trazo)',
         'PARAMÉTRICOS: ESCALERA · TECHO · LOTE · CURVA · UNIONES (T/L limpias)',
         'BIM: FASES (existente/demolición/nueva) · FASE (asignar a selección) · QSELECT',
-        'ANÁLISIS: NORMATIVA (RNE A.010/A.130) · METRADOS/S10/PRESUPUESTO · ELEVACIONES · LUX (iluminación) · ACUSTICA (Rw)',
-        'EXPORTAR: PDF · DXF/DWG · PNG · SVG · EXCELBIM (cuadros BIM) · COMPARTIR (.json) · HISTORIAL/VERSIONES · GUARDAR · BATCHPLOT',
-        'DOC: UNIDADES (m/ft) · ESCALA (1:50/1:75/1:100) · COLABORACION · FAMILIAS · LAYERSTATES · AUTOGUARDADO (on/off)',
+        'ANÁLISIS: NORMATIVA (RNE A.010/A.130) · METRADOS/S10/PRESUPUESTO · ELEVACIONES · LUX · ACUSTICA (Rw)',
+        'ANÁLISIS NUEVOS: TERMICA (E.020) · ACCESIBILIDAD · EVACUACION (A.130) · FOTOVOLTAICO/FV',
+        'IMPORTAR: IMPORTAR/IMPORTARDXF (DXF R12) · UNDERLAY/CALCAR (imagen/PDF de referencia)',
+        'EXPORTAR: PDF · DXF/DWG · PNG · SVG · IFC (BIM) · OBJ/STL (3D) · EXCELBIM · COMPARTIR (.json) · BATCHPLOT',
+        'NUBE/COLAB: PLANOS/CLOUD (planos en la nube + enlaces) · COLABORACION (sesión en vivo)',
+        'IA: IA/GENERAR (plano desde texto) · IANORMA (revisor RNE) · VOZ (comandos hablados)',
+        'DOC: UNIDADES (m/ft) · ESCALA (1:50/1:75/1:100) · GUARDAR · AUTOGUARDADO (on/off)',
       ]
       ayuda.forEach((l) => s.pushConsole({ text: l, kind: 'out' }))
       return
@@ -2069,6 +2496,8 @@ function autosavePayload() {
     autoDims: st.autoDims,
     insertRotation: st.insertRotation,
     phaseFilter: st.phaseFilter,
+    osnap: st.osnap,
+    osnapModes: st.osnapModes,
   }
 }
 
@@ -2106,6 +2535,7 @@ if (typeof window !== 'undefined') {
       && st.showLayers === prev.showLayers && st.showProperties === prev.showProperties
       && st.areaLabels === prev.areaLabels && st.autoDims === prev.autoDims
       && st.insertRotation === prev.insertRotation && st.phaseFilter === prev.phaseFilter
+      && st.osnap === prev.osnap && st.osnapModes === prev.osnapModes
     if (unchanged) return
     useJarumy.setState({ autosaveStatus: 'saving' })
     if (autosaveTimer) clearTimeout(autosaveTimer)

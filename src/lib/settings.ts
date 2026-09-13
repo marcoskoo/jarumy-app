@@ -1,3 +1,4 @@
+import crypto from 'crypto'
 import { db, ensureSchema } from '@/lib/db'
 import { hashPassword } from '@/lib/auth'
 
@@ -78,8 +79,26 @@ export async function logAudit(username: string, action: string, detail?: string
 }
 
 // ---------- Seed idempotente ----------
+// SIN credenciales fijas: la contraseña inicial se toma de la variable de
+// entorno JARUMY_ADMIN_PASSWORD y, si no existe, se genera aleatoria y se
+// imprime UNA sola vez en el registro del servidor para el primer acceso.
 
 let seeded = false
+
+function initialAdminPassword(): string {
+  const fromEnv = process.env.JARUMY_ADMIN_PASSWORD
+  if (fromEnv && fromEnv.length >= 8) return fromEnv
+  const rnd = crypto.randomBytes(9).toString('base64url')
+  console.info(
+    '\n[Jarumy] ── PRIMER ARRANQUE ────────────────────────────────\n' +
+    `[Jarumy] Usuario admin:  J. Burga\n` +
+    `[Jarumy] Contraseña:     ${rnd}\n` +
+    '[Jarumy] (defina JARUMY_ADMIN_PASSWORD para fijarla; cámbiela luego\n' +
+    '[Jarumy]  desde Panel Admin › Cuenta y clave · active 2FA TOTP)\n' +
+    '[Jarumy] ────────────────────────────────────────────────────\n'
+  )
+  return rnd
+}
 
 export async function ensureSeed() {
   if (seeded) return
@@ -89,7 +108,7 @@ export async function ensureSeed() {
     await db.user.create({
       data: {
         username: 'J. Burga',
-        passwordHash: hashPassword('BurgaKoo'),
+        passwordHash: hashPassword(initialAdminPassword()),
         displayName: 'Jhon Burga',
         role: 'admin',
       },

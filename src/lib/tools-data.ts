@@ -9,7 +9,7 @@
 export type ElementType =
   | 'muro' | 'puerta' | 'ventana' | 'espacio' | 'mobiliario' | 'sanitario'
   | 'cota' | 'texto' | 'columna' | 'apertura' | 'dibujo' | 'lamina'
-  | 'escalera' | 'techo' | 'instalacion' | 'simbolo' | 'terreno' | 'pin'
+  | 'escalera' | 'techo' | 'instalacion' | 'simbolo' | 'terreno' | 'pin' | 'imagen'
 
 export type ActionKind = 'effect' | 'info' | 'global' | 'draw' | 'prompt'
 
@@ -78,12 +78,39 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         ],
       },
       {
-        id: 'exportar', label: 'Exportar', icon: 'FileDown', desc: 'Exporta a PDF a escala, DXF (AutoCAD), PNG o SVG', source: 'AutoCAD / Revit',
+        id: 'exportar', label: 'Exportar', icon: 'FileDown', desc: 'Exporta a PDF a escala, DXF (AutoCAD), IFC (BIM), OBJ/STL (3D), PNG o SVG', source: 'AutoCAD / Revit / Blender',
         options: [
           { label: 'Exportar PDF a escala', detail: '1:50 · 1:75 · 1:100 · cartela y papel A4/A3/A2', action: G('showPdfExport') },
           { label: 'Exportar DXF (AutoCAD)', detail: 'Capas conservadas · unidades en metros', action: G('exportDxf') },
+          { label: 'Exportar IFC (BIM)', detail: 'IFC4 — Revit / ArchiCAD / Solibri', action: G('exportIfc') },
+          { label: 'Exportar OBJ (3D)', detail: 'Malla extruida — Blender / SketchUp / 3ds Max', action: G('exportObj') },
+          { label: 'Exportar STL (3D)', detail: 'Malla para impresión 3D / maqueta', action: G('exportStl') },
           { label: 'Exportar PNG del plano', detail: 'Imagen rápida para WhatsApp/presentaciones', action: G('exportPng') },
           { label: 'Exportar SVG vectorial', detail: 'Editable en Illustrator/Inkscape', action: G('exportSvg') },
+        ],
+      },
+      {
+        id: 'importar', label: 'Importar', icon: 'FileUp', desc: 'Importa DXF de AutoCAD o coloca una imagen/PDF de referencia (underlay) para calcar encima', source: 'AutoCAD Xref / Revit Link',
+        options: [
+          { label: 'Importar DXF (AutoCAD)', detail: 'R12+ · líneas, círculos, arcos, textos y polilíneas', action: G('importDxf') },
+          { label: 'Underlay de imagen', detail: 'PNG/JPG como fondo para calcar', action: G('showUnderlay') },
+          { label: 'Underlay de PDF', detail: '1ª página rasterizada como referencia', action: G('showUnderlay') },
+        ],
+      },
+      {
+        id: 'nube', label: 'Nube', icon: 'CloudUpload', desc: 'Guarda planos en el servidor por usuario: multi-dispositivo, versionado en BD y enlaces para compartir', source: 'Autodesk Docs / BIM 360',
+        options: [
+          { label: 'Mis planos en la nube', detail: 'Guardar · abrir · versiones · papelera', action: G('showCloud') },
+          { label: 'Compartir con enlace', detail: 'Permiso de vista o edición — sin instalar nada', action: G('showCloud') },
+          { label: 'Sesión colaborativa', detail: 'Edición simultánea en vivo + chat', action: G('showCollab') },
+        ],
+      },
+      {
+        id: 'ia', label: 'IA', icon: 'Sparkles', desc: 'Asistente arquitectónico: genera planos desde texto, revisa la normativa RNE y obedece comandos de voz', source: 'Jarumy AI',
+        options: [
+          { label: 'Generar plano con IA', detail: 'Describa el proyecto y obtenga plantas esquemáticas', action: G('showAiPlan') },
+          { label: 'Revisor IA de normativa', detail: 'Interpreta los checks RNE y propone correcciones', action: G('showAiNorma') },
+          { label: 'Comandos de voz', detail: 'Hable: «línea», «guardar», «vista tres de»…', action: G('toggleVoice') },
         ],
       },
       {
@@ -194,7 +221,17 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
     color: '#f43f5e',
     tools: [
       {
-        id: 'mover', label: 'Mover', icon: 'Move', desc: 'MUEVE: desplaza objetos (AutoCAD: M)', source: 'AutoCAD',
+        id: 'seleccion', label: 'Selección', icon: 'BoxSelect', desc: 'Selección múltiple real: ventana (marquee), Ctrl+clic, portapapeles y edición grupal', source: 'AutoCAD',
+        options: [
+          { label: 'Ventana de selección', detail: 'Arrastre el rectángulo sobre los objetos', action: D('seleccionar') },
+          { label: 'Seleccionar todo', detail: 'Ctrl+A', action: G('selectAll') },
+          { label: 'Copiar selección', detail: 'Ctrl+C · portapapeles interno', action: G('copySel') },
+          { label: 'Cortar selección', detail: 'Ctrl+X', action: G('cutSel') },
+          { label: 'Pegar', detail: 'Ctrl+V · en el cursor o clic derecho', action: G('pasteSel') },
+        ],
+      },
+      {
+        id: 'mover', label: 'Mover', icon: 'Move', desc: 'MUEVE: desplaza objetos — arrastre directo o clic: objeto → destino (AutoCAD: M)', source: 'AutoCAD',
         options: [
           { label: 'Mover elemento', detail: 'Clic: objeto → punto destino', action: D('mover') },
           { label: 'Desplazamiento exacto', detail: '@dx,dy en metros', action: P('Desplazamiento dx,dy en m (ej. 1.50,0.00):', 'translateM', '1.50,0.00') },
@@ -620,8 +657,11 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         ],
       },
       {
-        id: 'recorrido', label: 'Recorrido', icon: 'Footprints', desc: 'Walkthrough animado (Lumion / Enscape)', source: 'Lumion / Enscape',
-        options: [{ label: 'Simular recorrido', action: G('walkthrough') }],
+        id: 'recorrido', label: 'Recorrido', icon: 'Footprints', desc: 'Walkthrough: animado por puntos o en 1ª persona WASD con perspectiva real (Lumion / Enscape)', source: 'Lumion / Enscape',
+        options: [
+          { label: '1ª persona (WASD)', detail: 'Perspectiva real a 1.60 m · colisión con muros', action: G('showWalkthrough') },
+          { label: 'Simular recorrido', detail: 'Tour automático por el plano', action: G('walkthrough') },
+        ],
       },
       {
         id: 'sombras', label: 'Estudio de sombras', icon: 'Sun', desc: 'Heliodón interactivo: sombras proyectadas según latitud, fecha y hora (Revit / SketchUp)', source: 'Revit',
@@ -686,6 +726,31 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
           { label: 'Aislamiento de muros…', detail: 'Rw estimado · cumple/no cumple ≥ 45 dB', action: G('showAcoustic') },
         ],
       },
+      {
+        id: 'termica', label: 'Térmica E.020', icon: 'Thermometer', desc: 'Transmitancia U de muros/techos/ventanas por zona climática + riesgo de condensación (Glaser)', source: 'RNE E.020',
+        options: [
+          { label: 'Reporte térmico…', detail: 'U vs límite por zona · condensación · aislantes sugeridos', action: G('showThermal') },
+        ],
+      },
+      {
+        id: 'accesibilidad', label: 'Accesibilidad', icon: 'Accessibility', desc: 'Verificación de accesibilidad universal: anchos de puerta, pasillos, rampas y escaleras (A.010/A.050)', source: 'RNE / NTP',
+        options: [
+          { label: 'Verificar accesibilidad…', detail: '7 checks con números reales del plano', action: G('showAccesibilidad') },
+        ],
+      },
+      {
+        id: 'evacuacion', label: 'Evacuación A.130', icon: 'DoorOpen', desc: 'Rutas de evacuación: distancia máxima a salida, aforo y anchos de puerta (RNE A.130)', source: 'RNE A.130',
+        options: [
+          { label: 'Rutas y salidas…', detail: 'Distancias por ambiente · aforo · checks', action: G('showEvacuacion') },
+        ],
+      },
+      {
+        id: 'fotovoltaico', label: 'Fotovoltaico', icon: 'SolarPower',
+        desc: 'Potencial solar de los techos: kWp, kWh/año, ahorro y retorno según latitud (PVsyst)', source: 'PVsyst',
+        options: [
+          { label: 'Potencial solar…', detail: 'Paneles · kWp · kWh/año · S/ · CO₂ · payback', action: G('showPv') },
+        ],
+      },
     ],
   },
   {
@@ -697,6 +762,12 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       {
         id: 'capas', label: 'Capas', icon: 'Layers', desc: 'Gestor de capas con propiedades (AutoCAD: LA)', source: 'AutoCAD',
         options: [{ label: 'Administrar capas', action: G('toggleLayers') }],
+      },
+      {
+        id: 'atajos', label: 'Atajos', icon: 'Keyboard', desc: 'Atajos de teclado reales: Ctrl+Z/Y/S/P/C/X/V/A, Supr, flechas, F3 OSNAP, F8 ORTO', source: 'AutoCAD',
+        options: [
+          { label: 'Ver mapa de atajos', detail: 'Impreso en la consola de comandos', action: I('ATAJOS: Ctrl+Z deshacer · Ctrl+Shift+Z / Ctrl+Y rehacer · Ctrl+S guardar · Ctrl+P imprimir · Ctrl+C/X/V copiar-cortar-pegar · Ctrl+A todo · Supr borrar · Flechas mover (Shift = 1 rejilla) · F3 OSNAP · F8 ORTO · F9 REJILLA · ESC salir/cancelar · clic derecho menú contextual') },
+        ],
       },
       {
         id: 'purge', label: 'Purge', icon: 'Trash', desc: 'Limpia elementos no usados (AutoCAD: PU)', source: 'AutoCAD',
@@ -1337,6 +1408,33 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
       id: 'texto', label: 'Texto', icon: 'Type',
       options: [{ label: 'Editar comentario', action: P('Nuevo texto del comentario', 'rename') }],
     },
+    {
+      id: 'colaborar', label: 'Conversación', icon: 'Reply',
+      options: [
+        { label: 'Responder al comentario', detail: 'Añade una respuesta al hilo', action: P('Respuesta al comentario:', 'pinReply') },
+        { label: 'Revisar hilos pendientes', detail: 'Lista en la consola', action: G('listPins') },
+      ],
+    },
+  ],
+  imagen: [
+    {
+      id: 'ref', label: 'Referencia', icon: 'ImagePlus',
+      options: [
+        { label: 'Opacidad 30%', detail: 'Fondo tenue para calcar', action: A('underlayOpacity', 0.3) },
+        { label: 'Opacidad 60%', action: A('underlayOpacity', 0.6) },
+        { label: 'Opacidad 85%', detail: 'Referencia clara', action: A('underlayOpacity', 0.85) },
+        { label: 'Nueva imagen/PDF…', detail: 'Underlay de referencia', action: G('showUnderlay') },
+      ],
+    },
+    {
+      id: 'modificar', label: 'Modificar', icon: 'Wrench',
+      options: [
+        { label: 'Escalar ×1.25', action: A('scale', 1.25) },
+        { label: 'Reducir ×0.8', action: A('scale', 0.8) },
+        { label: 'Girar 90°', action: A('rotate', 90) },
+        { label: 'Ajustar a lámina', detail: 'Reencuadre del underlay', action: A('scale', 'reset') },
+      ],
+    },
   ],
 }
 
@@ -1372,3 +1470,16 @@ export const LINE_COLORS: Record<string, string> = {
 }
 
 export const TOTAL_TOOLS = TOOL_CATEGORIES.reduce((n, c) => n + c.tools.length, 0)
+
+// --- parche de conteos dinámicos (evita números de marketing desincronizados) ---
+const _cat = TOOL_CATEGORIES.find((c) => c.id === 'inicio')?.tools.find((t) => t.id === 'catalogo')
+if (_cat) {
+  _cat.desc = `Catálogo completo de las ${TOTAL_TOOLS} herramientas recopiladas de AutoCAD, Revit, ArchiCAD, SketchUp, Rhino, Lumion, V-Ray y más`
+  _cat.options = [{ label: 'Ver catálogo completo', detail: `${TOTAL_TOOLS} herramientas · 11 aplicaciones analizadas`, action: G('showCatalog') }]
+}
+const _bib = TOOL_CATEGORIES.find((c) => c.id === 'bloques')?.tools.find((t) => t.id === 'bib-mobiliario')
+if (_bib) _bib.desc = 'Biblioteca de bloques de mobiliario AEC (24 tipos paramétricos con vista previa)'
+const _bibvis = TOOL_CATEGORIES.find((c) => c.id === 'bloques')?.tools.find((t) => t.id === 'biblioteca')
+if (_bibvis) {
+  _bibvis.options = _bibvis.options.map((o) => ({ ...o, detail: '74 bloques con vista previa y buscador' }))
+}

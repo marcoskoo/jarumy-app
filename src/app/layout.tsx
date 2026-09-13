@@ -16,9 +16,16 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL("https://jarumy-arq.vercel.app"),
   title: "Jarumy app — Suite arquitectónica CAD · BIM · Render",
-  description: "Suite de diseño arquitectónico con herramientas recopiladas de AutoCAD, Revit, ArchiCAD, SketchUp, Rhino, Lumion y V-Ray. Menú radial contextual sobre el plano y panel de administración.",
-  keywords: ["Jarumy", "arquitectura", "CAD", "BIM", "AutoCAD", "Revit", "plano", "menú radial"],
+  description: "Suite de diseño arquitectónico con herramientas recopiladas de AutoCAD, Revit, ArchiCAD, SketchUp, Rhino, Lumion y V-Ray. Menú radial contextual, planos en la nube, IA y PWA offline.",
+  keywords: ["Jarumy", "arquitectura", "CAD", "BIM", "AutoCAD", "Revit", "plano", "menú radial", "RNE", "metrados"],
   authors: [{ name: "Arq. Jarumy" }],
+  manifest: "/manifest.webmanifest",
+  applicationName: "Jarumy",
+  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Jarumy" },
+  icons: {
+    icon: [{ url: "/logo-jarumy-icon.png", sizes: "512x512", type: "image/png" }],
+    apple: [{ url: "/icon-192.png", sizes: "192x192", type: "image/png" }],
+  },
   openGraph: {
     title: "Jarumy app — Suite arquitectónica",
     description: "Suite de diseño arquitectónico: CAD, BIM y render con menú radial contextual sobre el plano.",

@@ -8,6 +8,7 @@
 
 import type { PlanElement, LayerDef, Phase } from './plan-data'
 import type { Mod, SunSettings } from './store'
+import { DEFAULT_OSNAP_MODES, type OsnapModes } from './osnap'
 
 export const AUTOSAVE_KEY = 'jarumy_autosave'
 export const AUTOSAVE_PREF = 'jarumy_autosave_on'
@@ -46,6 +47,8 @@ export interface AutosaveData {
   autoDims: boolean
   insertRotation: number
   phaseFilter: Phase | null
+  osnap: boolean
+  osnapModes: OsnapModes
 }
 
 /** Escribe el auto-guardado completo. false si el navegador lo rechaza (cuota llena / modo privado). */
@@ -111,6 +114,8 @@ export function loadAutosave(): AutosaveData | null {
       insertRotation: num(x.insertRotation, 0),
       phaseFilter: x.phaseFilter === 'existente' || x.phaseFilter === 'demolicion' || x.phaseFilter === 'nueva'
         ? x.phaseFilter : null,
+      osnap: bool(x.osnap, true),
+      osnapModes: { ...DEFAULT_OSNAP_MODES, ...((x.osnapModes || {}) as Partial<OsnapModes>) },
     }
   } catch {
     return null

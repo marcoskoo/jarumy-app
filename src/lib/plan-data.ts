@@ -184,7 +184,9 @@ export const polyLen = (pts: number[][]): number => {
 }
 
 export interface TerrainGeo { kind: 'lote' | 'curva'; pts: number[][]; name?: string; elev?: number }
-export interface PinGeo { x: number; y: number; text: string; author: string; resolved?: boolean }
+export interface PinGeo { x: number; y: number; text: string; author: string; resolved?: boolean; replies?: Array<{ author: string; text: string; at: number }> }
+// underlay de referencia: imagen PNG/JPG incrustada (dataURL) o 1ª página de un PDF rasterizado
+export interface ImageGeo { kind: 'imagen' | 'pdf'; x: number; y: number; w: number; h: number; src: string; opacity: number; name?: string; page?: number }
 
 export interface PlanElement {
   id: string
@@ -192,7 +194,7 @@ export interface PlanElement {
   layer: string
   name: string
   geo: WallGeo | DoorGeo | WindowGeo | RoomGeo | FurnGeo | DimGeo | TextGeo | ColGeo | OpenGeo | DrawGeo
-    | StairGeo | RoofGeo | InstGeo | SymGeo | TerrainGeo | PinGeo
+    | StairGeo | RoofGeo | InstGeo | SymGeo | TerrainGeo | PinGeo | ImageGeo
 }
 
 export interface LayerDef {
@@ -221,6 +223,7 @@ export const LAYERS: LayerDef[] = [
   { id: 'instalaciones', name: 'Instalaciones MEP', color: '#38bdf8', visible: true, locked: false },
   { id: 'terreno', name: 'Terreno', color: '#84cc16', visible: true, locked: false },
   { id: 'comentarios', name: 'Comentarios', color: '#fb7185', visible: true, locked: false },
+  { id: 'referencias', name: 'Referencias (underlay)', color: '#64748b', visible: true, locked: false },
 ]
 
 // --- tipos de muro multicapa (espesor real + patrón de render) ---
@@ -569,7 +572,11 @@ export function elementSummary(el: PlanElement): string {
     }
     case 'pin': {
       const g = el.geo as PinGeo
-      return `${g.resolved ? 'Resuelto' : 'Pendiente'} · ${g.author}`
+      return `${g.resolved ? 'Resuelto' : 'Pendiente'} · ${g.author}${g.replies?.length ? ` · ${g.replies.length} respuesta${g.replies.length > 1 ? 's' : ''}` : ''}`
+    }
+    case 'imagen': {
+      const g = el.geo as ImageGeo
+      return `Underlay ${(g.w / PX_PER_M).toFixed(1)}×${(g.h / PX_PER_M).toFixed(1)} m · opacidad ${(g.opacity * 100).toFixed(0)}%${g.kind === 'pdf' ? ` · PDF pág. ${g.page ?? 1}` : ''}`
     }
     default:
       return el.name
