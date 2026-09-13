@@ -14,7 +14,34 @@ export interface DimGeo { x1: number; y1: number; x2: number; y2: number; offset
 export interface TextGeo { x: number; y: number; text: string; size: number; anchor: 'start' | 'middle' | 'end' }
 export interface ColGeo { x: number; y: number; size: number }
 export interface OpenGeo { x: number; y: number; len: number; orient: 'h' | 'v' }
-export interface DrawGeo { kind: string; pts: number[][]; r?: number; text?: string }
+export interface DrawGeo {
+  kind: string; pts: number[][]; r?: number; text?: string
+  rx?: number; ry?: number              // elipse (radios en px)
+  pattern?: HatchPattern               // región hachurada
+  phase?: Phase                        // fase BIM del elemento
+}
+
+// --- hachurados (patrones CAD) ---
+export type HatchPattern = 'ansi31' | 'ar-b816' | 'gravel' | 'ar-conc'
+export interface HatchDef { id: HatchPattern; label: string; desc: string }
+export const HATCH_PATTERNS: HatchDef[] = [
+  { id: 'ansi31', label: 'ANSI31 · Concreto', desc: 'Líneas diagonales 45° — losas y estructuras de hormigón' },
+  { id: 'ar-b816', label: 'AR-B816 · Ladrillo', desc: 'Aparejo de soga 0.25×0.08 m — albañilería' },
+  { id: 'gravel', label: 'GRAVEL · Grava', desc: 'Tierra compactada y gravilla — exteriores y jardines' },
+  { id: 'ar-conc', label: 'AR-CONC · Mosaico', desc: 'Cuadrícula 0.30×0.30 m — pisos de baños y cocinas' },
+]
+
+// --- fases BIM (existente / demolición / nueva) ---
+export type Phase = 'existente' | 'demolicion' | 'nueva'
+export const PHASES: { id: Phase; label: string; color: string; dash?: string; note: string }[] = [
+  { id: 'existente', label: 'Existente', color: '#71717a', note: 'Gris tenue — obra previa que se conserva' },
+  { id: 'demolicion', label: 'Demolición', color: '#ef4444', dash: '7 5', note: 'Rojo punteado — elemento a retirar' },
+  { id: 'nueva', label: 'Nueva construcción', color: '#22c55e', note: 'Verde continuo — obra nueva proyectada' },
+]
+export const phaseOf = (el: PlanElement, mods: Record<string, ModLike>): Phase =>
+  ((mods[el.id] as ModLike | undefined)?.phase) || (el.geo as DrawGeo).phase || 'nueva'
+// referencia mínima para evitar dependencia circular con store
+type ModLike = { phase?: Phase }
 
 // --- elementos paramétricos / MEP / terreno / colaboración ---
 export interface StairGeo {
@@ -33,6 +60,129 @@ export interface SymGeo { kind: SymKind; x: number; y: number }
 export type SymKind =
   | 'luz' | 'tomacorriente' | 'interruptor' | 'tablero'
   | 'punto-agua' | 'punto-desague' | 'medidor-agua'
+// ============================================================
+// GEOMETRÍA COMPARTIDA — curvas, offsets, intersecciones,
+// nubes de revisión y muestreo para PDF/DXF
+// ============================================================
+
+// arco por 3 puntos → centro, radio, ángulos
+export function arcFrom3Pts(p1: number[], p2: number[], p3: number[]): { cx: number; cy: number; r: number; a0: number; a1: number; ccw: boolean } | null {
+  const [x1, y1, x2, y2, x3, y3] = [...p1, ...p2, ...p3]
+  const d = 2 * (x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2))
+  if (Math.abs(d) < 1e-9) return null
+  const ux = ((x1 * x1 + y1 * y1) * (y2 - y3) + (x2 * x2 + y2 * y2) * (y3 - y1) + (x3 * x3 + y3 * y3) * (y1 - y2)) / d
+  const uy = ((x1 * x1 + y1 * y1) * (x3 - x2) + (x2 * x2 + y2 * y2) * (x1 - x3) + (x3 * x3 + y3 * y3) * (x2 - x1)) / d
+  const cx = ux, cy = uy
+  const r = Math.hypot(x1 - cx, y1 - cy)
+  let a1 = Math.atan2(y1 - cy, x1 - cx), a2 = Math.atan2(y2 - cy, x2 - cx), a3 = Math.atan2(y3 - cy, x3 - cx)
+  // sentido p1→p3 pasando por p2
+  const ccw = ((a2 - a1 + Math.PI * 2) % (Math.PI * 2)) < ((a3 - a1 + Math.PI * 2) % (Math.PI * 2))
+  const norm = (a: number) => (a < 0 ? a + Math.PI * 2 : a)
+  const a0n = norm(a1), a3n = norm(a3)
+  return { cx, cy, r, a0: a0n, a1: a3n, ccw }
+}
+
+// muestrear arco de 3 puntos en una polilínea (para render y PDF)
+export function sampleArc3(p1: number[], p2: number[], p3: number[], per = 16): number[][] {
+  const arc = arcFrom3Pts(p1, p2, p3)
+  if (!arc) return [p1, p3]
+  const { cx, cy, r, a0, ccw } = arc
+  let sweep = (arc.a1 - a0 + Math.PI * 2) % (Math.PI * 2)
+  if (!ccw) sweep = Math.PI * 2 - sweep
+  const n = Math.max(6, Math.round(sweep / (Math.PI / per)))
+  const out: number[][] = []
+  for (let i = 0; i <= n; i++) {
+    const t = a0 + (ccw ? sweep : -sweep) * (i / n)
+    out.push([cx + r * Math.cos(t), cy + r * Math.sin(t)])
+  }
+  return out
+}
+
+// catmull-rom → puntos muestreados (spline suave)
+export function sampleCatmullRom(pts: number[][], per = 10, closed = false): number[][] {
+  if (pts.length < 3) return pts
+  const P = closed ? [pts[pts.length - 1], ...pts, pts[0], pts[1]] : [pts[0], ...pts, pts[pts.length - 1]]
+  const out: number[][] = []
+  for (let i = 1; i < P.length - 2; i++) {
+    const [p0, p1v, p2, p3] = [P[i - 1], P[i], P[i + 1], P[i + 2]]
+    for (let j = 0; j < per; j++) {
+      const t = j / per, t2 = t * t, t3 = t2 * t
+      out.push([
+        0.5 * ((2 * p1v[0]) + (-p0[0] + p2[0]) * t + (2 * p0[0] - 5 * p1v[0] + 4 * p2[0] - p3[0]) * t2 + (-p0[0] + 3 * p1v[0] - 3 * p2[0] + p3[0]) * t3),
+        0.5 * ((2 * p1v[1]) + (-p0[1] + p2[1]) * t + (2 * p0[1] - 5 * p1v[1] + 4 * p2[1] - p3[1]) * t2 + (-p0[1] + 3 * p1v[1] - 3 * p2[1] + p3[1]) * t3),
+      ])
+    }
+  }
+  out.push(closed ? pts[0] : pts[pts.length - 1])
+  return out
+}
+
+// nube de revisión: festones de arcos sobre una polilínea
+export function scallopPts(pts: number[][], closed: boolean, arcLen = 26): number[][] {
+  const P = closed && pts.length > 2 ? [...pts, pts[0]] : pts
+  const out: number[][] = [P[0]]
+  for (let i = 1; i < P.length; i++) {
+    const [x1, y1] = P[i - 1], [x2, y2] = P[i]
+    const len = Math.hypot(x2 - x1, y2 - y1)
+    const n = Math.max(1, Math.round(len / arcLen))
+    const seg = len / n
+    const nx = (y2 - y1) / len, ny = -(x2 - x1) / len   // normal a la izquierda
+    const sag = seg * 0.45
+    for (let k = 1; k <= n; k++) {
+      const t = k / n
+      const bx = x1 + (x2 - x1) * t, by = y1 + (y2 - y1) * t
+      const bulge = k % 2 === 1 ? sag : -sag * 0.15
+      out.push([bx + nx * bulge, by + ny * bulge])
+    }
+  }
+  return out
+}
+
+// intersección de dos segmentos
+export function segIntersect(a1: number[], a2: number[], b1: number[], b2: number[]): number[] | null {
+  const d1x = a2[0] - a1[0], d1y = a2[1] - a1[1], d2x = b2[0] - b1[0], d2y = b2[1] - b1[1]
+  const den = d1x * d2y - d1y * d2x
+  if (Math.abs(den) < 1e-9) return null
+  const t = ((b1[0] - a1[0]) * d2y - (b1[1] - a1[1]) * d2x) / den
+  const u = ((b1[0] - a1[0]) * d1y - (b1[1] - a1[1]) * d1x) / den
+  if (t < 1e-6 || t > 1 - 1e-6 || u < 1e-6 || u > 1 - 1e-6) return null
+  return [a1[0] + d1x * t, a1[1] + d1y * t]
+}
+
+// offset de polilínea (miter simple) — EQUISDIST
+export function offsetPolyline(pts: number[][], dist: number, closed = false): number[][] {
+  const n = pts.length
+  if (n < 2) return pts
+  const normals: number[][] = []
+  for (let i = 0; i < n - 1; i++) {
+    const dx = pts[i + 1][0] - pts[i][0], dy = pts[i + 1][1] - pts[i][1]
+    const L = Math.hypot(dx, dy) || 1
+    normals.push([-dy / L * dist, dx / L * dist])
+  }
+  const out: number[][] = []
+  for (let i = 0; i < n; i++) {
+    if (i === 0) out.push([pts[0][0] + normals[0][0], pts[0][1] + normals[0][1]])
+    else if (i === n - 1) out.push([pts[i][0] + normals[n - 2][0], pts[i][1] + normals[n - 2][1]])
+    else {
+      const n1 = normals[i - 1], n2 = normals[i]
+      const mx = (n1[0] + n2[0]) / 2, my = (n1[1] + n2[1]) / 2
+      const k = Math.min(2.4, 1 / Math.max(0.35, Math.hypot(mx, my) / Math.abs(dist || 1)))
+      out.push([pts[i][0] + mx * k, pts[i][1] + my * k])
+    }
+  }
+  if (closed && out.length > 2) out.push(out[0])
+  return out
+}
+
+export const pathFromPts = (pts: number[][]): string =>
+  pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ')
+
+export const polyLen = (pts: number[][]): number => {
+  let L = 0
+  for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
+  return L
+}
+
 export interface TerrainGeo { kind: 'lote' | 'curva'; pts: number[][]; name?: string; elev?: number }
 export interface PinGeo { x: number; y: number; text: string; author: string; resolved?: boolean }
 

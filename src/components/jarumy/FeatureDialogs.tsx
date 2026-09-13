@@ -8,7 +8,7 @@
 import { useMemo, useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useJarumy } from '@/lib/store'
-import { PX_PER_M, type StairGeo, type RoofGeo } from '@/lib/plan-data'
+import { PX_PER_M, WALL_TYPES, type StairGeo, type RoofGeo } from '@/lib/plan-data'
 import { checkNormativa } from '@/lib/normativa'
 import { computeMetrados, downloadS10Workbook } from '@/lib/metrados'
 import { buildElevation, ELEV_LABELS, type ElevDir } from '@/lib/elevation'
@@ -729,6 +729,407 @@ export function ShareDialog() {
             </p>
           </div>
         )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------- QUICK SELECT (filtro de selección) ----------------
+
+export function QuickSelectDialog() {
+  const s = useJarumy()
+  const open = s.dialog === 'quickselect'
+  const [fType, setFType] = useState('todos')
+  const [fLayer, setFLayer] = useState('todas')
+  const [fPhase, setFPhase] = useState('todas')
+
+  const alive = s.elements.filter((e) => !s.mods[e.id]?.deleted)
+  const types = Array.from(new Set(alive.map((e) => e.type)))
+  const layers = Array.from(new Set(alive.map((e) => e.layer)))
+
+  const results = useMemo(() => alive.filter((e) => {
+    if (fType !== 'todos' && e.type !== fType) return false
+    if (fLayer !== 'todas' && e.layer !== fLayer) return false
+    if (fPhase !== 'todas') {
+      const ph = s.mods[e.id]?.phase || (e.geo as { phase?: string }).phase || 'nueva'
+      if (ph !== fPhase) return false
+    }
+    return true
+  }), [alive, fType, fLayer, fPhase, s.mods])
+
+  if (!open) return null
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && s.setDialog(null)}>
+      <DialogContent className="jy-bg2 jy-text border jy-border max-w-xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <ToolIcon name="ListFilter" className="text-amber-400" size={18} />
+            Quick Select — selección por filtros
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="grid grid-cols-3 gap-2 text-[11px]">
+          <label className="space-y-1">
+            <span className="jy-muted font-semibold">Tipo</span>
+            <select value={fType} onChange={(e) => setFType(e.target.value)}
+              className="w-full rounded-lg border jy-border bg-black/25 px-2 py-1.5 jy-text">
+              <option value="todos">Todos ({alive.length})</option>
+              {types.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </label>
+          <label className="space-y-1">
+            <span className="jy-muted font-semibold">Capa</span>
+            <select value={fLayer} onChange={(e) => setFLayer(e.target.value)}
+              className="w-full rounded-lg border jy-border bg-black/25 px-2 py-1.5 jy-text">
+              <option value="todas">Todas</option>
+              {layers.map((l) => <option key={l} value={l}>{l}</option>)}
+            </select>
+          </label>
+          <label className="space-y-1">
+            <span className="jy-muted font-semibold">Fase</span>
+            <select value={fPhase} onChange={(e) => setFPhase(e.target.value)}
+              className="w-full rounded-lg border jy-border bg-black/25 px-2 py-1.5 jy-text">
+              <option value="todas">Todas</option>
+              <option value="existente">Existente</option>
+              <option value="demolicion">Demolición</option>
+              <option value="nueva">Nueva</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="rounded-xl border jy-border bg-black/20 p-2.5 max-h-64 overflow-y-auto space-y-1">
+          {results.length === 0 && <p className="text-[11px] jy-muted text-center py-6">Ningún elemento coincide con el filtro.</p>}
+          {results.slice(0, 80).map((e) => (
+            <button key={e.id}
+              onClick={() => { s.setSelected(e.id); s.pushConsole({ text: `QUICK SELECT: ${e.name} (${e.type} · capa ${e.layer}) seleccionado — ${results.length} coincidencias en total`, kind: 'out' }) }}
+              className={`w-full flex items-center justify-between rounded-lg px-2.5 py-1.5 text-[11px] transition-colors ${
+                s.selectedId === e.id ? 'bg-amber-500/20 border border-amber-500/40' : 'hover:bg-zinc-800/60 border border-transparent'}`}>
+              <span className="font-bold jy-text truncate">{e.name}</span>
+              <span className="jy-muted shrink-0 ml-2">{e.type} · {e.layer}</span>
+            </button>
+          ))}
+          {results.length > 80 && <p className="text-[10px] jy-muted text-center pt-1">…y {results.length - 80} más (afine el filtro)</p>}
+        </div>
+
+        <div className="flex items-center justify-between text-[11px]">
+          <span className="jy-muted">{results.length} elemento{results.length !== 1 ? 's' : ''} encontrado{results.length !== 1 ? 's' : ''}</span>
+          <button
+            onClick={() => {
+              if (results[0]) { s.setSelected(results[0].id) }
+              s.pushConsole({ text: `QUICK SELECT: ${results.length} coincidencias — primero seleccionado (selección múltiple en desarrollo)`, kind: 'out' })
+            }}
+            className="rounded-lg bg-amber-500 px-3 py-1.5 font-black text-zinc-950 hover:brightness-110 transition-all">
+            Seleccionar primero
+          </button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------- ILUMINACIÓN (lux por ambiente) ----------------
+
+const LUX_REQ: Array<{ match: RegExp; label: string; lux: number }> = [
+  { match: /COCINA/i, label: 'Cocina (tarea)', lux: 300 },
+  { match: /BAÑO|BANO/i, label: 'Baño', lux: 250 },
+  { match: /DORM/i, label: 'Dormitorio', lux: 150 },
+  { match: /VEST/i, label: 'Vestidor', lux: 150 },
+  { match: /SALA|ESTAR|COMEDOR/i, label: 'Estar / comedor', lux: 150 },
+]
+
+export function LightingDialog() {
+  const s = useJarumy()
+  const open = s.dialog === 'lighting'
+  // luminaria de referencia: panel LED 9 W ≈ 810 lm · factor de utilización 0.65 · mantenimiento 0.8
+  const LM = 810, UF = 0.65, MF = 0.8
+
+  const rows = useMemo(() => {
+    return s.elements
+      .filter((e) => e.type === 'espacio' && !s.mods[e.id]?.deleted)
+      .map((e) => {
+        const g = e.geo as { w: number; h: number; name: string }
+        const area = (g.w / PX_PER_M) * (g.h / PX_PER_M)
+        const req = LUX_REQ.find((r) => r.match.test(g.name || e.name))?.lux ?? 150
+        const n = Math.max(1, Math.ceil((req * area) / (LM * UF * MF)))
+        const avg = (n * LM * UF * MF) / area
+        const label = LUX_REQ.find((r) => r.match.test(g.name || e.name))?.label ?? 'Ambiente general'
+        return { name: g.name || e.name, area, req, n, avg, label, ok: avg >= req - 0.5 }
+      })
+  }, [s.elements, s.mods])
+
+  const totalFix = rows.reduce((a, r) => a + r.n, 0)
+  const totalW = totalFix * 9
+
+  if (!open) return null
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && s.setDialog(null)}>
+      <DialogContent className="jy-bg2 jy-text border jy-border max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <ToolIcon name="Sun" className="text-amber-400" size={18} />
+            Iluminación artificial — cálculo de lux por ambiente
+          </DialogTitle>
+        </DialogHeader>
+
+        <p className="text-[10.5px] jy-muted">
+          Método de los lúmenes: N = E·A / (Φ·UF·MF) · panel LED 9 W = 810 lm · UF 0.65 · MF 0.8 · niveles según EN 12464-1.
+        </p>
+
+        <div className="rounded-xl border jy-border overflow-hidden">
+          <table className="w-full text-[11px]">
+            <thead className="bg-black/30 jy-muted">
+              <tr>
+                <th className="text-left px-2.5 py-1.5 font-bold">Ambiente</th>
+                <th className="text-right px-2 py-1.5 font-bold">Área m²</th>
+                <th className="text-right px-2 py-1.5 font-bold">E req.</th>
+                <th className="text-right px-2 py-1.5 font-bold">Luminarias</th>
+                <th className="text-right px-2 py-1.5 font-bold">E medio</th>
+                <th className="text-center px-2 py-1.5 font-bold">Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.name} className="border-t jy-border/50">
+                  <td className="px-2.5 py-1.5 font-bold">{r.name}<span className="block text-[9px] jy-muted font-normal">{r.label}</span></td>
+                  <td className="px-2 py-1.5 text-right font-mono">{r.area.toFixed(1)}</td>
+                  <td className="px-2 py-1.5 text-right font-mono">{r.req} lx</td>
+                  <td className="px-2 py-1.5 text-right font-mono font-bold text-amber-300">{r.n} × 9 W</td>
+                  <td className="px-2 py-1.5 text-right font-mono">{r.avg.toFixed(0)} lx</td>
+                  <td className="px-2 py-1.5 text-center">
+                    <span className={`rounded-full px-2 py-0.5 text-[9.5px] font-black ${r.ok ? 'bg-emerald-500/15 text-emerald-300' : 'bg-red-500/15 text-red-300'}`}>
+                      {r.ok ? 'CUMPLE' : 'BAJO'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="rounded-xl border jy-border bg-black/20 py-2">
+            <div className="text-lg font-black font-mono text-amber-300">{totalFix}</div>
+            <div className="text-[9.5px] jy-muted">luminarias totales</div>
+          </div>
+          <div className="rounded-xl border jy-border bg-black/20 py-2">
+            <div className="text-lg font-black font-mono text-amber-300">{totalW} W</div>
+            <div className="text-[9.5px] jy-muted">potencia instalada</div>
+          </div>
+          <div className="rounded-xl border jy-border bg-black/20 py-2">
+            <div className="text-lg font-black font-mono text-amber-300">{(totalW / Math.max(1, rows.reduce((a, r) => a + r.area, 0))).toFixed(1)}</div>
+            <div className="text-[9.5px] jy-muted">W/m² instalados</div>
+          </div>
+        </div>
+
+        <button
+          onClick={() => {
+            s.armDraw('simbolo:luz')
+            s.setDialog(null)
+            s.pushConsole({ text: `ILUMINACIÓN: ${totalFix} luminarias LED 9 W — colóquelas con el símbolo LUMINARIA (${rows.filter((r) => !r.ok).length} ambiente(s) por debajo del nivel requerido)`, kind: 'out' })
+          }}
+          className="w-full rounded-xl bg-amber-500 py-2.5 text-[13px] font-black text-zinc-950 hover:brightness-110 active:scale-[0.99] transition-all">
+          Colocar luminarias en el plano
+        </button>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------- ACÚSTICA (Rw por muro) ----------------
+
+const RW_BY_TYPE: Record<string, number> = {
+  l140: 42, l230: 46, c175: 47, dw100: 52,
+}
+
+export function AcousticDialog() {
+  const s = useJarumy()
+  const open = s.dialog === 'acoustic'
+  const REQ = 45 // criterio habitacional: ≥ 45 dB en particiones de dormitorios
+
+  const rows = useMemo(() => {
+    const rooms = s.elements.filter((e) => e.type === 'espacio' && !s.mods[e.id]?.deleted)
+    const dorms = rooms.filter((e) => /DORM/i.test((e.geo as { name: string }).name || e.name))
+    const walls = s.elements.filter((e) => (e.type === 'muro' || e.type === 'dibujo') && !s.mods[e.id]?.deleted)
+    return walls.map((w) => {
+      const wg = w.geo as { x1: number; y1: number; x2: number; y2: number; t?: number }
+      const wtId = s.mods[w.id]?.wallType
+      const tcm = wtId ? undefined : ((wg.t || 12) / PX_PER_M) * 100
+      const rw = wtId ? RW_BY_TYPE[wtId] ?? 45 : 36 + (tcm ? tcm * 0.35 : 0)
+      const wx0 = Math.min(wg.x1, wg.x2), wx1 = Math.max(wg.x1, wg.x2)
+      const wy0 = Math.min(wg.y1, wg.y2), wy1 = Math.max(wg.y1, wg.y2)
+      const touching = dorms.filter((d) => {
+        const dg = d.geo as { x: number; y: number; w: number; h: number }
+        const ox = Math.max(wx0 - 10, dg.x) <= Math.min(wx1 + 10, dg.x + dg.w)
+        const oy = Math.max(wy0 - 10, dg.y) <= Math.min(wy1 + 10, dg.y + dg.h)
+        return ox && oy
+      })
+      return { id: w.id, name: w.name, type: wtId ? (WALL_TYPES[wtId]?.label || wtId) : `Espesor ${(((wg.t || 12) / PX_PER_M) * 100).toFixed(1)} cm`, rw, isDorm: touching.length > 0, dorms: touching.map((d) => (d.geo as { name: string }).name) }
+    }).filter((r) => r.isDorm)
+  }, [s.elements, s.mods])
+
+  if (!open) return null
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && s.setDialog(null)}>
+      <DialogContent className="jy-bg2 jy-text border jy-border max-w-xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <ToolIcon name="AudioWaveform" className="text-amber-400" size={18} />
+            Acústica — aislamiento Rw de muros de dormitorios
+          </DialogTitle>
+        </DialogHeader>
+
+        <p className="text-[10.5px] jy-muted">
+          Estimación simplificada ISO 12354: Rw por tipo constructivo · criterio habitacional ≥ {REQ} dB entre dormitorios y ambientes ruidosos.
+        </p>
+
+        <div className="rounded-xl border jy-border overflow-hidden max-h-72 overflow-y-auto">
+          <table className="w-full text-[11px]">
+            <thead className="bg-black/30 jy-muted sticky top-0">
+              <tr>
+                <th className="text-left px-2.5 py-1.5 font-bold">Muro</th>
+                <th className="text-left px-2 py-1.5 font-bold">Tipo</th>
+                <th className="text-left px-2 py-1.5 font-bold">Colinda con</th>
+                <th className="text-right px-2 py-1.5 font-bold">Rw est.</th>
+                <th className="text-center px-2 py-1.5 font-bold">Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id} className="border-t jy-border/50">
+                  <td className="px-2.5 py-1.5 font-bold">{r.name}</td>
+                  <td className="px-2 py-1.5">{r.type}</td>
+                  <td className="px-2 py-1.5 jy-muted">{r.dorms.join(', ')}</td>
+                  <td className="px-2 py-1.5 text-right font-mono font-bold text-amber-300">{r.rw.toFixed(0)} dB</td>
+                  <td className="px-2 py-1.5 text-center">
+                    <span className={`rounded-full px-2 py-0.5 text-[9.5px] font-black ${r.rw >= REQ ? 'bg-emerald-500/15 text-emerald-300' : 'bg-red-500/15 text-red-300'}`}>
+                      {r.rw >= REQ ? 'CUMPLE' : `FALTAN ${(REQ - r.rw).toFixed(0)} dB`}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+              {rows.length === 0 && (
+                <tr><td colSpan={5} className="text-center jy-muted py-6">No se detectaron muros colindantes a dormitorios.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 text-[11px]">
+          <div className="rounded-xl border jy-border bg-black/20 p-2.5">
+            <div className="font-bold text-amber-300 mb-1">Recomendaciones</div>
+            <ul className="jy-muted space-y-1 list-disc pl-4">
+              <li>Muro doble con lana de roca (drywall + aislante): Rw 52 dB</li>
+              <li>Ladrillo 230 asentado con mortero completo: Rw 46 dB</li>
+              <li>Sellar juntas y cajas eléctricales con masilla acústica</li>
+            </ul>
+          </div>
+          <div className="rounded-xl border jy-border bg-black/20 p-2.5 flex flex-col justify-center">
+            <div className="flex justify-between py-0.5"><span className="jy-muted">Muros evaluados</span><span className="font-mono font-bold">{rows.length}</span></div>
+            <div className="flex justify-between py-0.5"><span className="jy-muted">Cumplen ≥ 45 dB</span><span className="font-mono font-bold text-emerald-400">{rows.filter((r) => r.rw >= REQ).length}</span></div>
+            <div className="flex justify-between py-0.5"><span className="jy-muted">Por mejorar</span><span className="font-mono font-bold text-red-400">{rows.filter((r) => r.rw < REQ).length}</span></div>
+          </div>
+        </div>
+
+        <button
+          onClick={() => {
+            const mejorado = rows.filter((r) => r.rw < REQ)
+            s.pushConsole({ text: `ACÚSTICA: ${rows.length} muros de dormitorio evaluados — ${mejorado.length} por debajo de ${REQ} dB. Sugerencia: muro doble drywall+lana (Rw 52) o ladrillo 230 (Rw 46). Cambie el tipo con MURO MULTICAPA en el menú radial.`, kind: 'out' })
+            s.setDialog(null)
+          }}
+          className="w-full rounded-xl bg-amber-500 py-2.5 text-[13px] font-black text-zinc-950 hover:brightness-110 active:scale-[0.99] transition-all">
+          Ver resumen en consola
+        </button>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------- FASES BIM (existente / demolición / nueva) ----------------
+
+export function PhasesDialog() {
+  const s = useJarumy()
+  const open = s.dialog === 'phases'
+
+  const counts = useMemo(() => {
+    const c = { existente: 0, demolicion: 0, nueva: 0 } as Record<string, number>
+    s.elements.forEach((e) => {
+      if (s.mods[e.id]?.deleted) return
+      const ph = s.mods[e.id]?.phase || (e.geo as { phase?: string }).phase || 'nueva'
+      c[ph] = (c[ph] || 0) + 1
+    })
+    return c
+  }, [s.elements, s.mods])
+
+  const selected = s.elements.find((e) => e.id === s.selectedId)
+
+  const setPhase = (ph: 'existente' | 'demolicion' | 'nueva') => {
+    if (!selected) {
+      s.pushConsole({ text: 'FASES: primero seleccione un elemento del plano', kind: 'err' })
+      return
+    }
+    s.applyEffect(selected.id, 'phase', ph)
+  }
+
+  if (!open) return null
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && s.setDialog(null)}>
+      <DialogContent className="jy-bg2 jy-text border jy-border max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <ToolIcon name="Layers" className="text-amber-400" size={18} />
+            Fases de obra — existente · demolición · nueva
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="grid grid-cols-3 gap-2">
+          {([
+            { id: 'existente', label: 'Existente', color: '#71717a', note: 'Gris tenue — se conserva' },
+            { id: 'demolicion', label: 'Demolición', color: '#ef4444', note: 'Rojo punteado + aspas' },
+            { id: 'nueva', label: 'Nueva', color: '#22c55e', note: 'Trazo normal' },
+          ] as const).map((p) => (
+            <button key={p.id} onClick={() => setPhase(p.id)}
+              className="rounded-xl border jy-border bg-black/20 p-2.5 text-center hover:border-amber-500/50 transition-colors">
+              <span className="block text-2xl font-black font-mono" style={{ color: p.color }}>{counts[p.id] || 0}</span>
+              <span className="block text-[11px] font-bold">{p.label}</span>
+              <span className="block text-[9px] jy-muted mt-0.5">{p.note}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="rounded-xl border jy-border bg-black/20 p-2.5 text-[11px] space-y-2">
+          <div className="font-bold jy-text">Asignar fase al elemento seleccionado</div>
+          <div className="jy-muted">
+            {selected
+              ? <span>Selección actual: <span className="font-bold text-amber-300">{selected.name}</span> ({selected.type} · capa {selected.layer}) — clic en una fase de arriba para asignarla.</span>
+              : 'Ningún elemento seleccionado. Cierre el diálogo, haga clic en un muro o mueble del plano y vuelva a abrir FASES.'}
+          </div>
+        </div>
+
+        <div className="rounded-xl border jy-border bg-black/20 p-2.5 space-y-2">
+          <div className="text-[11px] font-bold jy-text">Filtro de visualización</div>
+          <div className="flex flex-wrap gap-1.5">
+            {([
+              { id: null, label: 'Ver todo' },
+              { id: 'existente', label: 'Solo existente' },
+              { id: 'demolicion', label: 'Solo demolición' },
+              { id: 'nueva', label: 'Solo nueva' },
+            ] as const).map((f) => (
+              <button key={f.label} onClick={() => {
+                s.setPhaseFilter(f.id)
+                s.pushConsole({ text: `FASES: vista filtrada — ${f.label}`, kind: 'out' })
+              }}
+                className={`rounded-lg px-3 py-1.5 text-[10.5px] font-bold transition-all ${
+                  s.phaseFilter === f.id ? 'bg-amber-500 text-zinc-950' : 'border jy-border jy-text hover:border-amber-500/50'}`}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[9.5px] jy-muted">Al filtrar, las demás fases se atenúan (12% de opacidad) para revisar la demolición o la obra nueva por separado. El plano de demolición queda listo para imprimir con el filtro activo.</p>
+        </div>
+
+        <div className="text-[10px] jy-muted text-center">
+          Comando rápido: FASE existente|demolicion|nueva (sobre la selección) · DEMOLICION abre este panel.
+        </div>
       </DialogContent>
     </Dialog>
   )

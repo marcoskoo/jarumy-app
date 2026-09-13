@@ -2,8 +2,8 @@
 
 import React, { useRef, useState, useCallback, useEffect } from 'react'
 import { useJarumy, type HoverInfo } from '@/lib/store'
-import type { PlanElement } from '@/lib/plan-data'
-import { VIEW_W, VIEW_H, PX_PER_M, elementSummary, BLOCK_LIBRARY, roomAreaM2, type RoomGeo } from '@/lib/plan-data'
+import type { PlanElement, DrawGeo } from '@/lib/plan-data'
+import { VIEW_W, VIEW_H, PX_PER_M, elementSummary, BLOCK_LIBRARY, roomAreaM2, type RoomGeo, sampleArc3, sampleCatmullRom, scallopPts, pathFromPts, type HatchPattern } from '@/lib/plan-data'
 import { PlanElementNode, FurnShape } from './ElementRenderers'
 import RadialMenu from './RadialMenu'
 import HeliodonLayer from './HeliodonLayer'
@@ -16,6 +16,9 @@ import { registerSvg } from '@/lib/raster-export'
 import type { SymKind } from '@/lib/plan-data'
 
 const uid = () => `usr-${Math.random().toString(36).slice(2, 9)}`
+
+// herramientas de trazo multiclic (ENTER/doble clic/Terminar cierran el trazo)
+const MULTI_FAMILY = ['polilinea', 'tuberia-agua', 'tuberia-desague', 'circuito', 'terreno', 'curvanivel', 'spline', 'nube', 'hatch']
 
 export default function PlanCanvas() {
   const s = useJarumy()
@@ -31,6 +34,8 @@ export default function PlanCanvas() {
   const [size, setSize] = useState({ w: 900, h: 600 })
   const coordsRef = useRef<HTMLSpanElement>(null)
   const moveTargetRef = useRef<string | null>(null)
+  const trimTargetRef = useRef<string | null>(null)
+  const extendTargetRef = useRef<string | null>(null)
   const [hint, setHint] = useState(true)
 
   useEffect(() => {
@@ -124,6 +129,50 @@ export default function PlanCanvas() {
       st.applyEffect(el.id, 'duplicate')
       return
     }
+    // RECORTA: 1er clic = línea objetivo · 2º clic sobre la misma línea = tramo a eliminar
+    if (st.drawTool === 'recorta') {
+      const isLine = el.type === 'dibujo' && (el.geo as DrawGeo).kind === 'linea'
+      if (!trimTargetRef.current) {
+        if (!isLine) {
+          st.pushConsole({ text: 'RECORTA: seleccione una LÍNEA (use EXPLOTA antes si es polilínea)', kind: 'err' })
+          return
+        }
+        trimTargetRef.current = el.id
+        st.pushConsole({ text: `RECORTA: ${el.name} — ahora clic sobre el tramo a eliminar`, kind: 'cmd' })
+        return
+      }
+      if (el.id === trimTargetRef.current) {
+        const pt = toSvg(mouseRef.current.x, mouseRef.current.y)
+        st.applyEffect(el.id, 'trimAt', `${pt[0].toFixed(1)},${pt[1].toFixed(1)}`)
+        trimTargetRef.current = null
+        st.armDraw(null)
+        return
+      }
+      trimTargetRef.current = el.id
+      st.pushConsole({ text: `RECORTA: objetivo cambiado a ${el.name} — clic sobre el tramo a eliminar`, kind: 'cmd' })
+      return
+    }
+    // ALARGA: 1er clic = línea a extender · 2º clic = elemento límite
+    if (st.drawTool === 'alarga') {
+      if (!extendTargetRef.current) {
+        const isLine = el.type === 'dibujo' && (el.geo as DrawGeo).kind === 'linea'
+        if (!isLine) {
+          st.pushConsole({ text: 'ALARGA: seleccione una LÍNEA a extender', kind: 'err' })
+          return
+        }
+        extendTargetRef.current = el.id
+        st.pushConsole({ text: `ALARGA: ${el.name} — ahora clic en el elemento LÍMITE`, kind: 'cmd' })
+        return
+      }
+      if (el.id === extendTargetRef.current) {
+        st.pushConsole({ text: 'ALARGA: elija un elemento límite DISTINTO de la línea', kind: 'err' })
+        return
+      }
+      st.applyEffect(extendTargetRef.current, 'extendTo', el.id)
+      extendTargetRef.current = null
+      st.armDraw(null)
+      return
+    }
     if (st.drawTool === 'mover') {
       moveTargetRef.current = el.id
       st.pushConsole({ text: `MOVER: ${el.name} — ahora clic en el punto destino`, kind: 'cmd' })
@@ -134,7 +183,7 @@ export default function PlanCanvas() {
       if (st.hovered?.id === el.id) st.setHovered(null)
       else openRadial(el)
     }
-  }, [openRadial])
+  }, [openRadial, toSvg])
 
   // ---------- clic sobre el lienzo (herramientas de dibujo) ----------
   const handleCanvasClick = useCallback((e: React.MouseEvent) => {
@@ -248,6 +297,9 @@ export default function PlanCanvas() {
       case 'circuito':
       case 'terreno':
       case 'curvanivel':
+      case 'spline':
+      case 'nube':
+      case 'hatch':
         st.addDrawPoint(p)
         break
       case 'texto': {
@@ -259,6 +311,102 @@ export default function PlanCanvas() {
           }
         }
         st.armDraw(null)
+        break
+      }
+      case 'punto': {
+        const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'dibujo', name: 'Punto', geo: { kind: 'punto', pts: [[p[0], p[1]]] } }
+        useJarumy.setState((prev) => ({
+          undoStack: [...prev.undoStack.slice(-29), { elements: JSON.parse(JSON.stringify(prev.elements)), mods: JSON.parse(JSON.stringify(prev.mods)), gridSpacing: prev.gridSpacing }],
+          elements: [...prev.elements, newEl],
+          drawPts: [],
+        }))
+        st.pushConsole({ text: 'PUNTO colocado (marca de referencia)', kind: 'out' })
+        break
+      }
+      case 'arco': {
+        // 3 clics: inicio · punto por donde pasa el arco · fin
+        const pts = [...st.drawPts, p]
+        if (pts.length === 3) {
+          const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'dibujo', name: 'Arco', geo: { kind: 'arco', pts: [[pts[0][0], pts[0][1]], [pts[1][0], pts[1][1]], [pts[2][0], pts[2][1]]] } }
+          useJarumy.setState((prev) => ({
+            undoStack: [...prev.undoStack.slice(-29), { elements: JSON.parse(JSON.stringify(prev.elements)), mods: JSON.parse(JSON.stringify(prev.mods)), gridSpacing: prev.gridSpacing }],
+            elements: [...prev.elements, newEl],
+            drawPts: [],
+          }))
+          st.pushConsole({ text: `ARCO creado por 3 puntos (${(Math.hypot(pts[2][0] - pts[0][0], pts[2][1] - pts[0][1]) / PX_PER_M).toFixed(2)} m de cuerda)`, kind: 'out' })
+        } else {
+          st.addDrawPoint(p)
+        }
+        break
+      }
+      case 'elipse': {
+        // 2 clics: centro + vértice (rx/ry independientes con ORTO desactivado)
+        if (st.drawPts.length === 0) {
+          st.addDrawPoint(p)
+        } else {
+          const [cx, cy] = st.drawPts[0]
+          const rx = Math.max(6, Math.abs(p[0] - cx))
+          const ry = Math.max(6, Math.abs(p[1] - cy))
+          const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'dibujo', name: 'Elipse', geo: { kind: 'elipse', pts: [[cx, cy]], rx, ry } }
+          useJarumy.setState((prev) => ({
+            undoStack: [...prev.undoStack.slice(-29), { elements: JSON.parse(JSON.stringify(prev.elements)), mods: JSON.parse(JSON.stringify(prev.mods)), gridSpacing: prev.gridSpacing }],
+            elements: [...prev.elements, newEl],
+            drawPts: [],
+          }))
+          st.pushConsole({ text: `ELIPSE creada — eje mayor ${(Math.max(rx, ry) * 2 / PX_PER_M).toFixed(2)} m × eje menor ${(Math.min(rx, ry) * 2 / PX_PER_M).toFixed(2)} m`, kind: 'out' })
+        }
+        break
+      }
+      case 'directriz': {
+        // 2 clics + texto: flecha → codo → rótulo
+        if (st.drawPts.length === 0) {
+          st.addDrawPoint(p)
+        } else {
+          const a = st.drawPts[0] as [number, number]
+          const t = typeof window !== 'undefined' ? window.prompt('Texto de la directriz:', 'UMBRAL GRANITO NEGRO PULIDO e=0.02') : null
+          if (t) {
+            const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'dibujo', name: `Directriz: ${t.slice(0, 28)}`, geo: { kind: 'directriz', pts: [[a[0], a[1]], [p[0], p[1]]], text: t } }
+            useJarumy.setState((prev) => ({
+              undoStack: [...prev.undoStack.slice(-29), { elements: JSON.parse(JSON.stringify(prev.elements)), mods: JSON.parse(JSON.stringify(prev.mods)), gridSpacing: prev.gridSpacing }],
+              elements: [...prev.elements, newEl],
+              drawPts: [],
+            }))
+          } else {
+            useJarumy.setState({ drawPts: [] })
+          }
+        }
+        break
+      }
+      case 'cota-rad': {
+        // 2 clics: centro + borde
+        if (st.drawPts.length === 0) {
+          st.addDrawPoint(p)
+        } else {
+          const [cx, cy] = st.drawPts[0]
+          const r = Math.max(6, Math.hypot(p[0] - cx, p[1] - cy))
+          const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'dibujo', name: 'Cota de radio', geo: { kind: 'cota-rad', pts: [[cx, cy], [p[0], p[1]]], r } }
+          useJarumy.setState((prev) => ({
+            undoStack: [...prev.undoStack.slice(-29), { elements: JSON.parse(JSON.stringify(prev.elements)), mods: JSON.parse(JSON.stringify(prev.mods)), gridSpacing: prev.gridSpacing }],
+            elements: [...prev.elements, newEl],
+            drawPts: [],
+          }))
+          st.pushConsole({ text: `ACOTRAD: R ${(r / PX_PER_M).toFixed(2)} m con directriz al centro`, kind: 'out' })
+        }
+        break
+      }
+      case 'cota-ang': {
+        // 3 clics: vértice · punto en el 1er lado · punto en el 2do lado
+        const pts = [...st.drawPts, p]
+        if (pts.length === 3) {
+          const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'dibujo', name: 'Cota angular', geo: { kind: 'cota-ang', pts: [[pts[0][0], pts[0][1]], [pts[1][0], pts[1][1]], [pts[2][0], pts[2][1]]] } }
+          useJarumy.setState((prev) => ({
+            undoStack: [...prev.undoStack.slice(-29), { elements: JSON.parse(JSON.stringify(prev.elements)), mods: JSON.parse(JSON.stringify(prev.mods)), gridSpacing: prev.gridSpacing }],
+            elements: [...prev.elements, newEl],
+            drawPts: [],
+          }))
+        } else {
+          st.addDrawPoint(p)
+        }
         break
       }
       default:
@@ -331,7 +479,7 @@ export default function PlanCanvas() {
         if (st.drawTool) st.armDraw(null)
         st.setHovered(null)
       }
-      const polyFamily = ['polilinea', 'tuberia-agua', 'tuberia-desague', 'circuito', 'terreno', 'curvanivel']
+      const polyFamily = MULTI_FAMILY
       if (e.key === 'Enter' && polyFamily.includes(useJarumy.getState().drawTool || '')) {
         useJarumy.getState().finishPolyline()
       }
@@ -475,8 +623,7 @@ export default function PlanCanvas() {
             onClick={handleCanvasClick}
             onDoubleClick={(e) => {
               e.stopPropagation()
-              const polyFamily = ['polilinea', 'tuberia-agua', 'tuberia-desague', 'circuito', 'terreno', 'curvanivel']
-              if (polyFamily.includes(useJarumy.getState().drawTool || '')) useJarumy.getState().finishPolyline()
+              if (MULTI_FAMILY.includes(useJarumy.getState().drawTool || '')) useJarumy.getState().finishPolyline()
             }}
             style={{ background: 'transparent', touchAction: 'none' }}
           >
@@ -501,18 +648,22 @@ export default function PlanCanvas() {
               <HeliodonLayer elements={s.elements} mods={s.mods} sun={s.sun} phase="under" />
             )}
 
-            {/* elementos por capas */}
+            {/* elementos por capas (el filtro de fases atenúa lo que no corresponde) */}
             {sorted.map((el) =>
               visibleLayers.has(el.layer) ? (
-                <PlanElementNode
+                <g
                   key={el.id}
-                  el={el}
-                  mod={s.mods[el.id]}
-                  handlers={{
-                    onClickEl: handleClickEl, onDownEl: handleDownEl,
-                  }}
-                  showArea={s.areaLabels}
-                />
+                  opacity={s.phaseFilter && ((s.mods[el.id]?.phase || (el.geo as DrawGeo).phase || 'nueva') !== s.phaseFilter) ? 0.12 : 1}
+                >
+                  <PlanElementNode
+                    el={el}
+                    mod={s.mods[el.id]}
+                    handlers={{
+                      onClickEl: handleClickEl, onDownEl: handleDownEl,
+                    }}
+                    showArea={s.areaLabels}
+                  />
+                </g>
               ) : null
             )}
 
@@ -527,25 +678,97 @@ export default function PlanCanvas() {
             )}
 
             {/* vista previa de dibujo */}
-            {s.drawTool && !s.drawTool.startsWith('ins:') && !s.drawTool.startsWith('simbolo:') && s.drawPts.length > 0 && (() => {
+            {s.drawTool && !s.drawTool.startsWith('ins:') && !s.drawTool.startsWith('simbolo:') && (() => {
               const base = s.drawPts[s.drawPts.length - 1]
               const cur = orthoPt(snapPt(s.cursorSvg), base)
-              const polyFamily = ['polilinea', 'tuberia-agua', 'tuberia-desague', 'circuito', 'terreno', 'curvanivel']
+              // sin ancla todavía: solo herramientas de un clic muestran fantasma
+              if (!base) {
+                if (s.drawTool === 'punto') {
+                  const c0 = snapPt(s.cursorSvg)
+                  return <g stroke="#f59e0b" strokeWidth="1.6" opacity="0.8" pointerEvents="none">
+                    <line x1={c0[0] - 5} y1={c0[1]} x2={c0[0] + 5} y2={c0[1]} />
+                    <line x1={c0[0]} y1={c0[1] - 5} x2={c0[0]} y2={c0[1] + 5} />
+                  </g>
+                }
+                return null
+              }
+              const polyFamily = MULTI_FAMILY
               const toolColor = s.drawTool === 'tuberia-agua' ? '#38bdf8'
                 : s.drawTool === 'tuberia-desague' ? '#b45309'
                 : s.drawTool === 'circuito' ? '#ef4444'
                 : s.drawTool === 'terreno' || s.drawTool === 'curvanivel' ? '#84cc16'
+                : s.drawTool === 'nube' ? '#fb7185'
+                : s.drawTool === 'hatch' ? '#a3e635'
                 : '#f59e0b'
               const dash = { stroke: toolColor, strokeWidth: 1.8, strokeDasharray: '6 4', fill: 'none' } as const
               if (s.drawTool === 'circulo') {
                 return <circle cx={base[0]} cy={base[1]} r={Math.max(4, Math.hypot(cur[0] - base[0], cur[1] - base[1]))} {...dash} />
               }
               if (polyFamily.includes(s.drawTool)) {
-                return <polyline points={[...s.drawPts, cur].map((p) => p.join(',')).join(' ')} {...dash} />
+                const all = [...s.drawPts, cur]
+                if (s.drawTool === 'spline') {
+                  return <path d={pathFromPts(sampleCatmullRom(all, 8))} {...dash} strokeLinecap="round" />
+                }
+                if (s.drawTool === 'nube' || s.drawTool === 'hatch') {
+                  return <path d={pathFromPts(scallopPts(all, false, 26))} {...dash} />
+                }
+                return <polyline points={all.map((p) => p.join(',')).join(' ')} {...dash} />
               }
               if (s.drawTool === 'rectangulo') {
                 return <rect x={Math.min(base[0], cur[0])} y={Math.min(base[1], cur[1])}
                   width={Math.abs(cur[0] - base[0])} height={Math.abs(cur[1] - base[1])} {...dash} />
+              }
+              if (s.drawTool === 'elipse') {
+                return <ellipse cx={base[0]} cy={base[1]} rx={Math.max(4, Math.abs(cur[0] - base[0]))} ry={Math.max(4, Math.abs(cur[1] - base[1]))} {...dash} />
+              }
+              if (s.drawTool === 'arco') {
+                // con 1 punto: cuerda; con 2: arco por 3 puntos (inicio, medio, cursor)
+                if (s.drawPts.length === 1) return <line x1={base[0]} y1={base[1]} x2={cur[0]} y2={cur[1]} {...dash} />
+                const a = s.drawPts[0], b = s.drawPts[1]
+                return <g>
+                  <path d={pathFromPts(sampleArc3(a, b, cur))} {...dash} strokeLinecap="round" />
+                  <line x1={a[0]} y1={a[1]} x2={a[0]} y2={a[1]} stroke={toolColor} strokeWidth="4" strokeLinecap="round" />
+                </g>
+              }
+              if (s.drawTool === 'directriz') {
+                return <g>
+                  <line x1={base[0]} y1={base[1]} x2={cur[0]} y2={cur[1]} {...dash} />
+                  <circle cx={cur[0]} cy={cur[1]} r="2.5" fill={toolColor} />
+                </g>
+              }
+              if (s.drawTool === 'cota-rad') {
+                const r = Math.max(4, Math.hypot(cur[0] - base[0], cur[1] - base[1]))
+                return <g>
+                  <circle cx={base[0]} cy={base[1]} r={r} {...dash} />
+                  <line x1={base[0]} y1={base[1]} x2={cur[0]} y2={cur[1]} {...dash} />
+                  <text x={(base[0] + cur[0]) / 2} y={(base[1] + cur[1]) / 2 - 6} textAnchor="middle" fontSize="12" fontWeight="700" fill={toolColor}>
+                    R {(r / PX_PER_M).toFixed(2)} m
+                  </text>
+                </g>
+              }
+              if (s.drawTool === 'cota-ang') {
+                if (s.drawPts.length === 1) return <line x1={base[0]} y1={base[1]} x2={cur[0]} y2={cur[1]} {...dash} />
+                const v = s.drawPts[0], p1 = s.drawPts[1]
+                const a1 = Math.atan2(p1[1] - v[1], p1[0] - v[0])
+                const a2 = Math.atan2(cur[1] - v[1], cur[0] - v[0])
+                const r0 = 46
+                const arcPath = `M ${v[0] + r0 * Math.cos(a1)} ${v[1] + r0 * Math.sin(a1)} A ${r0} ${r0} 0 0 ${(a2 - a1 + Math.PI * 4) % (Math.PI * 2) < Math.PI ? 0 : 1} ${v[0] + r0 * Math.cos(a2)} ${v[1] + r0 * Math.sin(a2)}`
+                const deg = (Math.abs((a2 - a1) * 180 / Math.PI) % 360)
+                return <g>
+                  <line x1={v[0]} y1={v[1]} x2={p1[0]} y2={p1[1]} {...dash} />
+                  <line x1={v[0]} y1={v[1]} x2={cur[0]} y2={cur[1]} {...dash} />
+                  <path d={arcPath} {...dash} />
+                  <text x={v[0] + (r0 + 12) * Math.cos((a1 + a2) / 2)} y={v[1] + (r0 + 12) * Math.sin((a1 + a2) / 2)} textAnchor="middle" fontSize="12" fontWeight="700" fill={toolColor}>
+                    {deg.toFixed(1)}°
+                  </text>
+                </g>
+              }
+              if (s.drawTool === 'punto') {
+                const cur0 = snapPt(s.cursorSvg)
+                return <g {...dash}>
+                  <line x1={cur0[0] - 5} y1={cur0[1]} x2={cur0[0] + 5} y2={cur0[1]} stroke={toolColor} strokeWidth="1.6" />
+                  <line x1={cur0[0]} y1={cur0[1] - 5} x2={cur0[0]} y2={cur0[1] + 5} stroke={toolColor} strokeWidth="1.6" />
+                </g>
               }
               if (s.drawTool === 'cota') {
                 return <g>
@@ -661,8 +884,31 @@ export default function PlanCanvas() {
             {s.drawTool.startsWith('ins:')
               ? `toque o clic para colocar${s.insertRotation ? ` · ${s.insertRotation}°` : ''}`
               : s.drawTool === 'borrar' || s.drawTool === 'copiar' || s.drawTool === 'mover'
-                ? 'toque o clic en el objeto' : 'toque o clic en el plano'}
+                ? 'toque o clic en el objeto'
+              : s.drawTool === 'recorta' || s.drawTool === 'alarga'
+                ? '1er clic: línea · 2º clic: tramo/límite'
+              : s.drawTool === 'arco'
+                ? '3 clics: inicio · punto del arco · fin'
+              : s.drawTool === 'cota-ang'
+                ? '3 clics: vértice · lado 1 · lado 2'
+              : s.drawTool === 'elipse' || s.drawTool === 'cota-rad'
+                ? '2 clics: centro · borde'
+              : s.drawTool === 'directriz'
+                ? '2 clics: flecha · texto'
+              : MULTI_FAMILY.includes(s.drawTool || '')
+                ? 'clics para trazar · ENTER/Terminar cierra'
+                : 'toque o clic en el plano'}
           </span>
+          {MULTI_FAMILY.includes(s.drawTool || '') && (
+            <button
+              onClick={() => s.finishPolyline()}
+              className="ml-1 flex items-center gap-1 rounded-full bg-amber-500 px-2.5 py-0.5 text-[10px] font-black text-zinc-950 hover:brightness-110 active:scale-95 transition-all"
+              title="Terminar trazo (ENTER o doble clic)"
+            >
+              <ToolIcon name="Check" size={11} />
+              Terminar
+            </button>
+          )}
           {s.drawTool === 'polilinea' && (
             <button
               onClick={() => s.finishPolyline()}

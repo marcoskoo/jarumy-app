@@ -16,7 +16,7 @@ import type {
   WallGeo, DoorGeo, WindowGeo, RoomGeo, FurnGeo, DimGeo, ColGeo, OpenGeo, DrawGeo,
   StairGeo, RoofGeo, InstGeo, SymGeo, TerrainGeo, PinGeo,
 } from './plan-data'
-import { PX_PER_M, roomAreaM2, polygonAreaM2 } from './plan-data'
+import { PX_PER_M, roomAreaM2, polygonAreaM2, sampleArc3, sampleCatmullRom, scallopPts } from './plan-data'
 import type { Mod } from './store'
 import { autoDimensions } from './auto-dims'
 
@@ -170,7 +170,7 @@ function elBounds(el: PlanElement, mod: Mod | undefined, includeFurniture: boole
       const g = el.geo as DrawGeo
       if (!g.pts?.length) return null
       const xs = g.pts.map((p) => p[0]), ys = g.pts.map((p) => p[1])
-      const r = g.r || 0
+      const r = g.r || Math.max(g.rx || 0, g.ry || 0)
       return {
         minX: Math.min(...xs) - r, minY: Math.min(...ys) - r,
         maxX: Math.max(...xs) + r, maxY: Math.max(...ys) + r,
@@ -765,13 +765,20 @@ export async function exportPlanPdf(
   for (const el of byType('dibujo')) {
     const g = el.geo as DrawGeo
     const m = mods[el.id]
-    const col = m?.colorLine ? hexToRgb(m.colorLine) : C.dim
+    const ph = (m?.phase as string) || g.phase
+    // fase BIM: demolición → rojo punteado · existente → gris tenue
+    const col = ph === 'demolicion' ? [239, 68, 68] as unknown as readonly number[]
+      : ph === 'existente' ? [140, 140, 145] as unknown as readonly number[]
+      : m?.colorLine ? hexToRgb(m.colorLine) : C.dim
     setDraw(col, Math.max(0.1, (m?.weight || 2) * 0.06))
+    if (ph === 'demolicion') doc.setLineDashPattern([1.8, 1.1], 0)
+    if (ph === 'existente') doc.setLineDashPattern([0.8, 0.8], 0)
+    const poly = (pts: number[][]) => { for (let i = 1; i < pts.length; i++) line(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]) }
     switch (g.kind) {
       case 'linea':
         line(g.pts[0][0], g.pts[0][1], g.pts[1][0], g.pts[1][1]); break
       case 'polilinea':
-        for (let i = 1; i < g.pts.length; i++) line(g.pts[i - 1][0], g.pts[i - 1][1], g.pts[i][0], g.pts[i][1])
+        poly(g.pts)
         break
       case 'rectangulo': {
         const [xa, ya] = g.pts[0], [xb, yb] = g.pts[1]
@@ -780,6 +787,97 @@ export async function exportPlanPdf(
       }
       case 'circulo':
         doc.circle(X(g.pts[0][0]), Y(g.pts[0][1]), L(g.r || 40), 'S'); break
+      case 'punto':
+        line(g.pts[0][0] - 5, g.pts[0][1], g.pts[0][0] + 5, g.pts[0][1])
+        line(g.pts[0][0], g.pts[0][1] - 5, g.pts[0][0], g.pts[0][1] + 5)
+        break
+      case 'arco':
+        poly(sampleArc3(g.pts[0], g.pts[1], g.pts[2])); break
+      case 'elipse':
+        doc.ellipse(X(g.pts[0][0]), Y(g.pts[0][1]), L(g.rx || 40), L(g.ry || g.rx || 40), 'S'); break
+      case 'spline':
+        poly(sampleCatmullRom(g.pts, 10)); break
+      case 'directriz': {
+        const [ax, ay] = g.pts[0], [ex, ey] = g.pts[1]
+        line(ax, ay, ex, ey)
+        line(ex, ey, ex + (ex >= ax ? 8 : -8), ey)
+        // punta de flecha
+        const ang = Math.atan2(ay - ey, ax - ex)
+        line(ax, ay, ax - 7 * Math.cos(ang - 0.35), ay - 7 * Math.sin(ang - 0.35))
+        line(ax, ay, ax - 7 * Math.cos(ang + 0.35), ay - 7 * Math.sin(ang + 0.35))
+        textJobs.push({ val: g.text || 'nota', x: X(ex + (ex >= ax ? 9 : -9)), y: Y(ey) - 1, size: 7.5, bold: true, color: col, align: ex >= ax ? 'left' : 'right' })
+        break
+      }
+      case 'nube':
+        poly(scallopPts(g.pts, false, 26))
+        line(g.pts[g.pts.length - 1][0], g.pts[g.pts.length - 1][1], g.pts[0][0], g.pts[0][1])
+        break
+      case 'hatch': {
+        // contorno + patrón recortado al polígono (clip de estado gráfico)
+        const bxp = g.pts.map((p) => p[0]), byp = g.pts.map((p) => p[1])
+        const hx0 = Math.min(...bxp), hx1 = Math.max(...bxp), hy0 = Math.min(...byp), hy1 = Math.max(...byp)
+        doc.saveGraphicsState()
+        const segs = g.pts.slice(1).map((p, i) => [X(p[0]) - X(g.pts[i][0]), Y(p[1]) - Y(g.pts[i][1])])
+        doc.lines(segs, X(g.pts[0][0]), Y(g.pts[0][1]), [1, 1], null, true)
+        doc.clip('evenodd')
+        setDraw([150, 150, 155], 0.12)
+        if (g.pattern === 'ansi31' || g.pattern === 'ar-b816') {
+          // diagonales 45° (concreto) o aparejo (ladrillo → líneas horizontales + verticales cortas)
+          const step = g.pattern === 'ansi31' ? 8 : 15
+          if (g.pattern === 'ansi31') {
+            for (let d = -(hy1 - hy0); d < hx1 - hx0 + (hy1 - hy0); d += step) {
+              line(hx0 + d, hy0, hx0 + d + (hy1 - hy0), hy1)
+            }
+          } else {
+            for (let yy = hy0; yy <= hy1; yy += step / 1.6) line(hx0, yy, hx1, yy)
+            for (let xx = hx0 + step; xx <= hx1; xx += step) line(xx, hy0, xx, hy0 + step / 1.6)
+          }
+        } else if (g.pattern === 'gravel') {
+          for (let yy = hy0 + 4; yy < hy1; yy += 12) for (let xx = hx0 + 4; xx < hx1; xx += 12) {
+            doc.circle(X(xx), Y(yy), 0.25, 'S')
+          }
+        } else {
+          for (let yy = hy0; yy <= hy1; yy += 18) line(hx0, yy, hx1, yy)
+          for (let xx = hx0; xx <= hx1; xx += 18) line(xx, hy0, xx, hy1)
+        }
+        doc.restoreGraphicsState()
+        // contorno encima del patrón
+        setDraw(col, Math.max(0.1, (m?.weight || 2) * 0.06))
+        poly(g.pts)
+        break
+      }
+      case 'cota-rad': {
+        const [cx, cy] = g.pts[0], [ex, ey] = g.pts[1]
+        const r = g.r || Math.hypot(ex - cx, ey - cy)
+        setDraw(col, 0.09)
+        doc.circle(X(cx), Y(cy), L(r), 'S')
+        setDraw(col, 0.16)
+        line(cx, cy, ex, ey)
+        const ang = Math.atan2(cy - ey, cx - ex)
+        line(ex, ey, ex - 6 * Math.cos(ang - 0.3), ey - 6 * Math.sin(ang - 0.3))
+        line(ex, ey, ex - 6 * Math.cos(ang + 0.3), ey - 6 * Math.sin(ang + 0.3))
+        const val = (m?.dimOverride && m.dimOverride !== '') ? m.dimOverride : (r / PX_PER_M).toFixed(2)
+        textJobs.push({ val: `R ${val} m`, x: X((cx + ex) / 2) + 2, y: Y((cy + ey) / 2) - 1, size: 7.5, bold: true, color: col, align: 'left' })
+        break
+      }
+      case 'cota-ang': {
+        const [vx, vy] = g.pts[0], p1 = g.pts[1], p2 = g.pts[2]
+        const a1 = Math.atan2(p1[1] - vy, p1[0] - vx), a2 = Math.atan2(p2[1] - vy, p2[0] - vx)
+        let sweep = (a2 - a1) % (Math.PI * 2); if (sweep < 0) sweep += Math.PI * 2
+        const deg = sweep * 180 / Math.PI
+        const r0 = 46
+        setDraw(col, 0.09)
+        line(vx, vy, vx + r0 * Math.cos(a1), vy + r0 * Math.sin(a1))
+        line(vx, vy, vx + r0 * Math.cos(a2), vy + r0 * Math.sin(a2))
+        setDraw(col, 0.16)
+        const arc: number[][] = []
+        for (let i = 0; i <= 14; i++) { const a = a1 + sweep * (i / 14); arc.push([vx + r0 * Math.cos(a), vy + r0 * Math.sin(a)]) }
+        poly(arc)
+        const mid = a1 + sweep / 2
+        const val = (m?.dimOverride && m.dimOverride !== '') ? m.dimOverride : `${deg.toFixed(1)}°`
+        textJobs.push({ val, x: X(vx + (r0 + 12) * Math.cos(mid)), y: Y(vy + (r0 + 12) * Math.sin(mid)) - 1, size: 7.5, bold: true, color: col, align: 'center' })
+        break
+      }
       case 'texto':
         textJobs.push({ val: g.text || '', x: X(g.pts[0][0]), y: Y(g.pts[0][1]), size: 8, bold: true, color: col, align: 'left' })
         break
@@ -804,6 +902,40 @@ export async function exportPlanPdf(
         break
       }
       default: break
+    }
+    if (ph === 'demolicion' || ph === 'existente') doc.setLineDashPattern([], 0)
+  }
+
+  // ---------- fases BIM: recuadros de demolición sobre elementos no-dibujo ----------
+  {
+    const phased = drawable.filter((el) => {
+      if (el.type === 'dibujo' || el.type === 'pin' || el.type === 'texto') return false
+      const ph = (mods[el.id]?.phase as string) || (el.geo as DrawGeo).phase
+      return ph === 'demolicion' || ph === 'existente'
+    })
+    for (const el of phased) {
+      const bb = elBounds(el, mods[el.id], true)
+      if (!bb) continue
+      const isDemo = ((mods[el.id]?.phase as string) || (el.geo as DrawGeo).phase) === 'demolicion'
+      const c = isDemo ? [239, 68, 68] : [140, 140, 145]
+      setDraw(c as unknown as readonly number[], 0.14)
+      doc.setLineDashPattern([1.8, 1.1], 0)
+      doc.rect(X(bb.minX), Y(bb.maxY), L(bb.maxX - bb.minX), L(bb.maxY - bb.minY), 'S')
+      if (isDemo) {
+        line(bb.minX, bb.minY, bb.maxX, bb.maxY)
+        line(bb.maxX, bb.minY, bb.minX, bb.maxY)
+      }
+      doc.setLineDashPattern([], 0)
+    }
+    if (phased.length > 0) {
+      // leyenda de fases junto a la barra de escala (cuenta TODOS los elementos con fase)
+      const phaseOf2 = (el: PlanElement) => ((mods[el.id]?.phase as string) || (el.geo as DrawGeo).phase) as string
+      const allPhased = drawable.filter((el) => phaseOf2(el) === 'demolicion' || phaseOf2(el) === 'existente')
+      const nDemo = allPhased.filter((el) => phaseOf2(el) === 'demolicion').length
+      textJobs.push({
+        val: `FASES — rojo punteado: demolición (${nDemo}) · gris: existente (${allPhased.length - nDemo})`,
+        x: X(940) - 2, y: Y(762), size: 6, bold: true, color: [120, 120, 125], align: 'left',
+      })
     }
   }
 

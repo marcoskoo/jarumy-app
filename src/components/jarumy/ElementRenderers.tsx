@@ -6,7 +6,8 @@ import type {
   WallGeo, DoorGeo, WindowGeo, RoomGeo, FurnGeo, DimGeo, TextGeo, ColGeo, OpenGeo, DrawGeo,
   StairGeo, RoofGeo, InstGeo, SymGeo, TerrainGeo, PinGeo,
 } from '@/lib/plan-data'
-import { roomAreaM2, polygonAreaM2, polygonPerimeterM, WALL_TYPES } from '@/lib/plan-data'
+import { roomAreaM2, polygonAreaM2, polygonPerimeterM, WALL_TYPES, sampleArc3, sampleCatmullRom, scallopPts, pathFromPts } from '@/lib/plan-data'
+import type { Phase } from '@/lib/plan-data'
 import type { Mod } from '@/lib/store'
 
 export interface ElHandlers {
@@ -26,33 +27,38 @@ const norm = (d: number) => {
 }
 
 function elementCenter(el: PlanElement): [number, number] {
-  switch (el.type) {
-    case 'muro': { const g = el.geo as WallGeo; return [(g.x1 + g.x2) / 2, (g.y1 + g.y2) / 2] }
-    case 'puerta': { const g = el.geo as DoorGeo; const [px, py] = polar(g.cx, g.cy, g.r, g.a0); return [(g.cx + px) / 2, (g.cy + py) / 2] }
-    case 'ventana': { const g = el.geo as WindowGeo; return g.orient === 'h' ? [g.x + g.len / 2, g.y] : [g.x, g.y + g.len / 2] }
-    case 'espacio': { const g = el.geo as RoomGeo; return [g.x + g.w / 2, g.y + g.h / 2] }
-    case 'columna': { const g = el.geo as ColGeo; return [g.x, g.y] }
-    case 'cota': { const g = el.geo as DimGeo; return [(g.x1 + g.x2) / 2, (g.y1 + g.y2) / 2] }
-    case 'texto': { const g = el.geo as TextGeo; return [g.x, g.y] }
-    case 'apertura': { const g = el.geo as OpenGeo; return g.orient === 'h' ? [g.x + g.len / 2, g.y] : [g.x, g.y + g.len / 2] }
-    case 'escalera': { const g = el.geo as StairGeo; return [g.x + g.w / 2, g.y + g.h / 2] }
-    case 'techo': { const g = el.geo as RoofGeo; return [g.x + g.w / 2, g.y + g.h / 2] }
-    case 'instalacion': { const g = el.geo as InstGeo; const n = g.pts.length; return [g.pts.reduce((a, p) => a + p[0], 0) / n, g.pts.reduce((a, p) => a + p[1], 0) / n] }
-    case 'simbolo': { const g = el.geo as SymGeo; return [g.x, g.y] }
-    case 'terreno': { const g = el.geo as TerrainGeo; return [g.pts.reduce((a, p) => a + p[0], 0) / g.pts.length, g.pts.reduce((a, p) => a + p[1], 0) / g.pts.length] }
-    case 'pin': { const g = el.geo as PinGeo; return [g.x, g.y] }
-    default: {
-      const g = el.geo as FurnGeo & DrawGeo
-      if (g.pts && g.pts.length) {
-        const xs = g.pts.map((p) => p[0]), ys = g.pts.map((p) => p[1])
-        let cx = (Math.min(...xs) + Math.max(...xs)) / 2
-        let cy = (Math.min(...ys) + Math.max(...ys)) / 2
-        if (g.kind === 'circulo') { cx = g.pts[0][0]; cy = g.pts[0][1] }
-        return [cx, cy]
-      }
-      return [g.x + (g.w || 0) / 2, g.y + (g.h || 0) / 2]
+  const [x, y] = elementBBox(el)
+  return [x[0] + (x[1] - x[0]) / 2, y[0] + (y[1] - y[0]) / 2]
+}
+
+function elementBBox(el: PlanElement): [[number, number], [number, number]] {
+  const inf = 1e9
+  let x0 = inf, y0 = inf, x1 = -inf, y1 = -inf
+  const acc = (px: number, py: number) => { x0 = Math.min(x0, px); y0 = Math.min(y0, py); x1 = Math.max(x1, px); y1 = Math.max(y1, py) }
+  const g = el.geo as unknown as Record<string, unknown>
+  if (Array.isArray(g.pts)) {
+    const pts = g.pts as number[][]
+    pts.forEach((p) => acc(p[0], p[1]))
+    if (g.kind === 'circulo' || g.kind === 'elipse') {
+      const [cx, cy] = pts[0]
+      const r = (g.r as number) || Math.max(g.rx as number || 40, g.ry as number || 40)
+      acc(cx - r, cy - r); acc(cx + r, cy + r)
+    }
+    if (g.kind === 'cota-rad' && g.r) { const [cx, cy] = pts[0]; const rr = g.r as number; acc(cx - rr, cy - rr); acc(cx + rr, cy + rr) }
+  } else {
+    if (g.x1 !== undefined) { acc(g.x1 as number, g.y1 as number); acc(g.x2 as number, g.y2 as number) }
+    else if (g.cx !== undefined) {
+      const r = (g.r as number) || 40
+      acc((g.cx as number) - r, (g.cy as number) - r); acc((g.cx as number) + r, (g.cy as number) + r)
+    } else if (g.x !== undefined) {
+      const x = g.x as number, y = g.y as number
+      const w = (g.w as number) || (g.len as number) || 20
+      const h = (g.h as number) || (g.len as number) || 20
+      acc(x, y); acc(x + w, y + h)
     }
   }
+  if (x0 === inf) { x0 = 0; y0 = 0; x1 = 60; y1 = 60 }
+  return [[x0, y0], [x1, y1]]
 }
 
 function buildTransform(el: PlanElement, m?: Mod): string | undefined {
@@ -95,6 +101,24 @@ export function PlanElementNode({ el, mod, handlers, showArea }: { el: PlanEleme
     case 'terreno': content = <TerrainNode el={el} />; break
     case 'pin': content = <PinNode el={el} />; break
     default: content = <DibujoNode el={el} mod={mod} />; break
+  }
+
+  // superposición de fase BIM: existente (gris tenue) · demolición (rojo punteado + aspas)
+  const phase: Phase | undefined = mod?.phase || (el.geo as DrawGeo).phase
+  if (phase && phase !== 'nueva') {
+    const [[bx, by], [bx1, by1]] = elementBBox(el)
+    if (phase === 'existente') {
+      return <g {...gProps} transform={transform} opacity="0.45" style={{ filter: 'grayscale(0.9)' }}>{content}</g>
+    }
+    const bw = bx1 - bx, bh = by1 - by
+    return (
+      <g {...gProps} transform={transform}>
+        {content}
+        <rect x={bx} y={by} width={bw} height={bh} fill="none" stroke="#ef4444" strokeWidth="1.1" strokeDasharray="7 4" />
+        <line x1={bx} y1={by} x2={bx1} y2={by1} stroke="#ef4444" strokeWidth="0.9" strokeDasharray="4 3" />
+        <line x1={bx1} y1={by} x2={bx} y2={by1} stroke="#ef4444" strokeWidth="0.9" strokeDasharray="4 3" />
+      </g>
+    )
   }
 
   return <g {...gProps} transform={transform}>{content}</g>
@@ -1123,6 +1147,150 @@ function DibujoNode({ el, mod }: { el: PlanElement; mod?: Mod }) {
           <text x={dx - 5} y={(y1 + y2) / 2} textAnchor="middle" fontSize="12" fontWeight="700" fill={stroke}
             transform={`rotate(-90 ${dx - 5} ${(y1 + y2) / 2})`}>
             {val} m
+          </text>
+        </g>
+      )
+    }
+    case 'punto':
+      return (
+        <g>
+          <line x1={g.pts[0][0] - 5} y1={g.pts[0][1]} x2={g.pts[0][0] + 5} y2={g.pts[0][1]} stroke={color} strokeWidth="1.6" strokeLinecap="round" />
+          <line x1={g.pts[0][0]} y1={g.pts[0][1] - 5} x2={g.pts[0][0]} y2={g.pts[0][1] + 5} stroke={color} strokeWidth="1.6" strokeLinecap="round" />
+          <circle cx={g.pts[0][0]} cy={g.pts[0][1]} r="12" fill="transparent" stroke="transparent" />
+        </g>
+      )
+    case 'arco': {
+      const d = pathFromPts(sampleArc3(g.pts[0], g.pts[1], g.pts[2]))
+      return (
+        <g>
+          <path d={d} fill="none" stroke={color} strokeWidth={weight} strokeLinecap="round" />
+          <path d={d} fill="none" stroke="transparent" strokeWidth="14" />
+        </g>
+      )
+    }
+    case 'elipse':
+      return (
+        <g>
+          <ellipse cx={g.pts[0][0]} cy={g.pts[0][1]} rx={g.rx || 40} ry={g.ry || (g.rx || 40)}
+            fill="none" stroke={color} strokeWidth={weight} />
+          <ellipse cx={g.pts[0][0]} cy={g.pts[0][1]} rx={g.rx || 40} ry={g.ry || (g.rx || 40)}
+            fill="none" stroke="transparent" strokeWidth="14" />
+        </g>
+      )
+    case 'spline': {
+      const d = pathFromPts(sampleCatmullRom(g.pts, 10))
+      return (
+        <g>
+          <path d={d} fill="none" stroke={color} strokeWidth={weight} strokeLinecap="round" />
+          <path d={d} fill="none" stroke="transparent" strokeWidth="14" />
+        </g>
+      )
+    }
+    case 'directriz': {
+      // flecha en el punto de anclaje +horizontal con el rótulo
+      const [ax, ay] = g.pts[0], [ex, ey] = g.pts[1]
+      const ang = Math.atan2(ay - ey, ax - ex)
+      const hd = 7
+      const lx = ex + (ex >= ax ? 6 : -6)
+      const anchor: 'start' | 'end' = ex >= ax ? 'start' : 'end'
+      return (
+        <g>
+          <line x1={ax} y1={ay} x2={ex} y2={ey} stroke={color} strokeWidth={weight} />
+          <line x1={ex} y1={ey} x2={lx} y2={ey} stroke={color} strokeWidth={weight} />
+          <path d={`M ${ax} ${ay} L ${ax - hd * Math.cos(ang - 0.4)} ${ay - hd * Math.sin(ang - 0.4)} L ${ax - hd * Math.cos(ang + 0.4)} ${ay - hd * Math.sin(ang + 0.4)} Z`} fill={color} />
+          <text x={lx} y={ey - 5} textAnchor={anchor} fontSize={mod?.textHeight || 11.5} fontWeight="700" fill={color}>
+            {g.text || 'nota'}
+          </text>
+          <line x1={ax} y1={ay} x2={ex} y2={ey} stroke="transparent" strokeWidth="14" />
+        </g>
+      )
+    }
+    case 'nube': {
+      const d = pathFromPts(scallopPts(g.pts, false, 26)) + ' Z'
+      return (
+        <g>
+          <path d={d} fill="none" stroke="#fb7185" strokeWidth={weight} strokeLinejoin="round" />
+          <path d={d} fill="none" stroke="transparent" strokeWidth="14" />
+        </g>
+      )
+    }
+    case 'hatch': {
+      const id = `jy-hatch-${g.pattern || 'ar-b816'}`
+      const d = pathFromPts(g.pts) + ' Z'
+      return (
+        <g>
+          <defs>
+            {g.pattern === 'ansi31' && (
+              <pattern id={id} width="9" height="9" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                <line x1="0" y1="0" x2="0" y2="9" stroke="#71717a" strokeWidth="0.9" />
+              </pattern>
+            )}
+            {g.pattern === 'ar-b816' && (
+              <pattern id={id} width="30" height="16" patternUnits="userSpaceOnUse">
+                <rect width="30" height="16" fill="none" />
+                <line x1="0" y1="0" x2="30" y2="0" stroke="#71717a" strokeWidth="0.7" />
+                <line x1="0" y1="8" x2="30" y2="8" stroke="#71717a" strokeWidth="0.7" />
+                <line x1="15" y1="0" x2="15" y2="8" stroke="#71717a" strokeWidth="0.7" />
+                <line x1="0" y1="8" x2="0" y2="16" stroke="#71717a" strokeWidth="0.7" />
+                <line x1="30" y1="8" x2="30" y2="16" stroke="#71717a" strokeWidth="0.7" />
+              </pattern>
+            )}
+            {g.pattern === 'gravel' && (
+              <pattern id={id} width="14" height="14" patternUnits="userSpaceOnUse">
+                <circle cx="3" cy="3" r="1.1" fill="#71717a" />
+                <circle cx="9" cy="7" r="0.8" fill="#71717a" />
+                <circle cx="5" cy="11" r="1" fill="#71717a" />
+                <circle cx="12" cy="12" r="0.7" fill="#71717a" />
+              </pattern>
+            )}
+            {(g.pattern === 'ar-conc' || !g.pattern) && (
+              <pattern id={id} width="18" height="18" patternUnits="userSpaceOnUse">
+                <rect width="18" height="18" fill="none" />
+                <path d="M 0 0 H 18 M 0 18 H 18 M 0 0 V 18 M 18 0 V 18" stroke="#71717a" strokeWidth="0.6" fill="none" />
+              </pattern>
+            )}
+          </defs>
+          <path d={d} fill={`url(#${id})`} stroke={color} strokeWidth={Math.max(1, weight - 0.6)} strokeLinejoin="round" />
+          <path d={d} fill="none" stroke="transparent" strokeWidth="14" />
+        </g>
+      )
+    }
+    case 'cota-rad': {
+      const [cx, cy] = g.pts[0], [ex, ey] = g.pts[1]
+      const r = g.r || Math.hypot(ex - cx, ey - cy)
+      const ang = Math.atan2(cy - ey, cx - ex)
+      const val = (mod?.dimOverride && mod.dimOverride !== '') ? mod.dimOverride : (r / 60).toFixed(2)
+      return (
+        <g>
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth="0.9" opacity="0.55" />
+          <line x1={cx} y1={cy} x2={ex} y2={ey} stroke={color} strokeWidth="1" />
+          <path d={`M ${ex} ${ey} L ${ex - 8 * Math.cos(ang - 0.35)} ${ey - 8 * Math.sin(ang - 0.35)} L ${ex - 8 * Math.cos(ang + 0.35)} ${ey - 8 * Math.sin(ang + 0.35)} Z`} fill={color} />
+          <text x={(cx + ex) / 2 + 6} y={(cy + ey) / 2 - 6} fontSize="11.5" fontWeight="700" fill={color}>R {val} m</text>
+          <circle cx={cx} cy={cy} r="2.4" fill={color} />
+        </g>
+      )
+    }
+    case 'cota-ang': {
+      const [vx, vy] = g.pts[0], p1 = g.pts[1], p2 = g.pts[2]
+      const a1 = Math.atan2(p1[1] - vy, p1[0] - vx)
+      const a2 = Math.atan2(p2[1] - vy, p2[0] - vx)
+      let sweep = (a2 - a1) % (Math.PI * 2)
+      if (sweep < 0) sweep += Math.PI * 2
+      const deg = sweep * 180 / Math.PI
+      const r0 = Math.min(64, Math.max(34, Math.hypot(p1[0] - vx, p1[1] - vy) * 0.5))
+      const large = sweep > Math.PI ? 1 : 0
+      const arcPath = `M ${vx + r0 * Math.cos(a1)} ${vy + r0 * Math.sin(a1)} A ${r0} ${r0} 0 ${large} 0 ${vx + r0 * Math.cos(a2)} ${vy + r0 * Math.sin(a2)}`
+      const mid = a1 + sweep / 2
+      const tX = vx + (r0 + 13) * Math.cos(mid), tY = vy + (r0 + 13) * Math.sin(mid)
+      return (
+        <g>
+          <line x1={vx} y1={vy} x2={vx + r0 * Math.cos(a1)} y2={vy + r0 * Math.sin(a1)} stroke={color} strokeWidth="0.8" opacity="0.6" />
+          <line x1={vx} y1={vy} x2={vx + r0 * Math.cos(a2)} y2={vy + r0 * Math.sin(a2)} stroke={color} strokeWidth="0.8" opacity="0.6" />
+          <path d={arcPath} fill="none" stroke={color} strokeWidth="1.2" />
+          <circle cx={vx + r0 * Math.cos(a1)} cy={vy + r0 * Math.sin(a1)} r="1.8" fill={color} />
+          <circle cx={vx + r0 * Math.cos(a2)} cy={vy + r0 * Math.sin(a2)} r="1.8" fill={color} />
+          <text x={tX} y={tY} textAnchor="middle" fontSize="12" fontWeight="700" fill={color}>
+            {(mod?.dimOverride && mod.dimOverride !== '') ? mod.dimOverride : `${deg.toFixed(1)}°`}
           </text>
         </g>
       )

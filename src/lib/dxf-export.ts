@@ -10,7 +10,7 @@ import type {
   WallGeo, DoorGeo, WindowGeo, RoomGeo, FurnGeo, DimGeo, ColGeo, OpenGeo, DrawGeo,
   StairGeo, RoofGeo, InstGeo, SymGeo, TerrainGeo, PinGeo,
 } from './plan-data'
-import { PX_PER_M, roomAreaM2, polygonAreaM2 } from './plan-data'
+import { PX_PER_M, roomAreaM2, polygonAreaM2, arcFrom3Pts, sampleCatmullRom, scallopPts } from './plan-data'
 import type { Mod } from './store'
 
 export interface DxfResult {
@@ -107,7 +107,9 @@ export function exportPlanDxf(
     const tx = m?.translate?.[0] ?? 0
     const ty = m?.translate?.[1] ?? 0
     const rot = m?.rotation ?? 0
-    const L = el.layer
+    // la fase BIM viaja en el nombre de capa DXF (DEMOLICION_ / EXISTENTE_)
+    const ph = (m?.phase as string) || (el.geo as DrawGeo).phase
+    const L = ph === 'demolicion' ? `DEMOLICION_${el.layer}` : ph === 'existente' ? `EXISTENTE_${el.layer}` : el.layer
     switch (el.type) {
       case 'espacio': {
         const g = el.geo as RoomGeo
@@ -249,7 +251,7 @@ export function exportPlanDxf(
       }
       case 'dibujo': {
         const g = el.geo as DrawGeo
-        const col = el.layer
+        const col = L
         switch (g.kind) {
           case 'linea': line(col, g.pts[0], g.pts[1]); break
           case 'polilinea': for (let i = 1; i < g.pts.length; i++) line(col, g.pts[i - 1], g.pts[i]); break
@@ -262,6 +264,80 @@ export function exportPlanDxf(
             ents.push({ type: 'CIRCLE', layer: col, cx, cy, r: (g.r || 40) / PX_PER_M }); break
           }
           case 'texto': text(col, g.pts[0], g.text || '', 0.2); break
+          case 'punto': {
+            const [cx, cy] = M(g.pts[0][0], g.pts[0][1])
+            line(col, [g.pts[0][0] - 5, g.pts[0][1]], [g.pts[0][0] + 5, g.pts[0][1]])
+            line(col, [g.pts[0][0], g.pts[0][1] - 5], [g.pts[0][0], g.pts[0][1] + 5])
+            ents.push({ type: 'CIRCLE', layer: col, cx, cy, r: 0.02 }); break
+          }
+          case 'arco': {
+            const arc = arcFrom3Pts(g.pts[0], g.pts[1], g.pts[2])
+            if (arc) {
+              const [cx, cy] = M(arc.cx, arc.cy)
+              // DXF mide ángulos antihorario desde el eje +X en coords Y-arriba
+              let a0 = -arc.a0 * 180 / Math.PI, a1 = -arc.a1 * 180 / Math.PI
+              if (!arc.ccw) { const t = a0; a0 = a1; a1 = t }
+              if (a1 < a0) a1 += 360
+              ents.push({ type: 'ARC', layer: col, cx, cy, r: arc.r / PX_PER_M, a0, a1 })
+            } else {
+              line(col, g.pts[0], g.pts[2])
+            }
+            break
+          }
+          case 'elipse': {
+            const smp: number[][] = []
+            const [cx, cy] = g.pts[0], rx = g.rx || 40, ry = g.ry || g.rx || 40
+            for (let i = 0; i <= 32; i++) { const a = (i / 32) * Math.PI * 2; smp.push([cx + rx * Math.cos(a), cy + ry * Math.sin(a)]) }
+            for (let i = 1; i < smp.length; i++) line(col, smp[i - 1], smp[i])
+            break
+          }
+          case 'spline': {
+            const smp = sampleCatmullRom(g.pts, 8)
+            for (let i = 1; i < smp.length; i++) line(col, smp[i - 1], smp[i])
+            break
+          }
+          case 'directriz': {
+            line(col, g.pts[0], g.pts[1])
+            text(col, [g.pts[1][0] + 6, g.pts[1][1] - 6], g.text || 'nota', 0.16)
+            break
+          }
+          case 'nube': {
+            const smp = scallopPts(g.pts, false, 26)
+            for (let i = 1; i < smp.length; i++) line(col, smp[i - 1], smp[i])
+            line(col, smp[smp.length - 1], smp[0])
+            break
+          }
+          case 'hatch': {
+            // contorno de la región hachurada + etiqueta del patrón
+            for (let i = 1; i < g.pts.length; i++) line(col, g.pts[i - 1], g.pts[i])
+            let sx = 0, sy = 0
+            g.pts.forEach((p) => { sx += p[0]; sy += p[1] })
+            text(col, [sx / g.pts.length, sy / g.pts.length], `HATCH ${(g.pattern || 'ar-b816').toUpperCase()}`, 0.16)
+            break
+          }
+          case 'cota-rad': {
+            const [cx, cy] = M(g.pts[0][0], g.pts[0][1])
+            ents.push({ type: 'CIRCLE', layer: col, cx, cy, r: (g.r || 40) / PX_PER_M })
+            line(col, g.pts[0], g.pts[1])
+            const val = m?.dimOverride && m.dimOverride !== '' ? m.dimOverride : ((g.r || 40) / PX_PER_M).toFixed(2)
+            text(col, [(g.pts[0][0] + g.pts[1][0]) / 2 + 6, (g.pts[0][1] + g.pts[1][1]) / 2 - 6], `R ${val} m`, 0.16)
+            break
+          }
+          case 'cota-ang': {
+            const [vx, vy] = g.pts[0], p1 = g.pts[1], p2 = g.pts[2]
+            const a1 = Math.atan2(p1[1] - vy, p1[0] - vx), a2 = Math.atan2(p2[1] - vy, p2[0] - vx)
+            let sweep = (a2 - a1) % (Math.PI * 2); if (sweep < 0) sweep += Math.PI * 2
+            const deg = sweep * 180 / Math.PI
+            const r0 = 46
+            line(col, g.pts[0], [vx + r0 * Math.cos(a1), vy + r0 * Math.sin(a1)])
+            line(col, g.pts[0], [vx + r0 * Math.cos(a2), vy + r0 * Math.sin(a2)])
+            const smp: number[][] = []
+            for (let i = 0; i <= 12; i++) { const a = a1 + sweep * (i / 12); smp.push([vx + r0 * Math.cos(a), vy + r0 * Math.sin(a)]) }
+            for (let i = 1; i < smp.length; i++) line(col, smp[i - 1], smp[i])
+            const mid = a1 + sweep / 2
+            text(col, [vx + (r0 + 12) * Math.cos(mid), vy + (r0 + 12) * Math.sin(mid)], `${(m?.dimOverride && m.dimOverride !== '' ? m.dimOverride : deg.toFixed(1))}%%D`, 0.16)
+            break
+          }
           case 'cota': {
             const [xa, ya] = g.pts[0], [xb, yb] = g.pts[1]
             line(col, [xa, ya], [xb, yb])
@@ -289,14 +365,15 @@ export function exportPlanDxf(
   pair(9, '$EXTMAX'); pair(10, ((maxX + pad * PX_PER_M) - minX) / PX_PER_M); pair(20, (maxY - (minY - pad * PX_PER_M)) / PX_PER_M)
   pair(0, 'ENDSEC')
 
-  // TABLES: capas
+  // TABLES: capas (incluye las variantes con fase BIM: DEMOLICION_* / EXISTENTE_*)
   pair(0, 'SECTION'); pair(2, 'TABLES')
   pair(0, 'TABLE'); pair(2, 'LTYPE'); pair(70, 1)
   pair(0, 'LTYPE'); pair(2, 'CONTINUOUS'); pair(70, 0); pair(3, 'Solid line'); pair(72, 65); pair(73, 0); pair(40, 0.0)
   pair(0, 'ENDTAB')
-  pair(0, 'TABLE'); pair(2, 'LAYER'); pair(70, layers.length)
-  layers.forEach((l, i) => {
-    pair(0, 'LAYER'); pair(2, layerName(l.id)); pair(70, 0); pair(62, ACI[i % ACI.length]); pair(6, 'CONTINUOUS')
+  const usedLayers = Array.from(new Set(ents.map((e) => e.layer)))
+  pair(0, 'TABLE'); pair(2, 'LAYER'); pair(70, usedLayers.length)
+  usedLayers.forEach((l, i) => {
+    pair(0, 'LAYER'); pair(2, layerName(l)); pair(70, 0); pair(62, ACI[i % ACI.length]); pair(6, 'CONTINUOUS')
   })
   pair(0, 'ENDTAB')
   pair(0, 'ENDSEC')

@@ -1,5 +1,5 @@
 // Elementos de prueba: escalera, techo, instalaciones, terreno, pines, símbolos
-import type { PlanElement } from '../src/lib/plan-data'
+import type { PlanElement, SymKind } from '../src/lib/plan-data'
 
 export function insertStairFixture(base: PlanElement[]) {
   const elements = [...base]
@@ -70,7 +70,7 @@ export function insertPinFixture(base: PlanElement[]) {
 
 export function insertSymFixture(base: PlanElement[]) {
   const elements = [...base]
-  const syms: Array<[string, number, number]> = [
+  const syms: Array<[SymKind, number, number]> = [
     ['luz', 300, 200], ['luz', 500, 200], ['tomacorriente', 200, 450], ['interruptor', 640, 200],
     ['tablero', 660, 120], ['punto-agua', 370, 440], ['punto-desague', 645, 480], ['medidor-agua', 140, 300],
   ]

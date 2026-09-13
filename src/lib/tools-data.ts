@@ -149,9 +149,10 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         ],
       },
       {
-        id: 'arco', label: 'Arco', icon: 'Spline', desc: 'ARCO: 3 puntos o inicio-centro-fin (AutoCAD: A)', source: 'AutoCAD',
+        id: 'arco', label: 'Arco', icon: 'Spline', desc: 'ARCO por 3 puntos (AutoCAD: A) — inicio · punto del arco · fin', source: 'AutoCAD',
         options: [
-          { label: 'Parámetros del arco', action: I('ARCO: métodos Inicio-Centro-Fin / Inicio-Fin-Dirección / 3 puntos. Radio actual: 1.20 m') },
+          { label: 'Dibujar arco', detail: 'Clic: inicio · punto del arco · fin', action: D('arco') },
+          { label: 'Arco de muro curvo', detail: 'Trazar también como eje de muro (use SPLINE para curvas largas)', action: D('arco') },
         ],
       },
       {
@@ -162,26 +163,26 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         ],
       },
       {
-        id: 'spline', label: 'Spline', icon: 'TrendingUp', desc: 'SPLINE: curva suave por puntos de ajuste (Rhino: Curva)', source: 'AutoCAD / Rhino',
+        id: 'spline', label: 'Spline', icon: 'TrendingUp', desc: 'SPLINE: curva suave por puntos de control (Rhino: Curva) — Catmull-Rom G2', source: 'AutoCAD / Rhino',
         options: [
-          { label: 'Curva de ajuste', action: I('SPLINE grado 3, 6 puntos de control, tolerancia 0.001. Curvatura G2 continua.') },
+          { label: 'Trazar spline', detail: 'Clics por donde pasa la curva · ENTER cierra', action: D('spline') },
         ],
       },
       {
-        id: 'elipse', label: 'Elipse', icon: 'CircleDashed', desc: 'ELIPSE: ejes mayor y menor (AutoCAD: EL)', source: 'AutoCAD',
-        options: [{ label: 'Eje 2.40 × 1.20', action: I('ELIPSE: eje mayor 2.40 m, eje menor 1.20 m, rotación 15°') }],
+        id: 'elipse', label: 'Elipse', icon: 'CircleDashed', desc: 'ELIPSE: centro + ejes mayor y menor (AutoCAD: EL)', source: 'AutoCAD',
+        options: [{ label: 'Dibujar elipse', detail: 'Clic: centro · vértice del eje', action: D('elipse') }],
       },
       {
-        id: 'punto', label: 'Punto', icon: 'Dot', desc: 'PUNTO: marcador de coordenada (AutoCAD: PO)', source: 'AutoCAD',
-        options: [{ label: 'Estilo de punto', action: I('PDMODE: cruz / círculo / cuadrado. Tamaño relativo a pantalla 5%.') }],
+        id: 'punto', label: 'Punto', icon: 'Dot', desc: 'PUNTO: marcador de coordenada con cruz (AutoCAD: PO)', source: 'AutoCAD',
+        options: [{ label: 'Colocar punto', detail: 'Clic único · cruz de referencia', action: D('punto') }],
       },
       {
-        id: 'sombreado', label: 'Sombreado', icon: 'Grid2x2', desc: 'HATCH: rellena áreas con patrón (AutoCAD: H)', source: 'AutoCAD',
+        id: 'sombreado', label: 'Hachurado', icon: 'Grid2x2', desc: 'HATCH: rellena regiones con patrones CAD (AutoCAD: H)', source: 'AutoCAD',
         options: [
-          { label: 'ANSI31 (hormigón)', action: I('HATCH ANSI31: escala 1.0, ángulo 0° — patrón de hormigón armado aplicado a losas.') },
-          { label: 'Ladrillo a soga', action: I('HATCH AR-B816: ladrillo a soga 0.25×0.08 m, junta 0.01 m — muros de albañilería.') },
-          { label: 'Tierra / jardín', action: I('HATCH GRAVEL: tierra compactada y gravilla para exteriores y jardines.') },
-          { label: 'Mosaico / cerámico', action: I('HATCH AR-CONC: mosaico 0.30×0.30 m para pisos de baños y cocinas.') },
+          { label: 'ANSI31 · hormigón', detail: 'Diagonal 45° — losas y estructuras', action: D('hatch') },
+          { label: 'AR-B816 · ladrillo', detail: 'Aparejo de soga 0.25×0.08 m — albañilería', action: D('hatch') },
+          { label: 'GRAVEL · tierra', detail: 'Gravilla para exteriores y jardines', action: D('hatch') },
+          { label: 'AR-CONC · mosaico', detail: 'Cuadrícula 0.30×0.30 m — baños y cocinas', action: D('hatch') },
         ],
       },
     ],
@@ -233,41 +234,45 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         ],
       },
       {
-        id: 'equidistancia', label: 'Equidistancia', icon: 'MoveHorizontal', desc: 'EQUISDIST: offset paralelo (AutoCAD: O)', source: 'AutoCAD',
+        id: 'equidistancia', label: 'Equidistancia', icon: 'MoveHorizontal', desc: 'EQUISDIST: offset paralelo real sobre líneas y polilíneas (AutoCAD: O)', source: 'AutoCAD',
         options: [
-          { label: 'Engrosar muro', detail: 'Offset exterior', action: A('thicken', 4) },
+          { label: 'Engrosar muro', detail: 'Offset físico del cuerpo del muro', action: A('thicken', 4) },
           { label: 'Adelgazar muro', action: A('thicken', -4) },
-          { label: 'Distancia exacta', action: I('EQUISDIST: 0.15 m para eje de muro doble, 0.60 m para mobiliario.') },
+          { label: 'Offset 0.15 m', detail: 'Eje de muro doble / juntas de dilatación', action: A('offset', 0.15) },
+          { label: 'Offset 0.60 m', detail: 'Distancia de mobiliario a muro', action: A('offset', 0.6) },
+          { label: 'Distancia exacta', action: P('EQUISDIST — distancia en metros:', 'offset', '0.15') },
         ],
       },
       {
-        id: 'recortar', label: 'Recortar', icon: 'Scissors', desc: 'RECORTA: corta en bordes (AutoCAD: TR)', source: 'AutoCAD',
+        id: 'recortar', label: 'Recortar', icon: 'Scissors', desc: 'RECORTA: corta líneas en intersecciones reales (AutoCAD: TR)', source: 'AutoCAD',
         options: [
           { label: 'Acortar extremo A', action: A('shortenA') },
           { label: 'Acortar extremo B', action: A('shortenB') },
-          { label: 'Recorte rápido', action: I('RECORTA con selección por barra: 4 bordes de corte encontrados, 12 objetos recortados.') },
+          { label: 'Recorte en intersección', detail: 'Clic: línea → tramo a eliminar (corta en el borde que cruza)', action: D('recorta') },
         ],
       },
       {
-        id: 'alargar', label: 'Alargar', icon: 'Expand', desc: 'ALARGA: extiende hasta borde (AutoCAD: EX)', source: 'AutoCAD',
+        id: 'alargar', label: 'Alargar', icon: 'Expand', desc: 'ALARGA: extiende líneas hasta un borde real (AutoCAD: EX)', source: 'AutoCAD',
         options: [
           { label: 'Alargar extremo A', action: A('extendA') },
           { label: 'Alargar extremo B', action: A('extendB') },
+          { label: 'Extender hasta borde', detail: 'Clic: línea a extender → elemento límite', action: D('alarga') },
         ],
       },
       {
-        id: 'empalme', label: 'Empalme', icon: 'Spline', desc: 'EMPALME: une con radio (AutoCAD: F)', source: 'AutoCAD',
+        id: 'empalme', label: 'Empalme', icon: 'Spline', desc: 'EMPALME: une muros en intersección (AutoCAD: F)', source: 'AutoCAD',
         options: [
-          { label: 'Radio 0 (unir)', action: I('EMPALME radio 0: 8 muros unidos en las intersecciones seleccionadas.') },
+          { label: 'Radio 0 (unir T/L)', detail: 'Extremos extendidos hasta el eje común', action: G('cleanJoins') },
           { label: 'Radio 0.15 m', action: I('EMPALME radio 0.15 m aplicado a esquinas interiores.') },
           { label: 'Achaflanado 0.10', action: I('ACHAFLANA: distancia 0.10 m en ambos lados del vértice.') },
         ],
       },
       {
-        id: 'matriz', label: 'Matriz', icon: 'LayoutGrid', desc: 'MATRIZ: copias múltiples (AutoCAD: AR)', source: 'AutoCAD',
+        id: 'matriz', label: 'Matriz', icon: 'LayoutGrid', desc: 'MATRIZ: copias múltiples rectangulares y polares (AutoCAD: AR)', source: 'AutoCAD',
         options: [
-          { label: 'Rectangular 3×1', action: A('duplicateTriple') },
-          { label: 'Circular 8×', action: I('MATRIZ polar: 8 elementos en 360°, punto base en centro del círculo.') },
+          { label: 'Rectangular 3×1', detail: '3 copias alineadas', action: A('duplicateTriple') },
+          { label: 'Rectangular exacta…', detail: 'Columnas, filas y separación en m', action: P('MATRIZ RECTANGULAR — columnas,filas,sepX m,sepY m:', 'arrayRect', '3,2,2.00,2.00') },
+          { label: 'Polar / circular…', detail: 'N elementos alrededor del centro', action: P('MATRIZ POLAR — cantidad,ángulo total (°):', 'arrayPolar', '6,360') },
           { label: 'Por trayecto', action: I('MATRIZ sobre trayecto: 14 columnas cada 3.00 m en polilínea de eje.') },
         ],
       },
@@ -276,8 +281,11 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         options: [{ label: 'Ventana de cruces', action: I('ESTIRA: 6 vértices seleccionados, desplazamiento @0.80,0.00 aplicado.') }],
       },
       {
-        id: 'descomponer', label: 'Descomponer', icon: 'Ungroup', desc: 'EXPLOT: separa bloques (AutoCAD: X)', source: 'AutoCAD',
-        options: [{ label: 'Explotar bloque', action: I('EXPLOT: bloque "MESA-COMEDOR" separado en 7 primitivas editables.') }],
+        id: 'descomponer', label: 'Descomponer', icon: 'Ungroup', desc: 'EXPLOT: separa polilíneas y rectángulos en líneas (AutoCAD: X)', source: 'AutoCAD',
+        options: [
+          { label: 'Explotar polilínea', detail: 'Separa en segmentos de línea editables', action: A('explode') },
+          { label: 'Explotar rectángulo', detail: '4 líneas independientes', action: A('explode') },
+        ],
       },
       {
         id: 'matchprop', label: 'Igualar propiedades', icon: 'Paintbrush', desc: 'MATCHPROP: copia propiedades (AutoCAD: MA)', source: 'AutoCAD',
@@ -307,16 +315,16 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         ],
       },
       {
-        id: 'cota-alineada', label: 'Cota alineada', icon: 'Ruler', desc: 'ACOTALIN: alineada al objeto (AutoCAD: DAL)', source: 'AutoCAD',
-        options: [{ label: 'Cota alineada', action: I('ACOTALIN: alineada a la arista de 3.47 m, ángulo 31°.') }],
+        id: 'cota-alineada', label: 'Cota alineada', icon: 'Ruler', desc: 'ACOTALIN: distancia entre dos puntos (AutoCAD: DAL)', source: 'AutoCAD',
+        options: [{ label: 'Dibujar cota', detail: 'Clic: punto 1 → punto 2 · en m', action: D('cota') }],
       },
       {
-        id: 'cota-angular', label: 'Cota angular', icon: 'Compass', desc: 'ACOTANG: ángulo entre líneas (AutoCAD: DAN)', source: 'AutoCAD',
-        options: [{ label: 'Angular 90°', action: I('ACOTANG: 90° entre muro norte y muro este. Estilo: flecha cerrada.') }],
+        id: 'cota-angular', label: 'Cota angular', icon: 'Compass', desc: 'ACOTANG: ángulo entre dos direcciones (AutoCAD: DAN)', source: 'AutoCAD',
+        options: [{ label: 'Dibujar cota angular', detail: 'Clic: vértice · lado 1 · lado 2 · en °', action: D('cota-ang') }],
       },
       {
-        id: 'cota-radio', label: 'Radio / Diámetro', icon: 'CircleDot', desc: 'ACOTRAD: radios y diámetros (AutoCAD: DRA)', source: 'AutoCAD',
-        options: [{ label: 'R = 1.20 m', action: I('ACOTRAD: R1.20 m con directriz al centro del círculo.') }],
+        id: 'cota-radio', label: 'Radio / Diámetro', icon: 'CircleDot', desc: 'ACOTRAD: radio con directriz al centro (AutoCAD: DRA)', source: 'AutoCAD',
+        options: [{ label: 'Dibujar cota de radio', detail: 'Clic: centro · borde · R en m', action: D('cota-rad') }],
       },
       {
         id: 'texto', label: 'Texto', icon: 'Type', desc: 'TEXTO: línea de texto (AutoCAD: T / DT)', source: 'AutoCAD',
@@ -327,8 +335,8 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         ],
       },
       {
-        id: 'directriz', label: 'Directriz', icon: 'CornerDownRight', desc: 'DIRECTRIZ: llama con flecha (AutoCAD: LE)', source: 'AutoCAD',
-        options: [{ label: 'Nota de directriz', action: I('DIRECTRIZ multicapa: "UMBRAL GRANITO NEGRO PULIDO e=0.02" con flecha punteada.') }],
+        id: 'directriz', label: 'Directriz', icon: 'CornerDownRight', desc: 'DIRECTRIZ: flecha + texto de especificación (AutoCAD: LE)', source: 'AutoCAD',
+        options: [{ label: 'Insertar directriz', detail: 'Clic: flecha · destino · escribe el rótulo', action: D('directriz') }],
       },
       {
         id: 'tabla', label: 'Tabla', icon: 'Table', desc: 'TABLA: cuadros con estilos (AutoCAD: TB)', source: 'AutoCAD / Revit',
@@ -351,8 +359,11 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         ],
       },
       {
-        id: 'nube', label: 'Nube de revisión', icon: 'Cloud', desc: 'NUBE: marca cambios (AutoCAD: REVCLOUD)', source: 'AutoCAD',
-        options: [{ label: 'Marcar revisión', action: I('NUBEDECTRL: arco 0.5 m. Revisión R3 — "AMPLIAR VANOS DORMITORIO 2" registrada.') }],
+        id: 'nube', label: 'Nube de revisión', icon: 'Cloud', desc: 'NUBE DE CONTROL: marca revisiones con festones (AutoCAD: REVCLOUD)', source: 'AutoCAD',
+        options: [
+          { label: 'Marcar revisión', detail: 'Clics alrededor · ENTER cierra la nube', action: D('nube') },
+          { label: 'Nube en rectángulo', detail: 'Trazar 4 esquinas con la misma herramienta', action: D('nube') },
+        ],
       },
     ],
   },
@@ -559,8 +570,13 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         options: [{ label: 'Generar reporte', action: G('energyReport') }],
       },
       {
-        id: 'fases', label: 'Fases', icon: 'History', desc: 'Fases demolición / construcción (Revit: Phases)', source: 'Revit',
-        options: [{ label: 'Ver fases', action: I('FASES: Existente (gris) → Demolición (rojo punteado) → Nueva (línea continua).') }],
+        id: 'fases', label: 'Fases', icon: 'History', desc: 'Fases BIM reales: existente (gris) · demolición (rojo punteado) · nueva — con filtro de vista (Revit: Phases)', source: 'Revit',
+        options: [
+          { label: 'Panel de fases…', detail: 'Asignar a selección · conteos · filtro', action: G('showPhases') },
+          { label: 'Marcar selección: Demolición', detail: 'Rojo punteado + aspas', action: A('phase', 'demolicion') },
+          { label: 'Marcar selección: Existente', detail: 'Gris tenue', action: A('phase', 'existente') },
+          { label: 'Marcar selección: Nueva', detail: 'Trazo normal', action: A('phase', 'nueva') },
+        ],
       },
       {
         id: 'colaboracion', label: 'Colaboración', icon: 'Users', desc: 'Worksharing multiusuario (Revit / BIM360)', source: 'Revit',
@@ -647,8 +663,11 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         ],
       },
       {
-        id: 'iluminacion', label: 'Iluminación', icon: 'Lightbulb', desc: 'Niveles de lux por espacio (Dialux / Revit)', source: 'Dialux',
-        options: [{ label: 'Niveles de iluminación', action: I('ILUMINACIÓN: Sala 280 lx · Cocina 500 lx · Baño 250 lx · Dormitorios 150 lx. Cumple EN 12464-1.') }],
+        id: 'iluminacion', label: 'Iluminación', icon: 'Lightbulb', desc: 'Cálculo real de lux por ambiente (método de los lúmenes · EN 12464-1 · Dialux)', source: 'Dialux',
+        options: [
+          { label: 'Niveles de iluminación…', detail: 'Lux requeridos · Nº de luminarias · W/m²', action: G('showLighting') },
+          { label: 'Colocar luminaria', detail: 'Símbolo de luz en el plano', action: D('simbolo:luz') },
+        ],
       },
       {
         id: 'energia-a', label: 'Energía', icon: 'Zap', desc: 'Demanda energética y U-values', source: 'Insight / Ladybug',
@@ -659,8 +678,10 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         options: [{ label: 'Cargas y reacciones', action: I('ESTRUCTURAL: carga muerta 5.4 kN/m², viva 2.0 kN/m², deriva sísmica 0.0021 — OK.') }],
       },
       {
-        id: 'acustica', label: 'Acústica', icon: 'AudioWaveform', desc: 'Aislamiento acústico', source: 'Plugins',
-        options: [{ label: 'Aislamiento muros', action: I('ACÚSTICA: muro ladrillo 0.15 → Rw 42 dB · muro doble → Rw 52 dB. OK para dormitorios.') }],
+        id: 'acustica', label: 'Acústica', icon: 'AudioWaveform', desc: 'Aislamiento Rw por tipo de muro con verificación de dormitorios (ISO 12354 simplificado)', source: 'Plugins',
+        options: [
+          { label: 'Aislamiento de muros…', detail: 'Rw estimado · cumple/no cumple ≥ 45 dB', action: G('showAcoustic') },
+        ],
       },
     ],
   },
@@ -683,8 +704,11 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         options: [{ label: 'Auditar plano', action: G('auditCmd') }],
       },
       {
-        id: 'quickselect', label: 'Quick Select', icon: 'MousePointerClick', desc: 'Selección por filtros (AutoCAD: QSE)', source: 'AutoCAD',
-        options: [{ label: 'Filtro: muros', action: I('QUICK SELECT: 22 muros seleccionados por tipo "Tabique". Filtro aplicado.') }],
+        id: 'quickselect', label: 'Quick Select', icon: 'MousePointerClick', desc: 'Selección por filtros de tipo, capa y fase (AutoCAD: QSE)', source: 'AutoCAD',
+        options: [
+          { label: 'Filtro de selección…', detail: 'Tipo + capa + fase → lista clicable', action: G('showQuickSelect') },
+          { label: 'Aislar capa de selección', detail: 'Oculta las demás capas', action: G('isolateLayer') },
+        ],
       },
       {
         id: 'comentarios', label: 'Pines de comentarios', icon: 'MessageSquare', desc: 'Revisión de planos con pines numerados (BIM 360 / Bluebeam)', source: 'BIM 360',
@@ -1123,6 +1147,23 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
         { label: 'Fino 1', action: A('weight', 1) },
         { label: 'Medio 2', action: A('weight', 2) },
         { label: 'Grueso 3', action: A('weight', 3) },
+      ],
+    },
+    {
+      id: 'editar', label: 'Editar', icon: 'Wrench',
+      options: [
+        { label: 'Matriz 3×2…', detail: 'Copias múltiples con separación', action: P('MATRIZ RECTANGULAR — columnas,filas,sepX m,sepY m:', 'arrayRect', '3,2,2.00,2.00') },
+        { label: 'Matriz polar…', detail: 'Copias alrededor del centro', action: P('MATRIZ POLAR — cantidad,ángulo total (°):', 'arrayPolar', '6,360') },
+        { label: 'Equisdist 0.15 m', detail: 'Offset paralelo real', action: A('offset', 0.15) },
+        { label: 'Explotar', detail: 'Separar en líneas', action: A('explode') },
+      ],
+    },
+    {
+      id: 'fase', label: 'Fase', icon: 'History',
+      options: [
+        { label: 'Demolición', detail: 'Rojo punteado + aspas', action: A('phase', 'demolicion') },
+        { label: 'Existente', detail: 'Gris tenue', action: A('phase', 'existente') },
+        { label: 'Nueva', detail: 'Trazo normal', action: A('phase', 'nueva') },
       ],
     },
     {
