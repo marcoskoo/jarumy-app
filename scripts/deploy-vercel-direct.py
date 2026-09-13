@@ -49,8 +49,8 @@ def main() -> int:
         return 1
     print(f'Archivos a subir: {len(paths)}', flush=True)
 
-    # 2) contenido: texto plano cuando sea posible (la API autodetecta
-    #    base64 solo para binarios; el base64 de texto se almacena tal cual)
+    # 2) contenido: texto plano; binarios en base64 CON encoding="base64"
+    #    (sin ese campo la API guarda el string literal y corrompe el archivo)
     files = []
     total = 0
     n_plain = n_b64 = 0
@@ -63,7 +63,7 @@ def main() -> int:
             files.append({'file': p, 'data': raw.decode('utf-8')})
             n_plain += 1
         except UnicodeDecodeError:
-            files.append({'file': p, 'data': base64.b64encode(raw).decode()})
+            files.append({'file': p, 'data': base64.b64encode(raw).decode(), 'encoding': 'base64'})
             n_b64 += 1
     print(f'Tamaño total: {total / 1024:.1f} KB · texto plano: {n_plain} · base64: {n_b64}', flush=True)
 
