@@ -14,24 +14,25 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Jarumy app — Suite arquitectónica con menú radial",
+  metadataBase: new URL("https://jarumy-arq.vercel.app"),
+  title: "Jarumy app — Suite arquitectónica CAD · BIM · Render",
   description: "Suite de diseño arquitectónico con herramientas recopiladas de AutoCAD, Revit, ArchiCAD, SketchUp, Rhino, Lumion y V-Ray. Menú radial contextual sobre el plano y panel de administración.",
   keywords: ["Jarumy", "arquitectura", "CAD", "BIM", "AutoCAD", "Revit", "plano", "menú radial"],
-  authors: [{ name: "Z.ai Team" }],
-  icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
-  },
+  authors: [{ name: "Arq. Jarumy" }],
   openGraph: {
-    title: "Z.ai Code Scaffold",
-    description: "AI-powered development with modern React stack",
-    url: "https://chat.z.ai",
-    siteName: "Z.ai",
+    title: "Jarumy app — Suite arquitectónica",
+    description: "Suite de diseño arquitectónico: CAD, BIM y render con menú radial contextual sobre el plano.",
+    url: "https://jarumy-arq.vercel.app",
+    siteName: "Jarumy app",
+    images: [{ url: "/logo-jarumy-icon.png", width: 512, height: 512, alt: "Arq. Jarumy" }],
     type: "website",
+    locale: "es_PE",
   },
   twitter: {
-    card: "summary_large_image",
-    title: "Z.ai Code Scaffold",
-    description: "AI-powered development with modern React stack",
+    card: "summary",
+    title: "Jarumy app — Suite arquitectónica",
+    description: "Suite de diseño arquitectónico: CAD, BIM y render con menú radial contextual sobre el plano.",
+    images: ["/logo-jarumy-icon.png"],
   },
 };
 
@@ -52,7 +53,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="es" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >

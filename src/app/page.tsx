@@ -19,6 +19,29 @@ import { ToolIcon } from '@/components/jarumy/ToolIcon'
 
 type MobileSheet = 'menu' | 'layers' | 'props' | null
 
+// Logotipo oficial (imagen servida desde /public) con degradación elegante
+// al badge de inicial si la imagen no pudiera cargarse
+function HeaderLogo({ initial, className }: { initial: string; className?: string }) {
+  const [failed, setFailed] = useState(false)
+  if (failed) {
+    return (
+      <span className="flex items-center justify-center w-9 h-9 rounded-xl jy-bg-primary text-zinc-950 font-black text-lg shrink-0 shadow-lg">
+        {initial}
+      </span>
+    )
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src="/logo-jarumy.png"
+      alt="Arq. Jarumy"
+      className={className}
+      onError={() => setFailed(true)}
+      draggable={false}
+    />
+  )
+}
+
 export default function JarumyApp() {
   const s = useJarumy()
   const [brand, setBrand] = useState('Jarumy app')
@@ -82,15 +105,14 @@ export default function JarumyApp() {
       {/* ---------- encabezado ---------- */}
       <header className="flex items-center gap-2 sm:gap-3 px-2.5 sm:px-4 py-2 border-b jy-border shrink-0"
         style={{ background: 'linear-gradient(90deg, rgba(245,158,11,0.10), transparent 55%)' }}>
-        <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
-          <span className="flex items-center justify-center w-9 h-9 rounded-xl jy-bg-primary text-zinc-950 font-black text-lg shrink-0 shadow-lg">
-            {logoInitial}
-          </span>
-          <div className="min-w-0 hidden sm:block">
-            <h1 className="text-[15px] font-black leading-tight truncate" style={{ color: 'var(--jy-primary)' }}>
-              {brand}
-            </h1>
-            <p className="text-[9.5px] jy-muted tracking-wider uppercase">Suite arquitectónica CAD · BIM · Render</p>
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+          <HeaderLogo
+            initial={logoInitial}
+            className="h-9 sm:h-10 w-auto rounded-lg object-cover shrink-0 shadow-lg ring-1 ring-white/15"
+          />
+          <div className="min-w-0 hidden sm:flex flex-col justify-center gap-[3px] pl-2.5 sm:pl-3 border-l jy-border">
+            <h1 className="text-[11px] font-bold leading-none jy-text truncate">Suite arquitectónica</h1>
+            <p className="text-[8.5px] jy-muted tracking-[0.16em] uppercase leading-none">CAD · BIM · Render</p>
           </div>
         </div>
 
@@ -188,10 +210,11 @@ export default function JarumyApp() {
       <Sheet open={sheet === 'menu'} onOpenChange={(v) => !v && setSheet(null)}>
         <SheetContent side="right" className="jy-bg2 jy-text border jy-border w-[85vw] sm:max-w-sm p-0">
           <SheetHeader className="border-b jy-border pb-3">
-            <SheetTitle className="flex items-center gap-2 text-[15px] jy-text">
-              <span className="flex items-center justify-center w-8 h-8 rounded-xl jy-bg-primary text-zinc-950 font-black text-base">
-                {logoInitial}
-              </span>
+            <SheetTitle className="flex items-center gap-2.5 text-[15px] jy-text">
+              <HeaderLogo
+                initial={logoInitial}
+                className="h-8 w-auto rounded-md object-cover shrink-0 ring-1 ring-white/15"
+              />
               <span className="min-w-0">
                 <span className="block truncate font-black" style={{ color: 'var(--jy-primary)' }}>{brand}</span>
                 <span className="block text-[10px] jy-muted font-medium tracking-wider uppercase">Menú de la aplicación</span>
