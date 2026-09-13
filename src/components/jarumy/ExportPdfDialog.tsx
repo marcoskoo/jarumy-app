@@ -8,14 +8,26 @@
 // vista previa y genera el PDF vectorial con cartela.
 // ============================================================
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useJarumy } from '@/lib/store'
-import { PAPERS, PDF_SCALES, fitInfo, exportPlanPdf, type PaperId } from '@/lib/pdf-export'
+import { PAPERS, PDF_SCALES, fitInfo, exportPlanPdf, DEFAULT_CARTELA, type PaperId, type PdfCartela } from '@/lib/pdf-export'
+import { getRegisteredSvg, exportPlanPng, exportPlanSvg } from '@/lib/raster-export'
 import { ToolIcon } from './ToolIcon'
 import { toast } from 'sonner'
 
 const PREVIEW_W = 168
+const LS_CARTELA = 'jarumy_cartela'
+
+function loadCartela(): PdfCartela {
+  if (typeof window === 'undefined') return { ...DEFAULT_CARTELA }
+  try {
+    const raw = window.localStorage.getItem(LS_CARTELA)
+    return raw ? { ...DEFAULT_CARTELA, ...JSON.parse(raw) } : { ...DEFAULT_CARTELA }
+  } catch {
+    return { ...DEFAULT_CARTELA }
+  }
+}
 
 export function ExportPdfDialog() {
   const s = useJarumy()
@@ -25,8 +37,18 @@ export function ExportPdfDialog() {
   const [includeAutoDims, setIncludeAutoDims] = useState(true)
   const [includeAreas, setIncludeAreas] = useState(true)
   const [includeFurniture, setIncludeFurniture] = useState(true)
-  const [title, setTitle] = useState('VIVIENDA UNIFAMILIAR')
+  const [includeInstalaciones, setIncludeInstalaciones] = useState(true)
+  const [cartela, setCartela] = useState<PdfCartela>(loadCartela)
+  const [showCartela, setShowCartela] = useState(false)
   const [busy, setBusy] = useState(false)
+
+  // persiste la cartela entre sesiones
+  useEffect(() => {
+    try { window.localStorage.setItem(LS_CARTELA, JSON.stringify(cartela)) } catch { /* ignorar */ }
+  }, [cartela])
+  const setField = (k: keyof PdfCartela, v: string | boolean) =>
+    setCartela((c) => ({ ...c, [k]: v }) as PdfCartela)
+  const title = cartela.proyecto
 
   const info = useMemo(
     () => fitInfo(s.elements, s.mods, s.layers, paper, landscape, includeFurniture),
@@ -59,7 +81,8 @@ export function ExportPdfDialog() {
     setBusy(true)
     try {
       const res = await exportPlanPdf(s.elements, s.mods, s.layers, {
-        scale: effScale, paper, landscape, includeAutoDims, includeAreas, includeFurniture, title,
+        scale: effScale, paper, landscape, includeAutoDims, includeAreas, includeFurniture,
+        includeInstalaciones, title, cartela,
       })
       s.pushConsole({
         text: `PDF GENERADO: ${res.filename} — ${res.pageW.toFixed(0)}×${res.pageH.toFixed(0)} mm · escala 1:${effScale} · plano ${res.planW.toFixed(2)}×${res.planH.toFixed(2)} m · ${(res.bytes / 1024).toFixed(1)} KB`,
@@ -142,6 +165,7 @@ export function ExportPdfDialog() {
                   ['Cotas automáticas', includeAutoDims, setIncludeAutoDims],
                   ['Áreas m²', includeAreas, setIncludeAreas],
                   ['Mobiliario', includeFurniture, setIncludeFurniture],
+                  ['Instalaciones MEP', includeInstalaciones, setIncludeInstalaciones],
                 ] as [string, boolean, (v: boolean) => void][]).map(([label, val, set]) => (
                   <button key={label} onClick={() => set(!val)} className={chip(val)}>
                     {val ? '✓ ' : ''}{label}
@@ -150,15 +174,48 @@ export function ExportPdfDialog() {
               </div>
             </div>
 
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-1.5">Proyecto (cartela)</p>
-              <input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                maxLength={34}
-                className="w-full rounded-lg border border-zinc-700/60 bg-zinc-900/60 px-3 py-1.5 text-[12px] jy-text outline-none focus:border-amber-400/70"
-                placeholder="Nombre del proyecto"
-              />
+            {/* ---------- cartela editable ---------- */}
+            <div className="rounded-xl border jy-border bg-black/15">
+              <button onClick={() => setShowCartela(!showCartela)}
+                className="w-full flex items-center justify-between px-3 py-2 text-[11px] font-bold jy-text hover:text-amber-200 transition-colors">
+                <span className="flex items-center gap-1.5">
+                  <ToolIcon name="IdCard" size={13} className="text-amber-400" />
+                  Cartela del proyecto {cartela.includeLogo ? '· logo Arq. Jarumy' : ''}
+                </span>
+                <ToolIcon name={showCartela ? 'ChevronUp' : 'ChevronDown'} size={13} className="jy-muted" />
+              </button>
+              {showCartela && (
+                <div className="px-3 pb-3 space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      ['proyecto', 'Proyecto', 'VIVIENDA UNIFAMILIAR'],
+                      ['propietario', 'Propietario', ''],
+                      ['ubicacion', 'Ubicación', ''],
+                      ['autor', 'Dibujó (autor)', 'Arq. Jarumy'],
+                      ['lamina', 'Lámina', 'A-01'],
+                      ['escala', 'Escala (texto libre)', ''],
+                    ] as Array<[keyof PdfCartela, string, string]>).map(([k, label, ph]) => (
+                      <label key={k} className="space-y-0.5">
+                        <span className="text-[9.5px] jy-muted font-semibold">{label}</span>
+                        <input
+                          value={String(cartela[k] ?? '')}
+                          onChange={(e) => setField(k, e.target.value)}
+                          placeholder={ph}
+                          maxLength={40}
+                          className="w-full rounded-lg border border-zinc-700/60 bg-zinc-900/60 px-2.5 py-1 text-[11px] jy-text outline-none focus:border-amber-400/70"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <label className="flex items-center gap-2 text-[11px] jy-text cursor-pointer">
+                    <input type="checkbox" checked={cartela.includeLogo}
+                      onChange={(e) => setField('includeLogo', e.target.checked)}
+                      className="accent-amber-500 w-3.5 h-3.5" />
+                    Incluir logo oficial Arq. Jarumy en la cartela
+                  </label>
+                  <p className="text-[9px] jy-muted">Los datos se guardan en este navegador y viajan con cada PDF.</p>
+                </div>
+              )}
             </div>
 
             {/* estado de encaje */}
@@ -179,6 +236,38 @@ export function ExportPdfDialog() {
               <ToolIcon name="FileDown" size={15} />
               {busy ? 'Generando PDF…' : `Exportar PDF a escala 1:${effScale}`}
             </button>
+
+            {/* exportación rápida PNG / SVG del lienzo */}
+            <div className="flex gap-2">
+              <button
+                onClick={async () => {
+                  const svgEl = getRegisteredSvg()
+                  if (!svgEl) { toast.error('Lienzo no disponible'); return }
+                  const r = await exportPlanPng(svgEl)
+                  if (r) {
+                    toast.success('PNG del plano generado', { description: `${r.filename} · ${(r.bytes / 1024).toFixed(0)} KB` })
+                    s.pushConsole({ text: `PNG EXPORTADO: ${r.filename} · ${(r.bytes / 1024).toFixed(1)} KB`, kind: 'out' })
+                  } else toast.error('No se pudo generar el PNG')
+                }}
+                className="flex-1 rounded-lg border jy-border px-3 py-2 text-[11px] font-bold jy-text hover:border-amber-500/50 hover:text-amber-300 transition-colors flex items-center justify-center gap-1.5"
+              >
+                <ToolIcon name="ImageDown" size={13} /> PNG rápido
+              </button>
+              <button
+                onClick={() => {
+                  const svgEl = getRegisteredSvg()
+                  if (!svgEl) { toast.error('Lienzo no disponible'); return }
+                  const r = exportPlanSvg(svgEl)
+                  if (r) {
+                    toast.success('SVG vectorial generado', { description: `${r.filename} · ${(r.bytes / 1024).toFixed(0)} KB` })
+                    s.pushConsole({ text: `SVG EXPORTADO: ${r.filename} · ${(r.bytes / 1024).toFixed(1)} KB`, kind: 'out' })
+                  } else toast.error('No se pudo generar el SVG')
+                }}
+                className="flex-1 rounded-lg border jy-border px-3 py-2 text-[11px] font-bold jy-text hover:border-amber-500/50 hover:text-amber-300 transition-colors flex items-center justify-center gap-1.5"
+              >
+                <ToolIcon name="FileCode" size={13} /> SVG vectorial
+              </button>
+            </div>
           </div>
 
           {/* ---------- vista previa ---------- */}

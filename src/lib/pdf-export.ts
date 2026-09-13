@@ -14,14 +14,37 @@ import type { jsPDF } from 'jspdf'
 import type { PlanElement, LayerDef } from './plan-data'
 import type {
   WallGeo, DoorGeo, WindowGeo, RoomGeo, FurnGeo, DimGeo, ColGeo, OpenGeo, DrawGeo,
+  StairGeo, RoofGeo, InstGeo, SymGeo, TerrainGeo, PinGeo,
 } from './plan-data'
-import { PX_PER_M, roomAreaM2 } from './plan-data'
+import { PX_PER_M, roomAreaM2, polygonAreaM2 } from './plan-data'
 import type { Mod } from './store'
 import { autoDimensions } from './auto-dims'
 
 // ---------------- tipos y constantes ----------------
 
 export type PaperId = 'a4' | 'a3' | 'a2'
+
+export interface PdfCartela {
+  proyecto: string
+  propietario: string
+  ubicacion: string
+  autor: string
+  consultor: string
+  lamina: string
+  escala: string
+  includeLogo: boolean
+}
+
+export const DEFAULT_CARTELA: PdfCartela = {
+  proyecto: 'VIVIENDA UNIFAMILIAR',
+  propietario: '',
+  ubicacion: '',
+  autor: 'Arq. Jarumy',
+  consultor: 'JARUMY APP · SUITE CAD WEB',
+  lamina: 'A-01',
+  escala: '',
+  includeLogo: true,
+}
 
 export interface PdfExportOptions {
   scale: number            // denominador: 75 → 1:75
@@ -30,7 +53,9 @@ export interface PdfExportOptions {
   includeAutoDims: boolean
   includeAreas: boolean
   includeFurniture: boolean
+  includeInstalaciones?: boolean
   title: string
+  cartela?: PdfCartela
   /** pruebas/Node: devolver el PDF como base64 en el resultado (no descargar) */
   returnData?: boolean
 }
@@ -150,6 +175,35 @@ function elBounds(el: PlanElement, mod: Mod | undefined, includeFurniture: boole
         minX: Math.min(...xs) - r, minY: Math.min(...ys) - r,
         maxX: Math.max(...xs) + r, maxY: Math.max(...ys) + r,
       }
+    }
+    case 'escalera': {
+      const g = el.geo as StairGeo
+      const rot = Math.abs((mod?.rotation ?? 0) % 180)
+      const [hw, hh] = rot === 90 ? [g.h / 2, g.w / 2] : [g.w / 2, g.h / 2]
+      const cx = g.x + g.w / 2 + tx, cy = g.y + g.h / 2 + ty
+      return { minX: cx - hw, minY: cy - hh, maxX: cx + hw, maxY: cy + hh }
+    }
+    case 'techo': {
+      const g = el.geo as RoofGeo
+      return { minX: g.x + tx, minY: g.y + ty, maxX: g.x + g.w + tx, maxY: g.y + g.h + ty }
+    }
+    case 'instalacion': {
+      const g = el.geo as InstGeo
+      const xs = g.pts.map((p) => p[0] + tx), ys = g.pts.map((p) => p[1] + ty)
+      return { minX: Math.min(...xs) - 10, minY: Math.min(...ys) - 10, maxX: Math.max(...xs) + 10, maxY: Math.max(...ys) + 10 }
+    }
+    case 'simbolo': {
+      const g = el.geo as SymGeo
+      return { minX: g.x - 10, minY: g.y - 10, maxX: g.x + 10, maxY: g.y + 10 }
+    }
+    case 'terreno': {
+      const g = el.geo as TerrainGeo
+      const xs = g.pts.map((p) => p[0]), ys = g.pts.map((p) => p[1])
+      return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) }
+    }
+    case 'pin': {
+      const g = el.geo as PinGeo
+      return { minX: g.x - 12, minY: g.y - 34, maxX: g.x + 60, maxY: g.y + 16 }
     }
     default:
       return null // textos de lámina: la cartela los reemplaza
@@ -516,6 +570,133 @@ export async function exportPlanPdf(
     }
   }
 
+  // ---------- elementos paramétricos: escalera, techo ----------
+  for (const el of [...byType('escalera'), ...byType('techo')]) {
+    const m = mods[el.id]
+    const rot = m?.rotation ?? 0
+    const txm = m?.translate?.[0] ?? 0
+    const tym = m?.translate?.[1] ?? 0
+    const rotPt = (px: number, py: number, cx: number, cy: number): [number, number] => {
+      const a = (rot * Math.PI) / 180
+      const dx = px - cx, dy = py - cy
+      return [cx + dx * Math.cos(a) - dy * Math.sin(a), cy + dx * Math.sin(a) + dy * Math.cos(a)]
+    }
+    if (el.type === 'escalera') {
+      const g = el.geo as StairGeo
+      const cx = g.x + g.w / 2 + txm, cy = g.y + g.h / 2 + tym
+      const corner = (dx: number, dy: number) => rotPt(cx + dx, cy + dy, cx, cy)
+      const seg = (p1: number[], p2: number[]) => {
+        const a = rotPt(p1[0], p1[1], cx, cy)
+        const b = rotPt(p2[0], p2[1], cx, cy)
+        line(a[0], a[1], b[0], b[1])
+      }
+      setDraw(C.ink, 0.16)
+      const c0 = corner(-g.w / 2, -g.h / 2), c1 = corner(g.w / 2, -g.h / 2), c2 = corner(g.w / 2, g.h / 2), c3 = corner(-g.w / 2, g.h / 2)
+      const v: number[][] = []
+      for (const [p, q] of [[c0, c1], [c1, c2], [c2, c3], [c3, c0]] as Array<[[number, number], [number, number]]>) {
+        v.push([X(q[0]) - X(p[0]), Y(q[1]) - Y(p[1])])
+      }
+      doc.lines(v, X(c0[0]), Y(c0[1]), [1, 1], 'S', true)
+      setDraw(C.muted, 0.09)
+      for (let i = 1; i < g.steps; i++) {
+        const yy = -g.h / 2 + (g.h / g.steps) * i
+        seg([cx - g.w / 2, cy + yy], [cx + g.w / 2, cy + yy])
+      }
+      textJobs.push({ val: `SUBE ${g.steps}P`, x: X(cx), y: Y(cy) + 1.6, size: 5.5, bold: true, color: C.ink, align: 'center', mask: true })
+    } else {
+      const g = el.geo as RoofGeo
+      const x = g.x + txm, y = g.y + tym
+      setDraw([101, 133, 58], 0.14)
+      doc.setLineDashPattern([2, 1.2], 0)
+      doc.rect(X(x), Y(y), L(g.w), L(g.h), 'S')
+      if (g.kind === 'dos-aguas') {
+        if (g.ridge === 'h') line(x, y + g.h / 2, x + g.w, y + g.h / 2)
+        else line(x + g.w / 2, y, x + g.w / 2, y + g.h)
+      } else if (g.kind === 'cuatro-aguas') {
+        line(x, y, x + g.w / 2, y + g.h / 2); line(x + g.w, y, x + g.w / 2, y + g.h / 2)
+        line(x, y + g.h, x + g.w / 2, y + g.h / 2); line(x + g.w, y + g.h, x + g.w / 2, y + g.h / 2)
+      }
+      doc.setLineDashPattern([], 0)
+      textJobs.push({ val: `PEND. ${g.slope}%`, x: X(x + g.w / 2), y: Y(y - 4), size: 5, bold: true, color: [101, 133, 58], align: 'center', mask: true })
+    }
+  }
+
+  // ---------- instalaciones MEP ----------
+  if (opts.includeInstalaciones !== false) {
+    for (const el of byType('instalacion')) {
+      const g = el.geo as InstGeo
+      const m = mods[el.id]
+      const txm = m?.translate?.[0] ?? 0, tym = m?.translate?.[1] ?? 0
+      const col = g.kind === 'agua' ? [56, 189, 248] : g.kind === 'desague' ? [180, 83, 9] : [239, 68, 68]
+      setDraw(col, g.kind === 'desague' ? 0.34 : 0.26)
+      if (g.kind === 'desague') doc.setLineDashPattern([1.6, 1], 0)
+      for (let i = 1; i < g.pts.length; i++) {
+        line(g.pts[i - 1][0] + txm, g.pts[i - 1][1] + tym, g.pts[i][0] + txm, g.pts[i][1] + tym)
+      }
+      doc.setLineDashPattern([], 0)
+      const dmm = Math.round(g.diameter / PX_PER_M * 100)
+      textJobs.push({
+        val: `${g.kind === 'agua' ? 'AGUA' : g.kind === 'desague' ? 'DESAGÜE' : 'ELECT.'} Ø${dmm}`,
+        x: X(g.pts[0][0] + txm), y: Y(g.pts[0][1] + tym) - 1, size: 4.6, bold: true, color: col, align: 'center', mask: true,
+      })
+    }
+    // símbolos
+    setDraw([56, 189, 248], 0.16)
+    for (const el of byType('simbolo')) {
+      const g = el.geo as SymGeo
+      doc.circle(X(g.x), Y(g.y), 0.9, 'S')
+      if (g.kind === 'tablero') {
+        doc.rect(X(g.x) - 1.2, Y(g.y) - 0.9, 2.4, 1.8, 'S')
+        textJobs.push({ val: 'TB', x: X(g.x), y: Y(g.y) + 2.6, size: 4, bold: true, color: [56, 189, 248], align: 'center', mask: true })
+      }
+    }
+  }
+
+  // ---------- terreno ----------
+  for (const el of byType('terreno')) {
+    const g = el.geo as TerrainGeo
+    if (g.kind === 'lote') {
+      setDraw([101, 133, 58], 0.22)
+      doc.setLineDashPattern([2.4, 1.4], 0)
+      const v: number[][] = []
+      for (let i = 1; i <= g.pts.length; i++) {
+        const a = g.pts[i - 1], b = g.pts[i % g.pts.length]
+        v.push([X(b[0]) - X(a[0]), Y(b[1]) - Y(a[1])])
+      }
+      doc.lines(v, X(g.pts[0][0]), Y(g.pts[0][1]), [1, 1], 'S', true)
+      doc.setLineDashPattern([], 0)
+      let sx = 0, sy = 0
+      g.pts.forEach((p) => { sx += p[0]; sy += p[1] })
+      textJobs.push({
+        val: `${g.name || 'LOTE'} · ${polygonAreaM2(g.pts).toLocaleString('es-PE')} m²`,
+        x: X(sx / g.pts.length), y: Y(sy / g.pts.length), size: 8, bold: true, color: [101, 133, 58], align: 'center', mask: true,
+      })
+    } else {
+      setDraw([101, 133, 58], 0.18)
+      doc.setLineDashPattern([2.4, 1], 0)
+      for (let i = 1; i < g.pts.length; i++) line(g.pts[i - 1][0], g.pts[i - 1][1], g.pts[i][0], g.pts[i][1])
+      doc.setLineDashPattern([], 0)
+      textJobs.push({
+        val: (g.elev ?? 0).toFixed(2),
+        x: X(g.pts[Math.floor(g.pts.length / 2)][0]), y: Y(g.pts[Math.floor(g.pts.length / 2)][1]) - 1.2,
+        size: 5.5, bold: true, color: [101, 133, 58], align: 'center', mask: true,
+      })
+    }
+  }
+
+  // ---------- pines de comentario ----------
+  for (const el of byType('pin')) {
+    const g = el.geo as PinGeo
+    const col: readonly number[] = g.resolved ? [16, 185, 129] : [251, 113, 133]
+    setDraw(col, 0.22)
+    setFill(col)
+    doc.circle(X(g.x), Y(g.y), 1.1, 'FD')
+    textJobs.push({
+      val: `${g.resolved ? 'OK ' : ''}${g.text.slice(0, 34)}`,
+      x: X(g.x) + 1.8, y: Y(g.y) - 0.4, size: 4.6, bold: true, color: col, align: 'left', mask: true,
+    })
+  }
+
   // ---------- cotas manuales ----------
   // el texto de las cotas se encola en la capa final, con halo blanco
   const dimText = (val: string, x: number, y: number, angle = 0) => {
@@ -723,7 +904,8 @@ export async function exportPlanPdf(
   drawRoomLabels()
 
   // ---------- anotaciones de lámina ----------
-  drawCartela(doc, area, opts)
+  const logoData = opts.cartela?.includeLogo ? await fetchLogoDataUrl() : null
+  drawCartela(doc, area, opts, logoData)
   drawNorth(doc, area)
   drawScaleBar(doc, area, mmPerM, opts.scale)
 
@@ -757,18 +939,40 @@ export async function exportPlanPdf(
 
 // ---------- cartela / rosa / barra de escala ----------
 
-function drawCartela(doc: jsPDF, area: ReturnType<typeof drawArea>, opts: PdfExportOptions) {
+/** descarga el logo oficial como dataURL (null en Node o si falla) */
+let logoCache: string | null | undefined
+async function fetchLogoDataUrl(): Promise<string | null> {
+  if (logoCache !== undefined) return logoCache
+  try {
+    const res = await fetch('/logo-jarumy.png')
+    if (!res.ok) throw new Error('sin logo')
+    const blob = await res.blob()
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const r = new FileReader()
+      r.onload = () => resolve(String(r.result))
+      r.onerror = () => reject(new Error('fread'))
+      r.readAsDataURL(blob)
+    })
+    logoCache = dataUrl
+    return dataUrl
+  } catch {
+    logoCache = null
+    return null
+  }
+}
+
+function drawCartela(doc: jsPDF, area: ReturnType<typeof drawArea>, opts: PdfExportOptions, logoData: string | null) {
+  const c = { ...DEFAULT_CARTELA, ...(opts.cartela || {}) }
   const y0 = area.H - MARGIN - CART_H
   const x1 = MARGIN, x2 = area.W - MARGIN
   const h = CART_H
-  const mid = y0 + h / 2
 
   doc.setDrawColor(C.ink[0], C.ink[1], C.ink[2])
   doc.setLineWidth(0.35)
   doc.rect(x1, y0, x2 - x1, h)
   doc.setLineWidth(0.15)
 
-  // columnas: logo | proyecto | escala/fecha | lámina
+  // columnas: logo | proyecto | datos | lámina
   const c1 = x1 + 46, c2 = x1 + 128, c3 = x1 + 172
   doc.line(c1, y0, c1, y0 + h)
   doc.line(c2, y0, c2, y0 + h)
@@ -785,25 +989,37 @@ function drawCartela(doc: jsPDF, area: ReturnType<typeof drawArea>, opts: PdfExp
     doc.text(t, x, y)
   }
 
-  // logo
-  value('JARUMY APP', x1 + 4, y0 + 9, 9)
-  label('SUITE ARQUITECTÓNICA CAD WEB', x1 + 4, y0 + 13.5)
-  value('ESC. 1:' + opts.scale, x1 + 4, y0 + 19.5, 7)
+  // logo oficial (imagen) o texto de respaldo
+  if (logoData) {
+    try {
+      const lw = 34, lh = lw * (246 / 560) // proporción del logo 560×246
+      doc.addImage(logoData, 'PNG', x1 + 4, y0 + (h - lh) / 2, lw, lh)
+    } catch { /* texto de respaldo */
+      value('JARUMY APP', x1 + 4, y0 + 9, 9)
+    }
+  } else {
+    value('JARUMY APP', x1 + 4, y0 + 9, 9)
+    label('SUITE ARQUITECTÓNICA CAD WEB', x1 + 4, y0 + 13.5)
+  }
+  value(c.escala || `ESC. 1:${opts.scale}`, x1 + 4, y0 + 21.5, 6.5)
 
   // proyecto
-  label('PROYECTO', c1 + 4, y0 + 6)
-  value((opts.title || 'VIVIENDA UNIFAMILIAR').slice(0, 34), c1 + 4, y0 + 11, 7.5)
-  label('DIBUJÓ', c1 + 4, y0 + 16)
-  value('J. BURGA · ARQ.', c1 + 4, y0 + 20.5, 6, false)
-  // escala + fecha + área
-  label('FECHA', c2 + 4, y0 + 6)
-  value(new Date().toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' }), c2 + 4, y0 + 11, 7)
-  label('UNIDADES', c2 + 4, y0 + 16)
-  value('MÉTRICO · m', c2 + 4, y0 + 20.5, 6, false)
+  label('PROYECTO', c1 + 4, y0 + 5)
+  value((c.proyecto || opts.title || 'SIN NOMBRE').slice(0, 34), c1 + 4, y0 + 9.5, 7.5)
+  if (c.propietario) { label('PROPIETARIO', c1 + 4, y0 + 12.5); value(c.propietario.slice(0, 34), c1 + 4, y0 + 16.5, 6, false) }
+  label('DIBUJÓ', c1 + 4, y0 + 20)
+  value((c.autor || 'ARQ. JARUMY').slice(0, 34), c1 + 4, y0 + 23.2, 5.6, false)
+
+  // escala + fecha + ubicación
+  if (c.ubicacion) { label('UBICACIÓN', c2 + 4, y0 + 5); value(c.ubicacion.slice(0, 30), c2 + 4, y0 + 9.5, 6, false) }
+  label('FECHA', c2 + 4, y0 + 12.5)
+  value(new Date().toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' }), c2 + 4, y0 + 16.5, 6.5)
+  label('UNIDADES', c2 + 4, y0 + 20)
+  value('MÉTRICO · m', c2 + 4, y0 + 23.2, 5.6, false)
 
   label('LÁMINA', c3 + 4, y0 + 6)
-  value('A-01', c3 + 4, y0 + 15, 12)
-  label('PLANTA ARQUITECTÓNICA', c3 + 4, y0 + 20.5)
+  value((c.lamina || 'A-01').slice(0, 8), c3 + 4, y0 + 15, 12)
+  label((c.escala ? c.escala : `ESC. 1:${opts.scale}`).slice(0, 20), c3 + 4, y0 + 20.5)
 }
 
 function drawNorth(doc: jsPDF, area: ReturnType<typeof drawArea>) {

@@ -16,6 +16,9 @@ import {
   PenLine, Frame, Scaling, X, ChevronLeft, Info, Lock, EyeOff,
   TreePine, Play, Pause,
   Search, Menu, ChevronDown, ChevronUp, Check,
+  Share2, Droplets, Waves, PlugZap, Mountain, MessageSquare, Scale, Calculator,
+  DraftingCompass, IdCard, FileSpreadsheet, Upload, Download, ImageDown, FileCode,
+  Camera, CheckCircle2, XCircle, Axis3d, MountainSnow,
 } from 'lucide-react'
 
 const ICONS: Record<string, React.ComponentType<{ className?: string; size?: number; strokeWidth?: number }>> = {
@@ -34,6 +37,9 @@ const ICONS: Record<string, React.ComponentType<{ className?: string; size?: num
   PenLine, Frame, Scaling, X, ChevronLeft, Info, Lock, EyeOff,
   TreePine, Play, Pause,
   Search, Menu, ChevronDown, ChevronUp, Check,
+  Share2, Droplets, Waves, PlugZap, Mountain, MessageSquare, Scale, Calculator,
+  DraftingCompass, IdCard, FileSpreadsheet, Upload, Download, ImageDown, FileCode,
+  Camera, CheckCircle2, XCircle, Axis3d, MountainSnow,
 }
 
 export function ToolIcon({ name, className, size = 16 }: { name: string; className?: string; size?: number }) {
@@ -55,6 +61,12 @@ export const TYPE_ICON: Record<string, string> = {
   apertura: 'DoorOpen',
   dibujo: 'PenLine',
   lamina: 'Frame',
+  escalera: 'ArrowUpNarrowWide',
+  techo: 'Layers',
+  instalacion: 'PlugZap',
+  simbolo: 'Lightbulb',
+  terreno: 'Mountain',
+  pin: 'MessageSquare',
 }
 
 export const TYPE_LABEL: Record<string, string> = {
@@ -70,4 +82,10 @@ export const TYPE_LABEL: Record<string, string> = {
   apertura: 'VANO',
   dibujo: 'DIBUJO',
   lamina: 'LÁMINA',
+  escalera: 'ESCALERA',
+  techo: 'TECHO',
+  instalacion: 'INSTALACIÓN',
+  simbolo: 'SÍMBOLO',
+  terreno: 'TERRENO',
+  pin: 'PIN',
 }

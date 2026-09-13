@@ -14,6 +14,10 @@ import { CommandConsole, StatusBar } from '@/components/jarumy/ConsoleBar'
 import { ScheduleDialog, CatalogDialog, EnergyDialog, ClashDialog } from '@/components/jarumy/Dialogs'
 import { BlockLibraryDialog } from '@/components/jarumy/BlockLibrary'
 import { ExportPdfDialog } from '@/components/jarumy/ExportPdfDialog'
+import {
+  StairDialog, RoofDialog, ElevationsDialog, Iso3DDialog,
+  NormativaDialog, MetradosDialog, ShareDialog,
+} from '@/components/jarumy/FeatureDialogs'
 import AdminPanel, { PRIMARY_PRESETS } from '@/components/jarumy/AdminPanel'
 import { ToolIcon } from '@/components/jarumy/ToolIcon'
 
@@ -89,9 +93,14 @@ export default function JarumyApp() {
   const menuActions = [
     { icon: 'FileDown', label: 'PDF a escala', detail: 'Exportación vectorial 1:25 – 1:250 con cartela', fn: () => s.setDialog('pdf'), highlight: true },
     { icon: 'Blocks', label: `Bloques (${BLOCK_LIBRARY.length})`, detail: 'Biblioteca con vista previa y buscador', fn: () => s.setDialog('blocks') },
+    { icon: 'Box', label: 'Vista 3D', detail: 'Axonometría interactiva con órbita', fn: () => s.setDialog('iso3d') },
+    { icon: 'Landmark', label: 'Elevaciones', detail: 'Vistas N/S/E/O y sección automática', fn: () => s.setDialog('elevations') },
+    { icon: 'Scale', label: 'Normativa RNE', detail: 'Verificación A.010 · A.130 en el plano', fn: () => s.setDialog('normativa') },
+    { icon: 'Calculator', label: 'Metrados S10', detail: 'Presupuesto por partidas → Excel', fn: () => s.setDialog('metrados') },
     { icon: 'Sun', label: 'Heliodón', detail: 'Sol, sombras y trayectorias reales', fn: () => s.runGlobal('toggleSun') },
     { icon: 'Library', label: `Catálogo (${TOTAL_TOOLS})`, detail: 'Herramientas recopiladas de 10 apps', fn: () => s.setDialog('catalog') },
     { icon: 'ClipboardList', label: 'Cuadro BIM', detail: 'Espacios, áreas y acabados', fn: () => s.setDialog('schedule') },
+    { icon: 'Share2', label: 'Compartir e historial', detail: 'Plano .json + versiones guardadas', fn: () => s.setDialog('share') },
   ]
   const panelActions: { icon: string; label: string; next: MobileSheet }[] = [
     { icon: 'Layers', label: 'Capas y biblioteca', next: 'layers' },
@@ -125,6 +134,22 @@ export default function JarumyApp() {
             aria-label="Biblioteca de bloques"
           >
             <ToolIcon name="Blocks" size={15} />
+          </button>
+          <button
+            onClick={() => s.setDialog('iso3d')}
+            className="hidden md:flex items-center gap-1.5 rounded-lg border jy-border px-3 py-1.5 text-[11px] font-semibold jy-text hover:border-amber-500/60 hover:text-amber-300 transition-colors"
+            title="Vista 3D interactiva: órbita, extrusión y techos con pendiente"
+          >
+            <ToolIcon name="Box" size={13} />
+            3D
+          </button>
+          <button
+            onClick={() => s.setDialog('elevations')}
+            className="hidden md:flex items-center gap-1.5 rounded-lg border jy-border px-3 py-1.5 text-[11px] font-semibold jy-text hover:border-amber-500/60 hover:text-amber-300 transition-colors"
+            title="Elevaciones y sección automáticas (N/S/E/O + corte)"
+          >
+            <ToolIcon name="Landmark" size={13} />
+            Elevaciones
           </button>
           <button
             onClick={() => s.setDialog('pdf')}
@@ -291,6 +316,13 @@ export default function JarumyApp() {
       <ClashDialog />
       <BlockLibraryDialog />
       <ExportPdfDialog />
+      <StairDialog />
+      <RoofDialog />
+      <ElevationsDialog />
+      <Iso3DDialog />
+      <NormativaDialog />
+      <MetradosDialog />
+      <ShareDialog />
 
       {/* ---------- panel de administración ---------- */}
       <AdminPanel onDesignChange={applyDesign} />

@@ -16,12 +16,33 @@ export interface ColGeo { x: number; y: number; size: number }
 export interface OpenGeo { x: number; y: number; len: number; orient: 'h' | 'v' }
 export interface DrawGeo { kind: string; pts: number[][]; r?: number; text?: string }
 
+// --- elementos paramétricos / MEP / terreno / colaboración ---
+export interface StairGeo {
+  x: number; y: number; w: number; h: number
+  steps: number; riser: number; tread: number  // contrahuella y huella en METROS
+  dir: 'up' | 'down' | 'left' | 'right'        // sentido de subida en planta
+}
+export interface RoofGeo {
+  x: number; y: number; w: number; h: number
+  slope: number                                // pendiente en %
+  kind: 'dos-aguas' | 'cuatro-aguas' | 'plano'
+  ridge: 'h' | 'v'                             // orientación de la cumbrera
+}
+export interface InstGeo { kind: 'agua' | 'desague' | 'electrico'; pts: number[][]; diameter: number }
+export interface SymGeo { kind: SymKind; x: number; y: number }
+export type SymKind =
+  | 'luz' | 'tomacorriente' | 'interruptor' | 'tablero'
+  | 'punto-agua' | 'punto-desague' | 'medidor-agua'
+export interface TerrainGeo { kind: 'lote' | 'curva'; pts: number[][]; name?: string; elev?: number }
+export interface PinGeo { x: number; y: number; text: string; author: string; resolved?: boolean }
+
 export interface PlanElement {
   id: string
   type: ElementType
   layer: string
   name: string
   geo: WallGeo | DoorGeo | WindowGeo | RoomGeo | FurnGeo | DimGeo | TextGeo | ColGeo | OpenGeo | DrawGeo
+    | StairGeo | RoofGeo | InstGeo | SymGeo | TerrainGeo | PinGeo
 }
 
 export interface LayerDef {
@@ -47,7 +68,19 @@ export const LAYERS: LayerDef[] = [
   { id: 'textos', name: 'Textos', color: '#e4e4e7', visible: true, locked: false },
   { id: 'estructura', name: 'Estructura', color: '#a855f7', visible: true, locked: false },
   { id: 'dibujo', name: 'Dibujo', color: '#fb923c', visible: true, locked: false },
+  { id: 'instalaciones', name: 'Instalaciones MEP', color: '#38bdf8', visible: true, locked: false },
+  { id: 'terreno', name: 'Terreno', color: '#84cc16', visible: true, locked: false },
+  { id: 'comentarios', name: 'Comentarios', color: '#fb7185', visible: true, locked: false },
 ]
+
+// --- tipos de muro multicapa (espesor real + patrón de render) ---
+export interface WallTypeDef { id: string; label: string; t: number; hatch: 'ladrillo' | 'concreto' | 'drywall' | 'silleria'; color: string }
+export const WALL_TYPES: Record<string, WallTypeDef> = {
+  l140: { id: 'l140', label: 'Ladrillo 140', t: 8.4, hatch: 'ladrillo', color: '#3f3f46' },
+  l230: { id: 'l230', label: 'Ladrillo 230', t: 13.8, hatch: 'silleria', color: '#333338' },
+  c175: { id: 'c175', label: 'Concreto 175', t: 10.5, hatch: 'concreto', color: '#52525b' },
+  dw100: { id: 'dw100', label: 'Drywall 100', t: 6, hatch: 'drywall', color: '#8b8b96' },
+}
 
 const wall = (id: string, x1: number, y1: number, x2: number, y2: number, t: number): PlanElement => ({
   id: `muro-${id}`, type: 'muro', layer: 'muros', name: `Muro ${id}`,
@@ -202,7 +235,7 @@ export const BASE_ELEMENTS: PlanElement[] = [
 ]
 
 // Bloques insertables desde la biblioteca (cat: agrupación del explorador visual)
-export type BlockCat = 'mobiliario' | 'cocina' | 'sanitarios' | 'exterior' | 'otros'
+export type BlockCat = 'mobiliario' | 'cocina' | 'sanitarios' | 'exterior' | 'otros' | 'detalles'
 
 export interface BlockDef {
   kind: string
@@ -218,6 +251,7 @@ export const BLOCK_CATS: { id: BlockCat; label: string; icon: string }[] = [
   { id: 'cocina', label: 'Cocina', icon: 'CookingPot' },
   { id: 'sanitarios', label: 'Sanitarios', icon: 'Bath' },
   { id: 'exterior', label: 'Exterior', icon: 'TreePine' },
+  { id: 'detalles', label: 'Detalles constructivos', icon: 'DraftingCompass' },
   { id: 'otros', label: 'Otros', icon: 'Shapes' },
 ]
 
@@ -286,16 +320,52 @@ export const BLOCK_LIBRARY: BlockDef[] = [
   { kind: 'auto', label: 'Automóvil 4.5 m', w: 270, h: 130, cat: 'exterior' },
   { kind: 'camioneta', label: 'Camioneta 5.4 m', w: 324, h: 120, cat: 'exterior' },
   // --- Otros ---
-  { kind: 'escalera', label: 'Escalera recta', w: 54, h: 162, cat: 'otros' },
   { kind: 'ascensor', label: 'Ascensor', w: 90, h: 90, cat: 'otros' },
   { kind: 'rampa', label: 'Rampa accesible', w: 72, h: 144, cat: 'otros' },
   { kind: 'chimenea', label: 'Chimenea', w: 54, h: 54, cat: 'otros' },
   { kind: 'extintor', label: 'Extintor', w: 24, h: 24, cat: 'otros' },
   { kind: 'tablero', label: 'Tablero eléctrico', w: 21, h: 15, cat: 'otros' },
+  // --- Detalles constructivos (secciones a escalas mayores) ---
+  { kind: 'det-cimiento', label: 'Cimiento corrido', w: 120, h: 90, cat: 'detalles' },
+  { kind: 'det-sobrecimiento', label: 'Sobrecimiento', w: 120, h: 60, cat: 'detalles' },
+  { kind: 'det-muro-soga', label: 'Muro a soga (elev.)', w: 150, h: 100, cat: 'detalles' },
+  { kind: 'det-muro-cabeza', label: 'Muro a cabeza (elev.)', w: 150, h: 100, cat: 'detalles' },
+  { kind: 'det-junta', label: 'Junta de dilatación', w: 150, h: 60, cat: 'detalles' },
+  { kind: 'det-derrame', label: 'Derrame de ventana', w: 150, h: 100, cat: 'detalles' },
+  { kind: 'det-losa', label: 'Losa aligerada (sección)', w: 180, h: 90, cat: 'detalles' },
+  { kind: 'det-escalera', label: 'Escalera (sección)', w: 180, h: 120, cat: 'detalles' },
+  { kind: 'det-tuboagua', label: 'Tubería de agua (det.)', w: 100, h: 100, cat: 'detalles' },
+  { kind: 'det-tubodesague', label: 'Tubería de desagüe (det.)', w: 100, h: 100, cat: 'detalles' },
 ]
 
 export function roomAreaM2(geo: RoomGeo): number {
   return Math.round(((geo.w / PX_PER_M) * (geo.h / PX_PER_M)) * 100) / 100
+}
+
+// --- geometría de terreno ---
+
+/** Área de un polígono (fórmula del cordón / shoelace) en m². */
+export function polygonAreaM2(pts: number[][]): number {
+  if (pts.length < 3) return 0
+  let a = 0
+  for (let i = 0; i < pts.length; i++) {
+    const [x1, y1] = pts[i]
+    const [x2, y2] = pts[(i + 1) % pts.length]
+    a += x1 * y2 - x2 * y1
+  }
+  return Math.round(Math.abs(a / 2) / (PX_PER_M * PX_PER_M) * 100) / 100
+}
+
+/** Perímetro de polígono en m. */
+export function polygonPerimeterM(pts: number[][]): number {
+  if (pts.length < 2) return 0
+  let p = 0
+  for (let i = 0; i < pts.length; i++) {
+    const [x1, y1] = pts[i]
+    const [x2, y2] = pts[(i + 1) % pts.length]
+    p += Math.hypot(x2 - x1, y2 - y1)
+  }
+  return Math.round(p / PX_PER_M * 100) / 100
 }
 
 export function elementSummary(el: PlanElement): string {
@@ -321,6 +391,35 @@ export function elementSummary(el: PlanElement): string {
       const g = el.geo as DimGeo
       const d = Math.hypot(g.x2 - g.x1, g.y2 - g.y1)
       return `Valor real ${(d / PX_PER_M).toFixed(2)} m`
+    }
+    case 'escalera': {
+      const g = el.geo as StairGeo
+      return `${g.steps} pasos · huella ${(g.tread * 100).toFixed(0)} cm · contrahuella ${(g.riser * 100).toFixed(1)} cm`
+    }
+    case 'techo': {
+      const g = el.geo as RoofGeo
+      return `${g.kind === 'dos-aguas' ? 'A dos aguas' : g.kind === 'cuatro-aguas' ? 'A cuatro aguas' : 'Plano'} · pend. ${g.slope}%`
+    }
+    case 'instalacion': {
+      const g = el.geo as InstGeo
+      return `${g.kind === 'agua' ? 'Agua' : g.kind === 'desague' ? 'Desagüe' : 'Eléctrico'} · Ø ${(g.diameter / PX_PER_M * 100).toFixed(0)} mm · ${g.pts.length} tramos`
+    }
+    case 'simbolo': {
+      const g = el.geo as SymGeo
+      const names: Record<string, string> = {
+        'luz': 'Luminaria', 'tomacorriente': 'Tomacorriente', 'interruptor': 'Interruptor',
+        'tablero': 'Tablero', 'punto-agua': 'Punto de agua', 'punto-desague': 'Punto de desagüe', 'medidor-agua': 'Medidor de agua',
+      }
+      return names[g.kind] || g.kind
+    }
+    case 'terreno': {
+      const g = el.geo as TerrainGeo
+      if (g.kind === 'curva') return `Curva de nivel ${g.elev?.toFixed(2) ?? ''} m`
+      return `Lote · ${polygonAreaM2(g.pts).toLocaleString('es-PE')} m² · perímetro ${polygonPerimeterM(g.pts).toFixed(2)} m`
+    }
+    case 'pin': {
+      const g = el.geo as PinGeo
+      return `${g.resolved ? 'Resuelto' : 'Pendiente'} · ${g.author}`
     }
     default:
       return el.name

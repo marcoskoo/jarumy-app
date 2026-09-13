@@ -12,6 +12,8 @@ import SunPanel from './SunPanel'
 import { ToolIcon } from './ToolIcon'
 import type { ToolAction } from '@/lib/tools-data'
 import { autoDimensions } from '@/lib/auto-dims'
+import { registerSvg } from '@/lib/raster-export'
+import type { SymKind } from '@/lib/plan-data'
 
 const uid = () => `usr-${Math.random().toString(36).slice(2, 9)}`
 
@@ -41,6 +43,12 @@ export default function PlanCanvas() {
     setSize({ w: el.clientWidth, h: el.clientHeight })
     const t = setTimeout(() => setHint(false), 6000)
     return () => { ro.disconnect(); clearTimeout(t) }
+  }, [])
+
+  // registra el <svg> vivo para exportación PNG/SVG rápida
+  useEffect(() => {
+    registerSvg(svgRef.current)
+    return () => registerSvg(null)
   }, [])
 
   // ---------- ajuste inicial y a petición ----------
@@ -171,6 +179,34 @@ export default function PlanCanvas() {
       return
     }
 
+    // símbolos de instalación: un clic coloca el símbolo
+    if (st.drawTool.startsWith('simbolo:')) {
+      const kind = st.drawTool.slice(8) as SymKind
+      const names: Record<string, string> = {
+        'luz': 'Luminaria', 'tomacorriente': 'Tomacorriente', 'interruptor': 'Interruptor',
+        'tablero': 'Tablero eléctrico', 'punto-agua': 'Punto de agua', 'punto-desague': 'Punto de desagüe', 'medidor-agua': 'Medidor de agua',
+      }
+      useJarumy.setState((prev) => ({
+        undoStack: [...prev.undoStack.slice(-29), { elements: JSON.parse(JSON.stringify(prev.elements)), mods: JSON.parse(JSON.stringify(prev.mods)), gridSpacing: prev.gridSpacing }],
+        elements: [...prev.elements, {
+          id: uid(), type: 'simbolo', layer: 'instalaciones',
+          name: names[kind] || kind, geo: { kind, x: p[0], y: p[1] },
+        }],
+      }))
+      st.pushConsole({ text: `SÍMBOLO colocado: ${names[kind] || kind} (capa Instalaciones)`, kind: 'out' })
+      st.armDraw(null)
+      return
+    }
+
+    // pin de comentario: clic + texto
+    if (st.drawTool === 'pin') {
+      const text = typeof window !== 'undefined' ? window.prompt('Texto del comentario:', '') : null
+      if (text && text.trim()) st.insertPin(p[0], p[1], text.trim())
+      else st.armDraw(null)
+      if (text && text.trim()) st.armDraw(null)
+      return
+    }
+
     switch (st.drawTool) {
       case 'linea':
       case 'rectangulo':
@@ -207,6 +243,11 @@ export default function PlanCanvas() {
         break
       }
       case 'polilinea':
+      case 'tuberia-agua':
+      case 'tuberia-desague':
+      case 'circuito':
+      case 'terreno':
+      case 'curvanivel':
         st.addDrawPoint(p)
         break
       case 'texto': {
@@ -282,7 +323,7 @@ export default function PlanCanvas() {
     return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
   }, [toSvg])
 
-  // ESC cancela herramienta / cierra menú · R rota el bloque pendiente de inserción
+  // ESC cancela herramienta / cierra menú · R rota el bloque pendiente de inserción · ENTER termina polilíneas/tuberías
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -290,7 +331,8 @@ export default function PlanCanvas() {
         if (st.drawTool) st.armDraw(null)
         st.setHovered(null)
       }
-      if (e.key === 'Enter' && useJarumy.getState().drawTool === 'polilinea') {
+      const polyFamily = ['polilinea', 'tuberia-agua', 'tuberia-desague', 'circuito', 'terreno', 'curvanivel']
+      if (e.key === 'Enter' && polyFamily.includes(useJarumy.getState().drawTool || '')) {
         useJarumy.getState().finishPolyline()
       }
       const st = useJarumy.getState()
@@ -433,7 +475,8 @@ export default function PlanCanvas() {
             onClick={handleCanvasClick}
             onDoubleClick={(e) => {
               e.stopPropagation()
-              if (useJarumy.getState().drawTool === 'polilinea') useJarumy.getState().finishPolyline()
+              const polyFamily = ['polilinea', 'tuberia-agua', 'tuberia-desague', 'circuito', 'terreno', 'curvanivel']
+              if (polyFamily.includes(useJarumy.getState().drawTool || '')) useJarumy.getState().finishPolyline()
             }}
             style={{ background: 'transparent', touchAction: 'none' }}
           >
@@ -484,14 +527,20 @@ export default function PlanCanvas() {
             )}
 
             {/* vista previa de dibujo */}
-            {s.drawTool && !s.drawTool.startsWith('ins:') && s.drawPts.length > 0 && (() => {
+            {s.drawTool && !s.drawTool.startsWith('ins:') && !s.drawTool.startsWith('simbolo:') && s.drawPts.length > 0 && (() => {
               const base = s.drawPts[s.drawPts.length - 1]
               const cur = orthoPt(snapPt(s.cursorSvg), base)
-              const dash = { stroke: '#f59e0b', strokeWidth: 1.6, strokeDasharray: '6 4', fill: 'none' } as const
+              const polyFamily = ['polilinea', 'tuberia-agua', 'tuberia-desague', 'circuito', 'terreno', 'curvanivel']
+              const toolColor = s.drawTool === 'tuberia-agua' ? '#38bdf8'
+                : s.drawTool === 'tuberia-desague' ? '#b45309'
+                : s.drawTool === 'circuito' ? '#ef4444'
+                : s.drawTool === 'terreno' || s.drawTool === 'curvanivel' ? '#84cc16'
+                : '#f59e0b'
+              const dash = { stroke: toolColor, strokeWidth: 1.8, strokeDasharray: '6 4', fill: 'none' } as const
               if (s.drawTool === 'circulo') {
                 return <circle cx={base[0]} cy={base[1]} r={Math.max(4, Math.hypot(cur[0] - base[0], cur[1] - base[1]))} {...dash} />
               }
-              if (s.drawTool === 'polilinea') {
+              if (polyFamily.includes(s.drawTool)) {
                 return <polyline points={[...s.drawPts, cur].map((p) => p.join(',')).join(' ')} {...dash} />
               }
               if (s.drawTool === 'rectangulo') {
@@ -501,12 +550,35 @@ export default function PlanCanvas() {
               if (s.drawTool === 'cota') {
                 return <g>
                   <line x1={base[0]} y1={base[1]} x2={cur[0]} y2={cur[1]} {...dash} />
-                  <text x={(base[0] + cur[0]) / 2} y={Math.min(base[1], cur[1]) - 8} textAnchor="middle" fontSize="12" fill="#f59e0b">
+                  <text x={(base[0] + cur[0]) / 2} y={Math.min(base[1], cur[1]) - 8} textAnchor="middle" fontSize="12" fill={toolColor}>
                     {(Math.hypot(cur[0] - base[0], cur[1] - base[1]) / PX_PER_M).toFixed(2)} m
                   </text>
                 </g>
               }
               return <line x1={base[0]} y1={base[1]} x2={cur[0]} y2={cur[1]} {...dash} />
+            })()}
+
+            {/* fantasma del símbolo de instalación pendiente */}
+            {s.drawTool?.startsWith('simbolo:') && (() => {
+              const cur = snapPt(s.cursorSvg)
+              const col = '#38bdf8'
+              return (
+                <g pointerEvents="none" opacity="0.8">
+                  <circle cx={cur[0]} cy={cur[1]} r="7" fill="none" stroke={col} strokeWidth="1.6" />
+                  <circle cx={cur[0]} cy={cur[1]} r="14" fill="none" stroke={col} strokeWidth="1" strokeDasharray="4 3" />
+                </g>
+              )
+            })()}
+
+            {/* fantasma del pin de comentario */}
+            {s.drawTool === 'pin' && (() => {
+              const cur = snapPt(s.cursorSvg)
+              return (
+                <g pointerEvents="none" opacity="0.8">
+                  <circle cx={cur[0]} cy={cur[1] - 18} r="7.5" fill="rgba(251,113,133,0.5)" stroke="#fb7185" strokeWidth="1.4" />
+                  <line x1={cur[0]} y1={cur[1] - 11} x2={cur[0]} y2={cur[1]} stroke="#fb7185" strokeWidth="1.4" />
+                </g>
+              )
             })()}
 
             {/* fantasma del bloque pendiente de inserción (sigue al cursor; R rota) */}
@@ -596,6 +668,16 @@ export default function PlanCanvas() {
               onClick={() => s.finishPolyline()}
               className="ml-1 flex items-center gap-1 rounded-full bg-amber-500 px-2.5 py-0.5 text-[10px] font-black text-zinc-950 hover:brightness-110 active:scale-95 transition-all"
               title="Terminar polilínea (ENTER)"
+            >
+              <ToolIcon name="Check" size={11} />
+              Terminar
+            </button>
+          )}
+          {['tuberia-agua', 'tuberia-desague', 'circuito', 'terreno', 'curvanivel'].includes(s.drawTool || '') && (
+            <button
+              onClick={() => s.finishPolyline()}
+              className="ml-1 flex items-center gap-1 rounded-full bg-sky-500 px-2.5 py-0.5 text-[10px] font-black text-zinc-950 hover:brightness-110 active:scale-95 transition-all"
+              title="Terminar trazo (ENTER o doble clic)"
             >
               <ToolIcon name="Check" size={11} />
               Terminar

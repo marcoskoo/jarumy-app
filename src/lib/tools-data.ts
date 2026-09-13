@@ -9,6 +9,7 @@
 export type ElementType =
   | 'muro' | 'puerta' | 'ventana' | 'espacio' | 'mobiliario' | 'sanitario'
   | 'cota' | 'texto' | 'columna' | 'apertura' | 'dibujo' | 'lamina'
+  | 'escalera' | 'techo' | 'instalacion' | 'simbolo' | 'terreno' | 'pin'
 
 export type ActionKind = 'effect' | 'info' | 'global' | 'draw' | 'prompt'
 
@@ -77,11 +78,20 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         ],
       },
       {
-        id: 'exportar', label: 'Exportar', icon: 'FileDown', desc: 'Exporta a PDF a escala, DWG, PNG o IFC', source: 'AutoCAD / Revit',
+        id: 'exportar', label: 'Exportar', icon: 'FileDown', desc: 'Exporta a PDF a escala, DXF (AutoCAD), PNG o SVG', source: 'AutoCAD / Revit',
         options: [
           { label: 'Exportar PDF a escala', detail: '1:50 · 1:75 · 1:100 · cartela y papel A4/A3/A2', action: G('showPdfExport') },
-          { label: 'Exportar DWG', action: I('Exportación DWG 2024 configurada: capas conservadas, colores indexados, referencias externas enlazadas.') },
-          { label: 'Exportar IFC (BIM)', action: I('Modelo IFC 4.0 generado con 26 elementos: 22 muros, 4 losas, 158 m² de espacios.') },
+          { label: 'Exportar DXF (AutoCAD)', detail: 'Capas conservadas · unidades en metros', action: G('exportDxf') },
+          { label: 'Exportar PNG del plano', detail: 'Imagen rápida para WhatsApp/presentaciones', action: G('exportPng') },
+          { label: 'Exportar SVG vectorial', detail: 'Editable en Illustrator/Inkscape', action: G('exportSvg') },
+        ],
+      },
+      {
+        id: 'compartir', label: 'Compartir', icon: 'Share2', desc: 'Comparte el plano como archivo .jarumy.json o revierte a una versión guardada', source: 'Jarumy',
+        options: [
+          { label: 'Compartir plano (.json)', detail: 'Exporta el archivo para enviarlo a un colega', action: G('showShare') },
+          { label: 'Importar plano (.json)', detail: 'Restaura un plano compartido', action: G('showShare') },
+          { label: 'Historial de versiones', detail: 'Guardar y recuperar snapshots', action: G('showVersions') },
         ],
       },
       {
@@ -353,13 +363,13 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
     color: '#f59e0b',
     tools: [
       {
-        id: 'muro', label: 'Muro', icon: 'BrickWall', desc: 'Muros inteligentes AEC con espesor, altura y material (ACA / Revit / ArchiCAD)', source: 'AutoCAD Arch / Revit',
+        id: 'muro', label: 'Muro', icon: 'BrickWall', desc: 'Muros inteligentes multicapa con espesor real y material (ACA / Revit / ArchiCAD)', source: 'AutoCAD Arch / Revit',
         options: [
-          { label: 'Espesor 0.15 m', action: A('thickness', 15) },
-          { label: 'Espesor 0.20 m', action: A('thickness', 20) },
-          { label: 'Altura 2.70 m', action: I('Muro: altura 2.70 m, tipo "Tabique 15", material ladrillo king kong 18 huecos.') },
-          { label: 'Material: concreto', action: A('material', 'concreto') },
-          { label: 'Material: drywall', action: A('material', 'drywall') },
+          { label: 'Multicapa: Ladrillo 140', detail: 't = 0.14 m · aparejo a soga', action: A('wallType', 'l140') },
+          { label: 'Multicapa: Ladrillo 230', detail: 't = 0.23 m · portante', action: A('wallType', 'l230') },
+          { label: 'Multicapa: Concreto 175', detail: 't = 0.175 m · armado', action: A('wallType', 'c175') },
+          { label: 'Multicapa: Drywall 100', detail: 't = 0.10 m · metálico', action: A('wallType', 'dw100') },
+          { label: 'Uniones T/L limpias', detail: 'Extiende muros hasta el eje en esquinas', action: G('cleanJoins') },
         ],
       },
       {
@@ -380,12 +390,22 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         ],
       },
       {
-        id: 'escalera', label: 'Escalera', icon: 'ArrowUpNarrowWide', desc: 'Escaleras con contrahuella normativa (ACA / Revit)', source: 'AutoCAD Arch / Revit',
-        options: [{ label: 'Trazar escalera', action: I('ESCALERA: recta de 14 pasos, huella 0.28, contrahuella 0.17, ancho 0.90 — cumple normas.') }],
+        id: 'escalera', label: 'Escalera', icon: 'ArrowUpNarrowWide', desc: 'Escalera paramétrica por reglamento: contrahuella ≤ 17.5 cm (RNE)', source: 'AutoCAD Arch / Revit',
+        options: [{ label: 'Diseñar escalera…', detail: 'Altura a vencer → pasos y huella (Blondel)', action: G('showStairDialog') }],
       },
       {
-        id: 'losa', label: 'Losa / Techo', icon: 'Layers', desc: 'Losas aligeradas y techos (Revit / ArchiCAD)', source: 'Revit / ArchiCAD',
-        options: [{ label: 'Losa aligerada e=0.20', action: I('LOSA: aligerada 0.20 m, viguetas cada 0.40, concreto f\'c 210.') }],
+        id: 'losa', label: 'Losa / Techo', icon: 'Layers', desc: 'Techos paramétricos con pendiente y aguas + losa aligerada', source: 'Revit / ArchiCAD',
+        options: [
+          { label: 'Diseñar techo…', detail: 'A dos aguas / cuatro aguas / plano con %', action: G('showRoofDialog') },
+          { label: 'Losa aligerada e=0.20', action: I('LOSA: aligerada 0.20 m, viguetas cada 0.40, concreto f\'c 210.') },
+        ],
+      },
+      {
+        id: 'terreno', label: 'Terreno', icon: 'Mountain', desc: 'Lote con colindancias y curvas de nivel (plano de ubicación)', source: 'AutoCAD Civil / Revit Site',
+        options: [
+          { label: 'Trazar lote', detail: 'Polígono con área y perímetro automáticos', action: D('terreno') },
+          { label: 'Curva de nivel', detail: 'Polilínea con cota de elevación', action: D('curvanivel') },
+        ],
       },
       {
         id: 'columna', label: 'Columna', icon: 'Columns3', desc: 'Columnas estructurales (Revit / Vectorworks)', source: 'Revit',
@@ -469,6 +489,51 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
     ],
   },
   {
+    id: 'instalaciones',
+    label: 'Instalaciones',
+    icon: 'PlugZap',
+    color: '#38bdf8',
+    tools: [
+      {
+        id: 'agua', label: 'Agua', icon: 'Droplets', desc: 'Tubería de agua fría/caliente con trazo azul (ISP)', source: 'AutoCAD MEP / Revit MEP',
+        options: [
+          { label: 'Trazar tubería Ø1/2"', detail: 'Polilínea azul · ENTER para terminar', action: D('tuberia-agua') },
+          { label: 'Tubería Ø3/4"', detail: 'Alimentación principal', action: D('tuberia-agua') },
+        ],
+      },
+      {
+        id: 'desague', label: 'Desagüe', icon: 'Waves', desc: 'Colectores de desagüe con pendiente (ISP)', source: 'AutoCAD MEP / Revit MEP',
+        options: [
+          { label: 'Trazar colector Ø2"', detail: 'Polilínea marrón discontinua · ENTER para terminar', action: D('tuberia-desague') },
+          { label: 'Colector Ø4"', detail: 'Red pública', action: D('tuberia-desague') },
+        ],
+      },
+      {
+        id: 'electrico', label: 'Eléctrico', icon: 'Zap', desc: 'Circuitos eléctricos con trazo rojo (Código Nacional)', source: 'AutoCAD MEP / Revit MEP',
+        options: [
+          { label: 'Trazar circuito Ø2.5mm²', detail: 'Polilínea roja · ENTER para terminar', action: D('circuito') },
+          { label: 'Circuito 2×2.5mm²', detail: 'Línea de fuerza', action: D('circuito') },
+        ],
+      },
+      {
+        id: 'simbolos', label: 'Símbolos', icon: 'Lightbulb', desc: 'Símbolos normalizados de instalación (luz, tomacorrientes, tablero, puntos)', source: 'Norma ISP / IEC',
+        options: [
+          { label: 'Luminaria', detail: 'Símbolo de iluminación', action: D('simbolo:luz') },
+          { label: 'Tomacorriente', detail: 'Toma bipolar + tierra', action: D('simbolo:tomacorriente') },
+          { label: 'Interruptor', detail: 'De luz simple', action: D('simbolo:interruptor') },
+          { label: 'Tablero eléctrico', detail: 'Gabinete TB', action: D('simbolo:tablero') },
+          { label: 'Punto de agua', detail: 'Salida de agua fría', action: D('simbolo:punto-agua') },
+          { label: 'Punto de desagüe', detail: 'Sumidero/registro', action: D('simbolo:punto-desague') },
+          { label: 'Medidor de agua', detail: 'Medidor de la red pública', action: D('simbolo:medidor-agua') },
+        ],
+      },
+      {
+        id: 'isometrico', label: 'Isométrico', icon: 'Axis3d', desc: 'Vista isométrica de instalaciones (Revit MEP)', source: 'Revit MEP',
+        options: [{ label: 'Ver isométrico 3D', detail: 'Con tuberías en el modelo', action: G('showIso3D') }],
+      },
+    ],
+  },
+  {
     id: 'bim',
     label: 'BIM',
     icon: 'Boxes',
@@ -522,10 +587,17 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         ],
       },
       {
-        id: 'vista3d', label: 'Vista 3D', icon: 'Box', desc: 'Axonometría interactiva (SketchUp / Rhino)', source: 'SketchUp / Rhino',
+        id: 'vista3d', label: 'Vista 3D', icon: 'Box', desc: 'Axonometría interactiva con órbita (SketchUp / Rhino)', source: 'SketchUp / Rhino',
         options: [
+          { label: 'Vista 3D interactiva…', detail: 'Órbita con sliders · extrusión de muros y techos', action: G('showIso3D') },
           { label: 'Activar/Desactivar 3D', action: G('toggle3D') },
           { label: 'Isométrica 30°', action: G('toggle3D') },
+        ],
+      },
+      {
+        id: 'elevaciones', label: 'Elevaciones', icon: 'Landmark', desc: 'Cortes y elevaciones automáticos derivados del modelo (Revit / ArchiCAD)', source: 'Revit / ArchiCAD',
+        options: [
+          { label: 'Generar elevaciones…', detail: 'N/S/E/O + sección transversal con corte', action: G('showElevations') },
         ],
       },
       {
@@ -561,6 +633,18 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       {
         id: 'areas', label: 'Áreas y perímetros', icon: 'SquareSigma', desc: 'Cálculo de áreas normado', source: 'AutoCAD / Revit',
         options: [{ label: 'Reporte de áreas', action: G('showSchedule') }],
+      },
+      {
+        id: 'normativa', label: 'Normativa RNE', icon: 'Scale', desc: 'Verificación automática A.010 (accesibilidad/higiene) y A.130 (evacuación) con marcas en el plano', source: 'RNE Perú',
+        options: [
+          { label: 'Verificar normativa…', detail: 'A.010 + A.130 + A.040 · luces OK/fallo', action: G('showNormativa') },
+        ],
+      },
+      {
+        id: 'metrados', label: 'Metrados S10', icon: 'Calculator', desc: 'Presupuesto de obra por partidas con exportación Excel (S10)', source: 'S10 Perú',
+        options: [
+          { label: 'Metrados y presupuesto…', detail: 'Partidas · unidades · P.U. editable · .xls', action: G('showMetrados') },
+        ],
       },
       {
         id: 'iluminacion', label: 'Iluminación', icon: 'Lightbulb', desc: 'Niveles de lux por espacio (Dialux / Revit)', source: 'Dialux',
@@ -601,6 +685,12 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       {
         id: 'quickselect', label: 'Quick Select', icon: 'MousePointerClick', desc: 'Selección por filtros (AutoCAD: QSE)', source: 'AutoCAD',
         options: [{ label: 'Filtro: muros', action: I('QUICK SELECT: 22 muros seleccionados por tipo "Tabique". Filtro aplicado.') }],
+      },
+      {
+        id: 'comentarios', label: 'Pines de comentarios', icon: 'MessageSquare', desc: 'Revisión de planos con pines numerados (BIM 360 / Bluebeam)', source: 'BIM 360',
+        options: [
+          { label: 'Colocar pin de comentario', detail: 'Clic en el plano · texto + autor', action: D('pin') },
+        ],
       },
       {
         id: 'layer-states', label: 'Layer States', icon: 'Save', desc: 'Estados de capa guardados', source: 'AutoCAD',
@@ -1100,6 +1190,105 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
         { label: 'Imprimir', action: G('print') },
         { label: 'Exportar PDF a escala', detail: 'Vectorial · cartela · barra de escala', action: G('showPdfExport') },
       ],
+    },
+  ],
+
+  // ---------- nuevos elementos paramétricos / MEP / terreno ----------
+
+  escalera: [
+    {
+      id: 'editar', label: 'Editar', icon: 'Wrench',
+      options: [
+        { label: 'Rediseñar…', detail: 'Vuelve al diálogo paramétrico', action: G('showStairDialog') },
+        { label: 'Rotar 90°', action: A('rotate', 90) },
+        { label: 'Duplicar', action: A('duplicate') },
+      ],
+    },
+    {
+      id: 'capa', label: 'Capa', icon: 'Layers',
+      options: [
+        { label: 'Aislar capa', action: G('isolateLayer') },
+        { label: 'Ocultar capa', action: G('hideLayer') },
+      ],
+    },
+  ],
+  techo: [
+    {
+      id: 'editar', label: 'Editar', icon: 'Wrench',
+      options: [
+        { label: 'Rediseñar…', detail: 'Vuelve al diálogo paramétrico', action: G('showRoofDialog') },
+        { label: 'Rotar 90°', action: A('rotate', 90) },
+        { label: 'Duplicar', action: A('duplicate') },
+      ],
+    },
+    {
+      id: 'capa', label: 'Capa', icon: 'Layers',
+      options: [
+        { label: 'Aislar capa', action: G('isolateLayer') },
+        { label: 'Ocultar capa', action: G('hideLayer') },
+      ],
+    },
+  ],
+  instalacion: [
+    {
+      id: 'diametro', label: 'Diámetro', icon: 'CircleDot',
+      options: [
+        { label: 'Ø 1/2"', detail: '15 mm', action: A('scale', 1) },
+        { label: 'Ø 3/4"', detail: '20 mm', action: I('Tubería redimensionada a Ø3/4" — 20 mm.') },
+        { label: 'Ø 2"', detail: '50 mm desagüe', action: I('Colector redimensionado a Ø2" — 50 mm con pendiente 1.5%.') },
+      ],
+    },
+    {
+      id: 'capa', label: 'Capa', icon: 'Layers',
+      options: [
+        { label: 'Aislar capa', action: G('isolateLayer') },
+        { label: 'Ocultar capa', action: G('hideLayer') },
+      ],
+    },
+  ],
+  simbolo: [
+    {
+      id: 'editar', label: 'Editar', icon: 'Wrench',
+      options: [
+        { label: 'Rotar 90°', action: A('rotate', 90) },
+        { label: 'Duplicar', action: A('duplicate') },
+      ],
+    },
+    {
+      id: 'capa', label: 'Capa', icon: 'Layers',
+      options: [
+        { label: 'Aislar capa', action: G('isolateLayer') },
+        { label: 'Ocultar capa', action: G('hideLayer') },
+      ],
+    },
+  ],
+  terreno: [
+    {
+      id: 'datos', label: 'Datos', icon: 'Mountain',
+      options: [
+        { label: 'Renombrar', action: P('Nuevo nombre del lote', 'rename') },
+        { label: 'Elevación de curva', action: P('Cota de elevación (m)', 'rename') },
+      ],
+    },
+    {
+      id: 'capa', label: 'Capa', icon: 'Layers',
+      options: [
+        { label: 'Aislar capa', action: G('isolateLayer') },
+        { label: 'Ocultar capa', action: G('hideLayer') },
+      ],
+    },
+  ],
+  pin: [
+    {
+      id: 'estado', label: 'Estado', icon: 'Check',
+      options: [
+        { label: 'Marcar resuelto', detail: 'Pin en verde', action: A('resolvePin') },
+        { label: 'Reabrir', detail: 'Vuelve a pendiente', action: A('reopenPin') },
+      ],
+    },
+    {
+      id: 'texto', label: 'Texto', icon: 'Type',
+      options: [{ label: 'Editar comentario', action: P('Nuevo texto del comentario', 'rename') }],
     },
   ],
 }

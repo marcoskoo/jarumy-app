@@ -2,8 +2,11 @@
 
 import React from 'react'
 import type { PlanElement } from '@/lib/plan-data'
-import type { WallGeo, DoorGeo, WindowGeo, RoomGeo, FurnGeo, DimGeo, TextGeo, ColGeo, OpenGeo, DrawGeo } from '@/lib/plan-data'
-import { roomAreaM2 } from '@/lib/plan-data'
+import type {
+  WallGeo, DoorGeo, WindowGeo, RoomGeo, FurnGeo, DimGeo, TextGeo, ColGeo, OpenGeo, DrawGeo,
+  StairGeo, RoofGeo, InstGeo, SymGeo, TerrainGeo, PinGeo,
+} from '@/lib/plan-data'
+import { roomAreaM2, polygonAreaM2, polygonPerimeterM, WALL_TYPES } from '@/lib/plan-data'
 import type { Mod } from '@/lib/store'
 
 export interface ElHandlers {
@@ -32,6 +35,12 @@ function elementCenter(el: PlanElement): [number, number] {
     case 'cota': { const g = el.geo as DimGeo; return [(g.x1 + g.x2) / 2, (g.y1 + g.y2) / 2] }
     case 'texto': { const g = el.geo as TextGeo; return [g.x, g.y] }
     case 'apertura': { const g = el.geo as OpenGeo; return g.orient === 'h' ? [g.x + g.len / 2, g.y] : [g.x, g.y + g.len / 2] }
+    case 'escalera': { const g = el.geo as StairGeo; return [g.x + g.w / 2, g.y + g.h / 2] }
+    case 'techo': { const g = el.geo as RoofGeo; return [g.x + g.w / 2, g.y + g.h / 2] }
+    case 'instalacion': { const g = el.geo as InstGeo; const n = g.pts.length; return [g.pts.reduce((a, p) => a + p[0], 0) / n, g.pts.reduce((a, p) => a + p[1], 0) / n] }
+    case 'simbolo': { const g = el.geo as SymGeo; return [g.x, g.y] }
+    case 'terreno': { const g = el.geo as TerrainGeo; return [g.pts.reduce((a, p) => a + p[0], 0) / g.pts.length, g.pts.reduce((a, p) => a + p[1], 0) / g.pts.length] }
+    case 'pin': { const g = el.geo as PinGeo; return [g.x, g.y] }
     default: {
       const g = el.geo as FurnGeo & DrawGeo
       if (g.pts && g.pts.length) {
@@ -79,6 +88,12 @@ export function PlanElementNode({ el, mod, handlers, showArea }: { el: PlanEleme
     case 'texto': content = <TextNode el={el} mod={mod} />; break
     case 'mobiliario': content = <FurnNode el={el} mod={mod} />; break
     case 'sanitario': content = <FurnNode el={el} mod={mod} />; break
+    case 'escalera': content = <StairNode el={el} />; break
+    case 'techo': content = <RoofNode el={el} />; break
+    case 'instalacion': content = <InstNode el={el} mod={mod} />; break
+    case 'simbolo': content = <SymNode el={el} />; break
+    case 'terreno': content = <TerrainNode el={el} />; break
+    case 'pin': content = <PinNode el={el} />; break
     default: content = <DibujoNode el={el} mod={mod} />; break
   }
 
@@ -124,21 +139,56 @@ function Room({ el, mod, showArea = true }: { el: PlanElement; mod?: Mod; showAr
   )
 }
 
-// ---------------- MURO ----------------
+// ---------------- MURO (soporta multicapa con patrón de material) ----------------
 
 function Wall({ el, mod }: { el: PlanElement; mod?: Mod }) {
   const g = el.geo as WallGeo
   const t = mod?.thickness ?? g.t
-  const fill = mod?.material || '#3f3f46'
+  const wdef = mod?.wallType ? WALL_TYPES[mod.wallType] : undefined
+  const fill = wdef ? wdef.color : (mod?.material || '#3f3f46')
   const x = Math.min(g.x1, g.x2), y = Math.min(g.y1, g.y2)
   const w = g.x1 === g.x2 ? t : Math.abs(g.x2 - g.x1)
   const h = g.y1 === g.y2 ? t : Math.abs(g.y2 - g.y1)
   const vertical = g.x1 === g.x2
   const rx = Math.min(g.x1, g.x2) - (vertical ? t / 2 : 0)
   const ry = Math.min(g.y1, g.y2) - (vertical ? 0 : t / 2)
+
+  // muro multicapa: caras + hatch según material (ladrillo/concreto/drywall/sillería)
+  let hatch: React.ReactNode = null
+  if (wdef) {
+    const lines: React.ReactNode[] = []
+    if (wdef.hatch === 'ladrillo' || wdef.hatch === 'silleria') {
+      // diagonales a 45° cada 6 px dentro del rectángulo
+      const step = wdef.hatch === 'ladrillo' ? 6 : 9
+      const len = Math.max(w, h)
+      for (let d = -len; d < w + h; d += step) {
+        if (vertical) {
+          const y0 = Math.max(0, d), y1 = Math.min(h, d + t)
+          if (y1 > y0) lines.push(<line key={d} x1={rx} y1={ry + y0} x2={rx + t} y2={ry + y1}
+            stroke="rgba(228,228,231,0.35)" strokeWidth="0.5" />)
+        } else {
+          const x0 = Math.max(0, d), x1 = Math.min(w, d + t)
+          if (x1 > x0) lines.push(<line key={d} x1={rx + x0} y1={ry} x2={rx + x1} y2={ry + t}
+            stroke="rgba(228,228,231,0.35)" strokeWidth="0.5" />)
+        }
+      }
+    } else if (wdef.hatch === 'concreto') {
+      // retícula punteada (hormigón)
+      for (let ix = 2; ix < w; ix += 5) for (let iy = 2; iy < h; iy += 5) {
+        lines.push(<circle key={`${ix}-${iy}`} cx={rx + ix} cy={ry + iy} r="0.55" fill="rgba(228,228,231,0.45)" />)
+      }
+    } else if (wdef.hatch === 'drywall') {
+      // dos caras con alma vacía: solo líneas de caras (el fill es claro)
+      lines.push(<line key="f1" x1={rx + 1.2} y1={ry} x2={rx + 1.2} y2={ry + h} stroke="rgba(24,24,27,0.5)" strokeWidth="0.5" />)
+      lines.push(<line key="f2" x1={rx + t - 1.2} y1={ry} x2={rx + t - 1.2} y2={ry + h} stroke="rgba(24,24,27,0.5)" strokeWidth="0.5" />)
+    }
+    hatch = <g pointerEvents="none">{lines}</g>
+  }
+
   return (
     <g className="jy-wall-face">
       <rect x={rx} y={ry} width={w} height={h} fill={fill} stroke="rgba(0,0,0,0.5)" strokeWidth="0.6" />
+      {hatch}
       <rect className="jy-hover-ring" x={rx - 2} y={ry - 2} width={w + 4} height={h + 4}
         fill="none" stroke="var(--jy-primary)" strokeWidth="2.5" />
     </g>
@@ -969,8 +1019,11 @@ export function FurnShape({ g, material }: { g: FurnGeo; material?: string }) {
                   fill="none" stroke="rgba(250,204,21,0.9)" strokeWidth="1.2" strokeLinejoin="round" />
               </g>
             )
-          default:
+          default: {
+            // --- detalles constructivos (det-*): miniaturas de sección ---
+            if (g.kind.startsWith('det-')) return <DetailShape g={g} />
             return <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="3" {...S} />
+          }
         }
       })()}
     </g>
@@ -1077,4 +1130,437 @@ function DibujoNode({ el, mod }: { el: PlanElement; mod?: Mod }) {
     default:
       return <g>{ring}</g>
   }
+}
+
+// ---------------- ESCALERA PARAMÉTRICA ----------------
+
+function StairNode({ el }: { el: PlanElement }) {
+  const g = el.geo as StairGeo
+  const cx = g.x + g.w / 2
+  const cy = g.y + g.h / 2
+  const run = g.h / g.steps
+  // los pasos corren a lo largo de h (la rotación 90° la aplica el transform del elemento)
+  const steps: React.ReactNode[] = []
+  for (let i = 0; i <= g.steps; i++) {
+    const yy = g.y + run * i
+    steps.push(<line key={i} x1={g.x} y1={yy} x2={g.x + g.w} y2={yy} stroke="#a1a1aa" strokeWidth="1" />)
+  }
+  // línea de zanca + flecha de sentido (up/down vertical, left/right horizontal)
+  const horizontal = g.dir === 'left' || g.dir === 'right'
+  const label = `SUBE ${g.steps}P · H ${(g.tread * 100).toFixed(0)}`
+  return (
+    <g>
+      <rect x={g.x} y={g.y} width={g.w} height={g.h} fill="rgba(161,161,170,0.10)" stroke="#d4d4d8" strokeWidth="1.4" />
+      {steps}
+      {horizontal ? (
+        <g>
+          <line x1={g.x + 6} y1={cy} x2={g.x + g.w - 6} y2={cy} stroke="#f59e0b" strokeWidth="1.6" />
+          <circle cx={g.dir === 'right' ? g.x + g.w - 6 : g.x + 6} cy={cy} r="2.4" fill="#f59e0b" />
+          <text x={cx} y={cy - 6} textAnchor="middle" fontSize="9" fontWeight="700" fill="#f59e0b">{label}</text>
+        </g>
+      ) : (
+        <g>
+          <line x1={cx} y1={g.y + 6} x2={cx} y2={g.y + g.h - 6} stroke="#f59e0b" strokeWidth="1.6" />
+          <circle cx={cx} cy={g.dir === 'down' ? g.y + g.h - 6 : g.y + 6} r="2.4" fill="#f59e0b" />
+          <text x={cx + 8} y={cy} fontSize="9" fontWeight="700" fill="#f59e0b"
+            transform={`rotate(-90 ${cx + 8} ${cy})`}>{label}</text>
+        </g>
+      )}
+      <rect className="jy-hover-ring" x={g.x - 3} y={g.y - 3} width={g.w + 6} height={g.h + 6}
+        fill="none" stroke="var(--jy-primary)" strokeWidth="2" rx="3" />
+    </g>
+  )
+}
+
+// ---------------- TECHO PARAMÉTRICO ----------------
+
+function RoofNode({ el }: { el: PlanElement }) {
+  const g = el.geo as RoofGeo
+  const cx = g.x + g.w / 2
+  const cy = g.y + g.h / 2
+  const slopeLabel = `PEND. ${g.slope}%`
+  let inner: React.ReactNode = null
+  if (g.kind === 'dos-aguas') {
+    const ridge = g.ridge === 'h'
+      ? <line x1={g.x} y1={cy} x2={g.x + g.w} y2={cy} stroke="#e4e4e7" strokeWidth="1.6" strokeDasharray="10 4" />
+      : <line x1={cx} y1={g.y} x2={cx} y2={g.y + g.h} stroke="#e4e4e7" strokeWidth="1.6" strokeDasharray="10 4" />
+    // flechas de pendiente hacia la cumbrera
+    const arrows = g.ridge === 'h'
+      ? [
+        <g key="a1"><line x1={cx} y1={g.y + 8} x2={cx} y2={cy - 6} stroke="#84cc16" strokeWidth="1.3" /><path d={`M ${cx - 3.5} ${cy - 9} L ${cx} ${cy - 5} L ${cx + 3.5} ${cy - 9}`} fill="none" stroke="#84cc16" strokeWidth="1.3" /></g>,
+        <g key="a2"><line x1={cx} y1={g.y + g.h - 8} x2={cx} y2={cy + 6} stroke="#84cc16" strokeWidth="1.3" /><path d={`M ${cx - 3.5} ${cy + 9} L ${cx} ${cy + 5} L ${cx + 3.5} ${cy + 9}`} fill="none" stroke="#84cc16" strokeWidth="1.3" /></g>,
+      ]
+      : [
+        <g key="a1"><line x1={g.x + 8} y1={cy} x2={cx - 6} y2={cy} stroke="#84cc16" strokeWidth="1.3" /><path d={`M ${cx - 9} ${cy - 3.5} L ${cx - 5} ${cy} L ${cx - 9} ${cy + 3.5}`} fill="none" stroke="#84cc16" strokeWidth="1.3" /></g>,
+        <g key="a2"><line x1={g.x + g.w - 8} y1={cy} x2={cx + 6} y2={cy} stroke="#84cc16" strokeWidth="1.3" /><path d={`M ${cx + 9} ${cy - 3.5} L ${cx + 5} ${cy} L ${cx + 9} ${cy + 3.5}`} fill="none" stroke="#84cc16" strokeWidth="1.3" /></g>,
+      ]
+    inner = <g>{ridge}{arrows}</g>
+  } else if (g.kind === 'cuatro-aguas') {
+    inner = (
+      <g>
+        <line x1={g.x} y1={g.y} x2={cx} y2={cy} stroke="#e4e4e7" strokeWidth="1.1" strokeDasharray="7 4" />
+        <line x1={g.x + g.w} y1={g.y} x2={cx} y2={cy} stroke="#e4e4e7" strokeWidth="1.1" strokeDasharray="7 4" />
+        <line x1={g.x} y1={g.y + g.h} x2={cx} y2={cy} stroke="#e4e4e7" strokeWidth="1.1" strokeDasharray="7 4" />
+        <line x1={g.x + g.w} y1={g.y + g.h} x2={cx} y2={cy} stroke="#e4e4e7" strokeWidth="1.1" strokeDasharray="7 4" />
+        <circle cx={cx} cy={cy} r="3" fill="#84cc16" />
+      </g>
+    )
+  } else {
+    // plano: flecha única de pendiente
+    inner = (
+      <g>
+        <line x1={g.x + 10} y1={cy} x2={g.x + g.w - 10} y2={cy} stroke="#84cc16" strokeWidth="1.3" />
+        <path d={`M ${g.x + g.w - 14} ${cy - 3.5} L ${g.x + g.w - 9} ${cy} L ${g.x + g.w - 14} ${cy + 3.5}`} fill="none" stroke="#84cc16" strokeWidth="1.3" />
+      </g>
+    )
+  }
+  return (
+    <g>
+      <rect x={g.x} y={g.y} width={g.w} height={g.h} fill="rgba(132,204,22,0.05)" stroke="#84cc16" strokeWidth="1.4" strokeDasharray="6 3" />
+      {inner}
+      <text x={cx} y={g.y - 6} textAnchor="middle" fontSize="10" fontWeight="700" fill="#84cc16">{slopeLabel}</text>
+      <rect className="jy-hover-ring" x={g.x - 3} y={g.y - 3} width={g.w + 6} height={g.h + 6}
+        fill="none" stroke="var(--jy-primary)" strokeWidth="2" rx="3" />
+    </g>
+  )
+}
+
+// ---------------- INSTALACIÓN (tubería / circuito) ----------------
+
+const INST_STYLE: Record<string, { color: string; dash?: string; label: string }> = {
+  agua: { color: '#38bdf8', label: 'AGUA' },
+  desague: { color: '#b45309', dash: '8 4', label: 'DESAGÜE' },
+  electrico: { color: '#ef4444', dash: '3 3', label: 'ELÉCTRICO' },
+}
+
+function InstNode({ el, mod }: { el: PlanElement; mod?: Mod }) {
+  const g = el.geo as InstGeo
+  const st = INST_STYLE[g.kind] || INST_STYLE.agua
+  const color = mod?.colorLine || st.color
+  const tx = mod?.translate?.[0] ?? 0
+  const ty = mod?.translate?.[1] ?? 0
+  const pts = g.pts.map((p) => `${p[0] + tx},${p[1] + ty}`).join(' ')
+  const dmm = Math.round(g.diameter / 60 * 100) / 10
+  const [x0, y0] = [g.pts[0][0] + tx, g.pts[0][1] + ty]
+  const [xe, ye] = [g.pts[g.pts.length - 1][0] + tx, g.pts[g.pts.length - 1][1] + ty]
+  return (
+    <g>
+      <polyline points={pts} fill="none" stroke={color} strokeWidth={g.kind === 'desague' ? 3 : 2.2}
+        strokeDasharray={st.dash} strokeLinejoin="round" strokeLinecap="round" />
+      {/* codos */}
+      {g.pts.map((p, i) => (
+        <circle key={i} cx={p[0] + tx} cy={p[1] + ty} r="2.2" fill={color} />
+      ))}
+      {/* etiqueta de diámetro al inicio */}
+      <g>
+        <rect x={x0 - 22} y={y0 - 20} width="44" height="12" rx="2.5" fill="rgba(24,24,27,0.85)" />
+        <text x={x0} y={y0 - 11} textAnchor="middle" fontSize="7.5" fontWeight="700" fill={color}>
+          {st.label} Ø{dmm > 1 ? dmm.toFixed(0) : (g.diameter / 60 * 100).toFixed(0)}mm
+        </text>
+      </g>
+      {/* terminal */}
+      <circle cx={xe} cy={ye} r="3.4" fill="none" stroke={color} strokeWidth="1.6" />
+      <rect className="jy-hover-ring" x={Math.min(...g.pts.map((p) => p[0] + tx)) - 4} y={Math.min(...g.pts.map((p) => p[1] + ty)) - 4}
+        width={Math.max(...g.pts.map((p) => p[0] + tx)) - Math.min(...g.pts.map((p) => p[0] + tx)) + 8}
+        height={Math.max(...g.pts.map((p) => p[1] + ty)) - Math.min(...g.pts.map((p) => p[1] + ty)) + 8}
+        fill="none" stroke="var(--jy-primary)" strokeWidth="2" rx="4" />
+    </g>
+  )
+}
+
+// ---------------- SÍMBOLO DE INSTALACIÓN ----------------
+
+function SymNode({ el }: { el: PlanElement }) {
+  const g = el.geo as SymGeo
+  const { x, y } = g
+  const stroke = '#38bdf8'
+  let glyph: React.ReactNode = null
+  switch (g.kind) {
+    case 'luz':
+      glyph = (
+        <g>
+          <circle cx={x} cy={y} r="7" fill="none" stroke={stroke} strokeWidth="1.6" />
+          <line x1={x - 10} y1={y} x2={x - 7} y2={y} stroke={stroke} strokeWidth="1.6" />
+          <line x1={x + 7} y1={y} x2={x + 10} y2={y} stroke={stroke} strokeWidth="1.6" />
+          <line x1={x} y1={y - 10} x2={x} y2={y - 7} stroke={stroke} strokeWidth="1.6" />
+          <line x1={x} y1={y + 7} x2={x} y2={y + 10} stroke={stroke} strokeWidth="1.6" />
+        </g>
+      )
+      break
+    case 'tomacorriente':
+      glyph = (
+        <g>
+          <circle cx={x} cy={y} r="5.5" fill="none" stroke={stroke} strokeWidth="1.6" />
+          <line x1={x - 5} y1={y - 5} x2={x - 9} y2={y - 9} stroke={stroke} strokeWidth="1.6" />
+          <line x1={x - 9} y1={y - 9} x2={x - 9} y2={y - 4} stroke={stroke} strokeWidth="1.6" />
+          <line x1={x + 5} y1={y - 5} x2={x + 9} y2={y - 9} stroke={stroke} strokeWidth="1.6" />
+          <line x1={x + 9} y1={y - 9} x2={x + 9} y2={y - 4} stroke={stroke} strokeWidth="1.6" />
+        </g>
+      )
+      break
+    case 'interruptor':
+      glyph = (
+        <g>
+          <circle cx={x} cy={y} r="4.5" fill="none" stroke={stroke} strokeWidth="1.6" />
+          <line x1={x + 3} y1={y - 3} x2={x + 11} y2={y - 11} stroke={stroke} strokeWidth="1.6" strokeLinecap="round" />
+        </g>
+      )
+      break
+    case 'tablero':
+      glyph = (
+        <g>
+          <rect x={x - 9} y={y - 7} width="18" height="14" rx="1.5" fill="rgba(56,189,248,0.15)" stroke="#facc15" strokeWidth="1.6" />
+          <line x1={x - 9} y1={y} x2={x + 9} y2={y} stroke="#facc15" strokeWidth="1.1" />
+          <text x={x} y={y + 11.5} textAnchor="middle" fontSize="7" fontWeight="800" fill="#facc15">TB</text>
+        </g>
+      )
+      break
+    case 'punto-agua':
+      glyph = (
+        <g>
+          <circle cx={x} cy={y} r="6.5" fill="none" stroke="#38bdf8" strokeWidth="1.6" />
+          <path d={`M ${x - 4} ${y - 3.5} L ${x + 4} ${y + 3.5} M ${x + 4} ${y - 3.5} L ${x - 4} ${y + 3.5}`} stroke="#38bdf8" strokeWidth="1.3" />
+        </g>
+      )
+      break
+    case 'punto-desague':
+      glyph = (
+        <g>
+          <circle cx={x} cy={y} r="6.5" fill="none" stroke="#b45309" strokeWidth="1.6" />
+          <circle cx={x} cy={y} r="2.2" fill="#b45309" />
+        </g>
+      )
+      break
+    case 'medidor-agua':
+      glyph = (
+        <g>
+          <circle cx={x} cy={y} r="7.5" fill="none" stroke="#38bdf8" strokeWidth="1.6" />
+          <text x={x} y={y + 3} textAnchor="middle" fontSize="8" fontWeight="800" fill="#38bdf8">M</text>
+        </g>
+      )
+      break
+    default:
+      glyph = <circle cx={x} cy={y} r="5" fill="none" stroke={stroke} strokeWidth="1.5" />
+  }
+  return (
+    <g>
+      {glyph}
+      <circle className="jy-hover-ring" cx={x} cy={y} r="14" fill="none" stroke="var(--jy-primary)" strokeWidth="1.8" />
+    </g>
+  )
+}
+
+// ---------------- TERRENO (lote / curva de nivel) ----------------
+
+function TerrainNode({ el }: { el: PlanElement }) {
+  const g = el.geo as TerrainGeo
+  if (g.kind === 'curva') {
+    const pts = g.pts.map((p) => p.join(',')).join(' ')
+    const mid = g.pts[Math.floor(g.pts.length / 2)]
+    return (
+      <g>
+        <polyline points={pts} fill="none" stroke="#84cc16" strokeWidth="1.6" strokeDasharray="12 3" />
+        <text x={mid[0]} y={mid[1] - 7} textAnchor="middle" fontSize="10" fontWeight="700" fill="#84cc16">
+          {(g.elev ?? 0).toFixed(2)}
+        </text>
+        <rect className="jy-hover-ring" x={Math.min(...g.pts.map((p) => p[0])) - 4} y={Math.min(...g.pts.map((p) => p[1])) - 4}
+          width={Math.max(...g.pts.map((p) => p[0])) - Math.min(...g.pts.map((p) => p[0])) + 8}
+          height={Math.max(...g.pts.map((p) => p[1])) - Math.min(...g.pts.map((p) => p[1])) + 8}
+          fill="none" stroke="var(--jy-primary)" strokeWidth="2" rx="3" />
+      </g>
+    )
+  }
+  const pts = g.pts.map((p) => p.join(',')).join(' ')
+  const area = polygonAreaM2(g.pts)
+  const per = polygonPerimeterM(g.pts)
+  let sx = 0, sy = 0
+  g.pts.forEach((p) => { sx += p[0]; sy += p[1] })
+  const cx = sx / g.pts.length, cy = sy / g.pts.length
+  // lados con etiqueta de longitud + ticks de vértice
+  const sides: React.ReactNode[] = []
+  for (let i = 0; i < g.pts.length; i++) {
+    const a = g.pts[i], b = g.pts[(i + 1) % g.pts.length]
+    const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]) / 60
+    const ang = (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI
+    const rot = ang > 90 || ang < -90 ? ang + 180 : ang
+    sides.push(
+      <g key={i}>
+        <circle cx={a[0]} cy={a[1]} r="3" fill="#84cc16" />
+        <rect x={mx - 18} y={my - 14} width="36" height="11" rx="2" fill="rgba(24,24,27,0.9)" />
+        <text x={mx} y={my - 5.5} textAnchor="middle" fontSize="8" fontWeight="700" fill="#a3e635"
+          transform={`rotate(${rot} ${mx} ${my})`}>
+          {len.toFixed(2)} m
+        </text>
+      </g>,
+    )
+  }
+  return (
+    <g>
+      <polygon points={pts} fill="rgba(132,204,22,0.07)" stroke="#84cc16" strokeWidth="2" strokeDasharray="14 5" />
+      {sides}
+      <text x={cx} y={cy - 6} textAnchor="middle" fontSize="15" fontWeight="800" fill="#a3e635">
+        {g.name || 'LOTE'}
+      </text>
+      <text x={cx} y={cy + 12} textAnchor="middle" fontSize="10.5" fontWeight="600" fill="#84cc16">
+        {area.toLocaleString('es-PE', { maximumFractionDigits: 2 })} m² · {per.toFixed(2)} m
+      </text>
+    </g>
+  )
+}
+
+// ---------------- PIN DE COMENTARIO ----------------
+
+function PinNode({ el }: { el: PlanElement }) {
+  const g = el.geo as PinGeo
+  const idx = parseInt((el.name.match(/\d+/) || ['1'])[0], 10)
+  const color = g.resolved ? '#10b981' : '#fb7185'
+  return (
+    <g>
+      {/* marcador tipo chincheta */}
+      <path d={`M ${g.x} ${g.y} C ${g.x - 13} ${g.y - 16}, ${g.x - 8} ${g.y - 26}, ${g.x} ${g.y - 26} C ${g.x + 8} ${g.y - 26}, ${g.x + 13} ${g.y - 16}, ${g.x} ${g.y} Z`}
+        fill={color} stroke="rgba(24,24,27,0.5)" strokeWidth="0.8" />
+      <circle cx={g.x} cy={g.y - 18} r="7.5" fill="rgba(24,24,27,0.85)" />
+      <text x={g.x} y={g.y - 15} textAnchor="middle" fontSize="9" fontWeight="800" fill={color}>{idx}</text>
+      <circle cx={g.x} cy={g.y} r="2" fill={color} />
+      {/* burbuja de texto al hover (title nativo + texto bajo el pin) */}
+      <g>
+        <rect x={g.x + 8} y={g.y + 2} width={Math.min(190, 8 + g.text.length * 5.6)} height="14" rx="3" fill="rgba(24,24,27,0.88)" />
+        <text x={g.x + 13} y={g.y + 12} fontSize="8.5" fill={color} fontWeight="600">
+          {g.resolved ? '✓ ' : ''}{g.text.length > 34 ? `${g.text.slice(0, 33)}…` : g.text}
+        </text>
+      </g>
+      <circle className="jy-hover-ring" cx={g.x} cy={g.y - 18} r="12" fill="none" stroke="var(--jy-primary)" strokeWidth="1.8" />
+    </g>
+  )
+}
+
+// ---------------- DETALLES CONSTRUCTIVOS (miniaturas de sección) ----------------
+
+function DetailShape({ g }: { g: FurnGeo }) {
+  const stroke = 'rgba(212,212,216,0.9)'
+  const fill = 'rgba(161,161,170,0.16)'
+  const hatch = 'rgba(161,161,170,0.5)'
+  const { x, y, w, h } = g
+  const L: React.ReactNode[] = []
+  const line = (x1: number, y1: number, x2: number, y2: number, st = stroke, sw = 1.2, dash?: string) =>
+    L.push(<line key={L.length} x1={x1} y1={y1} x2={x2} y2={y2} stroke={st} strokeWidth={sw} strokeDasharray={dash} />)
+  const rect = (rx: number, ry: number, rw: number, rh: number, f = fill) =>
+    L.push(<rect key={L.length} x={rx} y={ry} width={rw} height={rh} fill={f} stroke={stroke} strokeWidth="1.1" />)
+  const txt = (tx: number, ty: number, t: string, size = 6.5) =>
+    L.push(<text key={L.length} x={tx} y={ty} fontSize={size} fill="var(--jy-muted)" fontWeight="700" textAnchor="middle">{t}</text>)
+  // hatch diagonal en un rect
+  const hat = (rx: number, ry: number, rw: number, rh: number) => {
+    for (let d = 0; d < rw + rh; d += 5) {
+      const x0 = Math.max(rx, rx + d - rh), x1 = Math.min(rx + rw, rx + d)
+      const y0 = Math.max(ry, ry + rw + rh - d - rh), y1 = Math.min(ry + rh, ry + rw + rh - d)
+      if (x1 > x0 && y1 > y0) line(x0, y1, x1, y0, hatch, 0.7)
+    }
+  }
+  const mid = x + w / 2
+  switch (g.kind) {
+    case 'det-cimiento': { // zapata corrida: T invertido + suelo
+      const wallW = w * 0.32
+      rect(mid - wallW / 2, y, wallW, h * 0.55); hat(mid - wallW / 2, y, wallW, h * 0.55)
+      rect(x + w * 0.08, y + h * 0.55, w * 0.84, h * 0.3)
+      line(x, y + h * 0.55, x + w, y + h * 0.55, stroke, 1.4)
+      line(x, y + h * 0.9, x + w, y + h * 0.9, stroke, 1, '6 3') // N.P.T.
+      txt(mid, y + h * 0.5, '0.40', 6)
+      txt(mid, y + h - 3, 'N.P.T.', 5.5)
+      break
+    }
+    case 'det-sobrecimiento': { // sobrecimiento con refuerzo
+      rect(x + w * 0.25, y, w * 0.5, h * 0.5)
+      rect(x + w * 0.12, y + h * 0.5, w * 0.76, h * 0.32)
+      line(mid - w * 0.06, y + h * 0.18, mid + w * 0.06, y + h * 0.18, '#f59e0b', 1.6) // varilla
+      circle: {
+        L.push(<circle key={L.length} cx={mid} cy={y + h * 0.18} r="2.2" fill="none" stroke="#f59e0b" strokeWidth="1" />)
+      }
+      line(x, y + h * 0.82, x + w, y + h * 0.82, stroke, 1, '6 3')
+      break
+    }
+    case 'det-muro-soga': { // elevación de aparejo a soga
+      rect(x, y, w, h, 'rgba(180,83,9,0.14)')
+      const bh = h / 6, bw = w / 4
+      for (let r = 0; r < 6; r++) for (let c = 0; c < 4; c++) {
+        const off = r % 2 === 0 ? 0 : bw / 2
+        L.push(<rect key={`b${r}-${c}`} x={x + c * bw + off} y={y + r * bh} width={bw} height={bh}
+          fill="none" stroke="rgba(180,83,9,0.65)" strokeWidth="0.9" />)
+      }
+      txt(mid, y - 3, 'APAREJO A SOGA', 6)
+      break
+    }
+    case 'det-muro-cabeza': {
+      rect(x, y, w, h, 'rgba(180,83,9,0.14)')
+      const bh = h / 4, bw = w / 6
+      for (let r = 0; r < 4; r++) for (let c = 0; c < 6; c++) {
+        L.push(<rect key={`c${r}-${c}`} x={x + c * bw} y={y + r * bh} width={bw} height={bh}
+          fill="none" stroke="rgba(180,83,9,0.65)" strokeWidth="0.9" />)
+      }
+      txt(mid, y - 3, 'APAREJO A CABEZA', 6)
+      break
+    }
+    case 'det-junta': { // junta de dilatación con relleno
+      rect(x, y + h * 0.2, w, h * 0.6, 'rgba(180,83,9,0.10)')
+      line(mid, y + h * 0.2, mid, y + h * 0.8, '#ef4444', 2)
+      line(mid - 5, y + h * 0.2, mid - 5, y + h * 0.8, hatch, 1, '3 2')
+      line(mid + 5, y + h * 0.2, mid + 5, y + h * 0.8, hatch, 1, '3 2')
+      txt(mid, y + 12, 'JUNTA', 6)
+      txt(mid, y + h - 4, 'SELLO ELÁSTICO', 5)
+      break
+    }
+    case 'det-derrame': { // derrame de ventana: marco + inclinación
+      rect(x + w * 0.15, y + h * 0.15, w * 0.7, h * 0.7, 'rgba(56,189,248,0.10)')
+      line(x + w * 0.15, y + h * 0.85, x + w * 0.85, y + h * 0.72, stroke, 2) // derrame inclinado
+      line(x + w * 0.05, y + h * 0.9, x + w * 0.95, y + h * 0.9, stroke, 1, '4 3')
+      txt(mid, y + h * 0.55, 'VIDRIO', 5.5)
+      txt(mid, y + h - 6, 'PEND. 8%', 5.5)
+      break
+    }
+    case 'det-losa': { // losa aligerada: viguetas + ladrillitos
+      rect(x, y, w, h * 0.4, 'rgba(82,82,91,0.2)') // losa superior
+      const nv = 5
+      for (let i = 0; i < nv; i++) {
+        const vx = x + (w / nv) * (i + 0.5)
+        rect(x + (w / nv) * i + 3, y + h * 0.4, w / nv - 6, h * 0.35, 'rgba(180,83,9,0.16)') // ladrillo techo
+        line(vx, y + h * 0.4, vx, y + h * 0.75, stroke, 1) // vigueta
+      }
+      rect(x, y + h * 0.75, w, h * 0.15, 'rgba(82,82,91,0.2)') // losa inferior
+      txt(mid, y + h * 0.3, 'e=0.20', 6)
+      break
+    }
+    case 'det-escalera': { // sección de escalera: peldaños
+      const n = 7
+      for (let i = 0; i < n; i++) {
+        const sx = x + (w / n) * i, sy = y + h - (h / n) * i
+        line(sx, sy, sx + w / n, sy, stroke, 1.6)
+        line(sx + w / n, sy, sx + w / n, sy - h / n, stroke, 1.6)
+      }
+      line(x, y + h, x + w, y + h, hatch, 1, '6 3')
+      txt(x + w * 0.2, y + 8, 'CH 0.17', 6)
+      txt(x + w * 0.72, y + 8, 'H 0.29', 6)
+      break
+    }
+    case 'det-tuboagua': { // detalle tubería de agua
+      L.push(<circle key="t1" cx={mid} cy={y + h / 2} r={Math.min(w, h) * 0.32} fill="rgba(56,189,248,0.12)" stroke="#38bdf8" strokeWidth="1.6" />)
+      L.push(<circle key="t2" cx={mid} cy={y + h / 2} r={Math.min(w, h) * 0.18} fill="none" stroke="#38bdf8" strokeWidth="1.2" />)
+      txt(mid, y + h - 4, 'Ø 1/2"', 6)
+      break
+    }
+    case 'det-tubodesague': {
+      L.push(<circle key="d1" cx={mid} cy={y + h / 2} r={Math.min(w, h) * 0.32} fill="rgba(180,83,9,0.14)" stroke="#b45309" strokeWidth="1.6" />)
+      line(mid - Math.min(w, h) * 0.14, y + h / 2 - Math.min(w, h) * 0.14, mid + Math.min(w, h) * 0.14, y + h / 2 + Math.min(w, h) * 0.14, '#b45309', 1.2)
+      line(mid + Math.min(w, h) * 0.14, y + h / 2 - Math.min(w, h) * 0.14, mid - Math.min(w, h) * 0.14, y + h / 2 + Math.min(w, h) * 0.14, '#b45309', 1.2)
+      txt(mid, y + h - 4, 'Ø 2" 1.5%', 6)
+      break
+    }
+    default:
+      rect(x, y, w, h)
+  }
+  return (
+    <g>
+      {L}
+      <rect x={x - 2} y={y - 2} width={w + 4} height={h + 4} fill="none" stroke="rgba(212,212,216,0.25)" strokeWidth="0.8" rx="3" />
+    </g>
+  )
 }

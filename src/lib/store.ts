@@ -1,13 +1,16 @@
 'use client'
 
 import { create } from 'zustand'
-import type { PlanElement, LayerDef } from '@/lib/plan-data'
+import type { PlanElement, LayerDef, StairGeo, RoofGeo } from '@/lib/plan-data'
 import {
-  BASE_ELEMENTS, LAYERS, BLOCK_LIBRARY,
+  BASE_ELEMENTS, LAYERS, BLOCK_LIBRARY, VIEW_W, VIEW_H, WALL_TYPES,
 } from '@/lib/plan-data'
 import type { ToolAction } from '@/lib/tools-data'
 import { MATERIAL_COLORS, ROOM_FILLS, LINE_COLORS } from '@/lib/tools-data'
 import { dayOfYear } from '@/lib/solar'
+import {
+  downloadPlanJson, parsePlanFile, listVersions, saveVersion, deleteVersion, type PlanSnapshotData,
+} from '@/lib/plan-files'
 
 // ---------------- tipos ----------------
 
@@ -31,6 +34,7 @@ export interface Mod {
   dimOverride?: string
   justify?: 'start' | 'middle' | 'end'
   translate?: [number, number]
+  wallType?: string
 }
 
 export interface HoverInfo {
@@ -92,7 +96,8 @@ interface JarumyState {
   autoDims: boolean
   insertRotation: number
   sun: SunSettings
-  dialog: 'schedule' | 'catalog' | 'energy' | 'clash' | 'blocks' | 'pdf' | null
+  dialog: 'schedule' | 'catalog' | 'energy' | 'clash' | 'blocks' | 'pdf'
+    | 'elevations' | 'iso3d' | 'normativa' | 'metrados' | 'versions' | 'escalera' | 'techo' | 'share' | null
   adminOpen: boolean
   fitTick: number
   // consola
@@ -122,6 +127,15 @@ interface JarumyState {
   runGlobal: (g: string, elId?: string | null) => void
   executeAction: (action: ToolAction, elId?: string | null) => void
   insertBlock: (kind: string, x: number, y: number) => void
+  insertStair: (geo: StairGeo) => void
+  insertRoof: (geo: RoofGeo) => void
+  insertPin: (x: number, y: number, text: string) => void
+  cleanJoins: () => void
+  exportShareFile: () => void
+  importShareFile: (json: unknown) => void
+  savePlanVersion: (name: string) => void
+  deletePlanVersion: (id: string) => void
+  restorePlanVersion: (data: PlanSnapshotData) => void
   setLayerVisible: (id: string, v: boolean) => void
   isolateLayer: (id: string) => void
   runCommand: (raw: string) => void
@@ -193,16 +207,54 @@ export const useJarumy = create<JarumyState>((set, get) => ({
   addDrawPoint: (p) => set((s) => ({ drawPts: [...s.drawPts, p] })),
   finishPolyline: () => {
     const s = get()
-    if (s.drawTool === 'polilinea' && s.drawPts.length >= 2) {
+    const t = s.drawTool
+    // familia de polilíneas: polilínea libre, tuberías/circuito MEP y terreno
+    const polyFamily = ['polilinea', 'tuberia-agua', 'tuberia-desague', 'circuito', 'terreno', 'curvanivel']
+    if (polyFamily.includes(t || '') && s.drawPts.length >= 2) {
+      const tool = t as string
+      const pts = [...s.drawPts]
       set((st) => ({ undoStack: [...st.undoStack.slice(-29), snapshot(st)] }))
-      set((st) => ({
-        elements: [...st.elements, {
-          id: uid(), type: 'dibujo', layer: 'dibujo', name: 'Polilínea',
-          geo: { kind: 'polilinea', pts: st.drawPts },
-        }],
-        drawPts: [],
-      }))
-      get().pushConsole({ text: 'Polilínea creada', kind: 'out' })
+      if (tool === 'polilinea') {
+        set((st) => ({
+          elements: [...st.elements, {
+            id: uid(), type: 'dibujo', layer: 'dibujo', name: 'Polilínea',
+            geo: { kind: 'polilinea', pts },
+          }],
+          drawPts: [],
+        }))
+        get().pushConsole({ text: 'Polilínea creada', kind: 'out' })
+      } else if (tool === 'terreno') {
+        set((st) => ({
+          elements: [...st.elements, {
+            id: uid(), type: 'terreno', layer: 'terreno', name: 'Lote',
+            geo: { kind: 'lote', pts },
+          }],
+          drawPts: [],
+        }))
+        get().pushConsole({ text: 'TERRENO: lote trazado — área y perímetro calculados (capa Terreno)', kind: 'out' })
+      } else if (tool === 'curvanivel') {
+        const elev = typeof window !== 'undefined' ? window.prompt('Cota de elevación de la curva (m):', '100.00') : null
+        if (elev === null) { set({ drawPts: [] }); return }
+        set((st) => ({
+          elements: [...st.elements, {
+            id: uid(), type: 'terreno', layer: 'terreno', name: `Curva nivel ${elev}`,
+            geo: { kind: 'curva', pts, elev: Number(elev) || 0 },
+          }],
+          drawPts: [],
+        }))
+        get().pushConsole({ text: `CURVA DE NIVEL trazada — cota ${elev} m`, kind: 'out' })
+      } else {
+        const kind = tool === 'tuberia-agua' ? 'agua' : tool === 'tuberia-desague' ? 'desague' : 'electrico'
+        set((st) => ({
+          elements: [...st.elements, {
+            id: uid(), type: 'instalacion', layer: 'instalaciones',
+            name: kind === 'agua' ? 'Tubería de agua' : kind === 'desague' ? 'Colector de desagüe' : 'Circuito eléctrico',
+            geo: { kind, pts, diameter: kind === 'electrico' ? 6 : 10 },
+          }],
+          drawPts: [],
+        }))
+        get().pushConsole({ text: `${kind === 'agua' ? 'TUBERÍA DE AGUA' : kind === 'desague' ? 'COLECTOR DE DESAGÜE' : 'CIRCUITO ELÉCTRICO'} trazado (capa Instalaciones)`, kind: 'out' })
+      }
     } else {
       set({ drawPts: [] })
     }
@@ -301,6 +353,26 @@ export const useJarumy = create<JarumyState>((set, get) => ({
         pushHistory()
         m.colorLine = LINE_COLORS[String(value)] || '#f59e0b'
         break
+      case 'wallType': {
+        pushHistory()
+        const def = WALL_TYPES[String(value)]
+        if (def) { m.wallType = def.id; m.thickness = def.t }
+        break
+      }
+      case 'resolvePin': {
+        pushHistory()
+        set((st) => ({
+          elements: st.elements.map((e) => e.id === elId ? { ...e, geo: { ...e.geo, resolved: true } as typeof e.geo } : e),
+        }))
+        break
+      }
+      case 'reopenPin': {
+        pushHistory()
+        set((st) => ({
+          elements: st.elements.map((e) => e.id === elId ? { ...e, geo: { ...e.geo, resolved: false } as typeof e.geo } : e),
+        }))
+        break
+      }
       case 'weight':
         pushHistory()
         m.weight = Number(value)
@@ -450,6 +522,60 @@ export const useJarumy = create<JarumyState>((set, get) => ({
       case 'showPdfExport':
         set({ dialog: 'pdf' })
         break
+      case 'showElevations':
+        set({ dialog: 'elevations' })
+        break
+      case 'showIso3D':
+        set({ dialog: 'iso3d' })
+        break
+      case 'showNormativa':
+        set({ dialog: 'normativa' })
+        break
+      case 'showMetrados':
+        set({ dialog: 'metrados' })
+        break
+      case 'showVersions':
+        set({ dialog: 'versions' })
+        break
+      case 'showShare':
+        set({ dialog: 'share' })
+        break
+      case 'showStairDialog':
+        set({ dialog: 'escalera' })
+        break
+      case 'showRoofDialog':
+        set({ dialog: 'techo' })
+        break
+      case 'exportDxf': {
+        const nDxf = s.elements.filter((e) => !s.mods[e.id]?.deleted).length
+        set({ dialog: null })
+        import('@/lib/dxf-export').then(({ exportPlanDxf }) => {
+          const r = exportPlanDxf(s.elements, s.mods, s.layers)
+          s.pushConsole({ text: `DXF EXPORTADO: ${r.filename} · ${r.bytes.toLocaleString('es-PE')} bytes · ${nDxf} objetos · capas conservadas · unidades en metros`, kind: 'out' })
+        })
+        break
+      }
+      case 'exportPng':
+      case 'exportSvg': {
+        import('@/lib/raster-export').then(async (mod) => {
+          const svgEl = mod.getRegisteredSvg()
+          if (!svgEl) {
+            s.pushConsole({ text: 'EXPORTAR: no se encontró el lienzo — abra el plano e intente de nuevo', kind: 'err' })
+            return
+          }
+          const r = g === 'exportPng'
+            ? await mod.exportPlanPng(svgEl)
+            : await mod.exportPlanSvg(svgEl)
+          if (r) s.pushConsole({ text: `${g === 'exportPng' ? 'PNG' : 'SVG'} EXPORTADO: ${r.filename} · ${(r.bytes / 1024).toFixed(1)} KB`, kind: 'out' })
+        })
+        break
+      }
+      case 'exportPlanJson':
+        s.exportShareFile()
+        break
+      case 'cleanJoins':
+        s.cleanJoins()
+        break
       case 'energyReport':
         set({ dialog: 'energy' })
         break
@@ -582,6 +708,124 @@ export const useJarumy = create<JarumyState>((set, get) => ({
     s.pushConsole({ text: `Bloque insertado: ${block.label}${s.insertRotation % 360 !== 0 ? ` (rotado ${s.insertRotation}°)` : ''}`, kind: 'out' })
   },
 
+  insertStair: (geo) => {
+    set((st) => ({ undoStack: [...st.undoStack.slice(-29), snapshot(st)], redoStack: [] }))
+    set((st) => ({
+      elements: [...st.elements, {
+        id: uid(), type: 'escalera', layer: 'muros',
+        name: `Escalera ${geo.steps} pasos`,
+        geo: { ...geo, x: VIEW_W / 2 - geo.w / 2, y: VIEW_H / 2 - geo.h / 2 },
+      }],
+      dialog: null,
+    }))
+    get().pushConsole({ text: `ESCALERA creada: ${geo.steps} pasos · huella ${(geo.tread * 100).toFixed(0)} cm · contrahuella ${(geo.riser * 100).toFixed(1)} cm — use MOVER para recolocar`, kind: 'out' })
+  },
+
+  insertRoof: (geo) => {
+    set((st) => ({ undoStack: [...st.undoStack.slice(-29), snapshot(st)], redoStack: [] }))
+    set((st) => ({
+      elements: [...st.elements, {
+        id: uid(), type: 'techo', layer: 'muros',
+        name: geo.kind === 'dos-aguas' ? 'Techo a dos aguas' : geo.kind === 'cuatro-aguas' ? 'Techo a cuatro aguas' : 'Techo plano',
+        geo: { ...geo, x: VIEW_W / 2 - geo.w / 2, y: VIEW_H / 2 - geo.h / 2 },
+      }],
+      dialog: null,
+    }))
+    get().pushConsole({ text: `TECHO creado: ${geo.kind} · pendiente ${geo.slope}% — use MOVER para recolocar`, kind: 'out' })
+  },
+
+  insertPin: (x, y, text) => {
+    set((st) => ({ undoStack: [...st.undoStack.slice(-29), snapshot(st)], redoStack: [] }))
+    const n = get().elements.filter((e) => e.type === 'pin').length + 1
+    set((st) => ({
+      elements: [...st.elements, {
+        id: uid(), type: 'pin', layer: 'comentarios',
+        name: `Comentario ${n}`,
+        geo: { x, y, text, author: 'J. Burga' },
+      }],
+    }))
+    get().pushConsole({ text: `PIN #${n} de comentario colocado (capa Comentarios)`, kind: 'out' })
+  },
+
+  cleanJoins: () => {
+    const s = get()
+    set((st) => ({ undoStack: [...st.undoStack.slice(-29), snapshot(st)], redoStack: [] }))
+    // extiende cada extremo de muro hasta el eje del muro que toca
+    // (unión en T/L: el hueco entre cara y eje queda cerrado)
+    const walls = s.elements.filter((e) => e.type === 'muro' && !s.mods[e.id]?.deleted)
+    let fixes = 0
+    const elements = s.elements.map((el) => {
+      if (el.type !== 'muro' || s.mods[el.id]?.deleted) return el
+      const g = { ...(el.geo as { x1: number; y1: number; x2: number; y2: number; t: number }) }
+      for (const w of walls) {
+        if (w.id === el.id) continue
+        const wg = w.geo as typeof g
+        const wx0 = Math.min(wg.x1, wg.x2), wx1 = Math.max(wg.x1, wg.x2)
+        const wy0 = Math.min(wg.y1, wg.y2), wy1 = Math.max(wg.y1, wg.y2)
+        const tol = 6
+        // extremo A dentro del cuerpo del otro muro (con margen)?
+        const inA = g.x1 >= wx0 - tol && g.x1 <= wx1 + tol && g.y1 >= wy0 - tol && g.y1 <= wy1 + tol
+        // y el otro muro es aproximadamente perpendicular o cruza el eje
+        if (inA) {
+          const cx = (wx0 + wx1) / 2, cy = (wy0 + wy1) / 2
+          const d = Math.hypot(g.x1 - cx, g.y1 - cy)
+          const d2 = Math.hypot(g.x2 - cx, g.y2 - cy)
+          if (d < d2 && d > 1) { g.x1 = cx; g.y1 = cy; fixes++ }
+        }
+        const inB = g.x2 >= wx0 - tol && g.x2 <= wx1 + tol && g.y2 >= wy0 - tol && g.y2 <= wy1 + tol
+        if (inB) {
+          const cx = (wx0 + wx1) / 2, cy = (wy0 + wy1) / 2
+          const d = Math.hypot(g.x2 - cx, g.y2 - cy)
+          const d2 = Math.hypot(g.x1 - cx, g.y1 - cy)
+          if (d < d2 && d > 1) { g.x2 = cx; g.y2 = cy; fixes++ }
+        }
+      }
+      return { ...el, geo: g }
+    })
+    set({ elements })
+    get().pushConsole({ text: `UNIONES T/L: ${fixes} extremos de muro extendidos hasta el eje de intersección`, kind: 'out' })
+  },
+
+  exportShareFile: () => {
+    const s = get()
+    downloadPlanJson({ elements: s.elements, mods: s.mods, layers: s.layers, gridSpacing: s.gridSpacing })
+    get().pushConsole({ text: 'PLANO COMPARTIDO: archivo .jarumy.json descargado — envíelo a su colega (Importar plano para restaurarlo)', kind: 'out' })
+  },
+
+  importShareFile: (json) => {
+    const parsed = parsePlanFile(json)
+    if (!parsed) {
+      get().pushConsole({ text: 'IMPORTAR: archivo no válido (se esperaba un plano .jarumy.json exportado por esta app)', kind: 'err' })
+      return
+    }
+    set((st) => ({ undoStack: [...st.undoStack.slice(-29), snapshot(st)], redoStack: [] }))
+    set({
+      elements: parsed.elements,
+      mods: parsed.mods,
+      layers: parsed.layers,
+      gridSpacing: parsed.gridSpacing,
+      dialog: null,
+    })
+    get().pushConsole({ text: `PLANO IMPORTADO: ${parsed.elements.length} elementos restaurados (${new Date(parsed.savedAt).toLocaleString('es-PE')})`, kind: 'out' })
+  },
+
+  savePlanVersion: (name) => {
+    const s = get()
+    const v = saveVersion({ elements: s.elements, mods: s.mods, layers: s.layers, gridSpacing: s.gridSpacing }, name)
+    get().pushConsole({ text: `VERSIÓN GUARDADA: "${v.name}" · ${v.data.elements.length} elementos · ${listVersions().length} versiones en el historial`, kind: 'out' })
+  },
+
+  deletePlanVersion: (id) => {
+    deleteVersion(id)
+    get().pushConsole({ text: 'Versión eliminada del historial', kind: 'out' })
+  },
+
+  restorePlanVersion: (data) => {
+    set((st) => ({ undoStack: [...st.undoStack.slice(-29), snapshot(st)], redoStack: [] }))
+    set({ elements: data.elements, mods: data.mods, layers: data.layers, gridSpacing: data.gridSpacing })
+    get().pushConsole({ text: `VERSIÓN RESTAURADA: ${data.elements.length} elementos · ${new Date(data.savedAt).toLocaleString('es-PE')}`, kind: 'out' })
+  },
+
   setLayerVisible: (id, v) => set((s) => ({
     layers: s.layers.map((l) => (l.id === id ? { ...l, visible: v } : l)),
   })),
@@ -607,7 +851,7 @@ export const useJarumy = create<JarumyState>((set, get) => ({
       'CO': () => s.armDraw('copiar'), 'COPIA': () => s.armDraw('copiar'),
       'REJILLA': () => s.runGlobal('toggleGrid'), 'GRID': () => s.runGlobal('toggleGrid'),
       'SNAP': () => s.runGlobal('toggleSnap'), 'ORTO': () => s.runGlobal('toggleOrtho'),
-      'RENDER': () => s.runGlobal('toggleRender'), '3D': () => s.runGlobal('toggle3D'),
+      'RENDER': () => s.runGlobal('toggleRender'),
       'AJUSTAR': () => s.runGlobal('fit'), 'Z': () => s.runGlobal('fit'),
       'PURGA': () => s.runGlobal('purge'), 'PURGE': () => s.runGlobal('purge'),
       'AUDIT': () => s.runGlobal('auditCmd'), 'AUDITA': () => s.runGlobal('auditCmd'),
@@ -621,6 +865,19 @@ export const useJarumy = create<JarumyState>((set, get) => ({
       'ACOTAR': () => s.runGlobal('toggleAutoDims'), 'AUTOCOTA': () => s.runGlobal('toggleAutoDims'),
       'ACOTACION': () => s.runGlobal('toggleAutoDims'), 'COTASAUTO': () => s.runGlobal('toggleAutoDims'),
       'PDF': () => s.runGlobal('showPdfExport'), 'EXPORTAR': () => s.runGlobal('showPdfExport'), 'EXPPDF': () => s.runGlobal('showPdfExport'),
+      'DXF': () => s.runGlobal('exportDxf'), 'DWG': () => s.runGlobal('exportDxf'),
+      'PNG': () => s.runGlobal('exportPng'), 'SVG': () => s.runGlobal('exportSvg'),
+      'ELEVACION': () => s.runGlobal('showElevations'), 'ELEVACIONES': () => s.runGlobal('showElevations'), 'SECCION': () => s.runGlobal('showElevations'),
+      '3D': () => s.runGlobal('showIso3D'), 'ISOMETRICO': () => s.runGlobal('showIso3D'), 'VISTA3D': () => s.runGlobal('showIso3D'),
+      'NORMA': () => s.runGlobal('showNormativa'), 'NORMATIVA': () => s.runGlobal('showNormativa'), 'RNE': () => s.runGlobal('showNormativa'),
+      'METRADO': () => s.runGlobal('showMetrados'), 'METRADOS': () => s.runGlobal('showMetrados'), 'S10': () => s.runGlobal('showMetrados'), 'PRESUPUESTO': () => s.runGlobal('showMetrados'),
+      'COMPARTIR': () => s.runGlobal('showShare'), 'HISTORIAL': () => s.runGlobal('showVersions'), 'VERSIONES': () => s.runGlobal('showVersions'),
+      'ESCALERA': () => s.runGlobal('showStairDialog'), 'TECHO': () => s.runGlobal('showRoofDialog'),
+      'AGUA': () => s.armDraw('tuberia-agua'), 'TUBERIA': () => s.armDraw('tuberia-agua'),
+      'DESAGUE': () => s.armDraw('tuberia-desague'), 'CIRCUITO': () => s.armDraw('circuito'), 'ELECTRICO': () => s.armDraw('circuito'),
+      'LOTE': () => s.armDraw('terreno'), 'TERRENO': () => s.armDraw('terreno'), 'CURVA': () => s.armDraw('curvanivel'),
+      'PIN': () => s.armDraw('pin'), 'COMENTARIO': () => s.armDraw('pin'),
+      'UNIONES': () => s.runGlobal('cleanJoins'), 'EMPALMAR': () => s.runGlobal('cleanJoins'),
       'U': () => s.runGlobal('undo'), 'DESHACER': () => s.runGlobal('undo'),
       'REHACER': () => s.runGlobal('redo'),
       'NUEVO': () => s.runGlobal('newPlan'),
@@ -635,8 +892,10 @@ export const useJarumy = create<JarumyState>((set, get) => ({
         'M/MOVER · CO/COPIA · E/BORRAR · U/DESHACER · REHACER · NUEVO',
         'REJILLA · SNAP · ORTO · RENDER · 3D · AJUSTAR · RECORRIDO',
         'PURGA · AUDIT · CUADRO · COLISIONES · ENERGIA · CATALOGO · ADMIN · AYUDA',
-        'NUEVO: BLOQUES (biblioteca visual) · SOL/HELIODON (sombras) · AREAS (rotulado m²)',
-        'NUEVO: ACOTAR (acotación automática por ambiente) · PDF (exportación a escala)',
+        'INSTALACIONES: AGUA · DESAGUE · CIRCUITO · ELECTRICO (ENTER termina el trazo)',
+        'PARAMÉTRICOS: ESCALERA · TECHO · LOTE · CURVA · UNIONES (T/L limpias)',
+        'ANÁLISIS: NORMATIVA (RNE A.010/A.130) · METRADOS/S10/PRESUPUESTO · ELEVACIONES',
+        'EXPORTAR: PDF · DXF/DWG · PNG · SVG · COMPARTIR (.json) · HISTORIAL/VERSIONES',
       ]
       ayuda.forEach((l) => s.pushConsole({ text: l, kind: 'out' }))
       return

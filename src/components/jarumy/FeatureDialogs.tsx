@@ -1,0 +1,735 @@
+'use client'
+
+// ============================================================
+// JARUMY APP — Diálogos de los módulos paramétricos y análisis:
+// escalera (Blondel/RNE), techo, normativa RNE, metrados S10.
+// ============================================================
+
+import { useMemo, useState } from 'react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { useJarumy } from '@/lib/store'
+import { PX_PER_M, type StairGeo, type RoofGeo } from '@/lib/plan-data'
+import { checkNormativa } from '@/lib/normativa'
+import { computeMetrados, downloadS10Workbook } from '@/lib/metrados'
+import { buildElevation, ELEV_LABELS, type ElevDir } from '@/lib/elevation'
+import { getRegisteredSvg, exportPlanSvg } from '@/lib/raster-export'
+import { buildIsoScene } from '@/lib/iso3d'
+import { listVersions } from '@/lib/plan-files'
+import { ToolIcon } from './ToolIcon'
+
+// ---------------- ESCALERA PARAMÉTRICA ----------------
+
+export function StairDialog() {
+  const s = useJarumy()
+  const open = s.dialog === 'escalera'
+  const [alt, setAlt] = useState(2.5)
+  const [ancho, setAncho] = useState(1.0)
+  const [dir, setDir] = useState<StairGeo['dir']>('up')
+
+  const design = useMemo(() => {
+    // regla de Blondel: 2c + p ≈ 0.61–0.65 m (RNE: contrahuella ≤ 0.175)
+    const steps = Math.max(2, Math.ceil(alt / 0.175))
+    const riser = alt / steps
+    const tread = Math.max(0.22, Math.min(0.32, 0.63 - 2 * riser))
+    const len = tread * steps
+    const blondel = 2 * riser + tread
+    const ok = riser <= 0.1751 && blondel >= 0.59 && blondel <= 0.66
+    return { steps, riser, tread, len, blondel, ok }
+  }, [alt])
+
+  if (!open) return null
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && s.setDialog(null)}>
+      <DialogContent className="jy-bg2 jy-text border jy-border max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <ToolIcon name="ArrowUpNarrowWide" className="text-amber-400" size={18} />
+            Escalera paramétrica — reglamento RNE
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="grid grid-cols-2 gap-3 text-[12px]">
+          <label className="space-y-1">
+            <span className="jy-muted font-semibold">Altura a vencer (m)</span>
+            <input type="number" step="0.05" min="0.5" max="6" value={alt}
+              onChange={(e) => setAlt(Math.max(0.5, Math.min(6, Number(e.target.value) || 2.5)))}
+              className="w-full rounded-lg border jy-border bg-black/25 px-2.5 py-1.5 jy-text font-mono" />
+          </label>
+          <label className="space-y-1">
+            <span className="jy-muted font-semibold">Ancho (m)</span>
+            <input type="number" step="0.05" min="0.8" max="2.5" value={ancho}
+              onChange={(e) => setAncho(Math.max(0.8, Math.min(2.5, Number(e.target.value) || 1)))}
+              className="w-full rounded-lg border jy-border bg-black/25 px-2.5 py-1.5 jy-text font-mono" />
+          </label>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          {(['up', 'down', 'left', 'right'] as const).map((d) => (
+            <button key={d} onClick={() => setDir(d)}
+              className={`rounded-lg px-3 py-1.5 text-[11px] font-bold transition-all ${
+                dir === d ? 'bg-amber-500 text-zinc-950' : 'border jy-border jy-text hover:border-amber-500/50'}`}>
+              {d === 'up' ? 'Sube ↑' : d === 'down' ? 'Baja ↓' : d === 'left' ? 'Izq ←' : 'Der →'}
+            </button>
+          ))}
+        </div>
+
+        {/* resultados calculados */}
+        <div className="rounded-xl border jy-border bg-black/20 p-3 text-[12px] space-y-1">
+          <div className="flex justify-between"><span className="jy-muted">Pasos</span><span className="font-mono font-bold text-amber-300">{design.steps}</span></div>
+          <div className="flex justify-between"><span className="jy-muted">Contrahuella</span><span className="font-mono font-bold text-amber-300">{(design.riser * 100).toFixed(1)} cm {design.riser <= 0.1751 ? '✓ ≤ 17.5' : '✗ > 17.5'}</span></div>
+          <div className="flex justify-between"><span className="jy-muted">Huella</span><span className="font-mono font-bold text-amber-300">{(design.tread * 100).toFixed(1)} cm</span></div>
+          <div className="flex justify-between"><span className="jy-muted">2c + p (Blondel)</span><span className="font-mono font-bold text-amber-300">{design.blondel.toFixed(3)} m</span></div>
+          <div className="flex justify-between"><span className="jy-muted">Longitud del tramo</span><span className="font-mono font-bold text-amber-300">{design.len.toFixed(2)} m</span></div>
+          <div className={`rounded-lg px-2 py-1 text-[10.5px] font-bold ${design.ok ? 'bg-emerald-500/15 text-emerald-300' : 'bg-red-500/15 text-red-300'}`}>
+            {design.ok
+              ? 'CUMPLE RNE A.010: contrahuella ≤ 17.5 cm · Blondel 0.61–0.65 m'
+              : 'REVISAR: fuera del rango normativo (ajuste la altura o divida en tramos con descanso)'}
+          </div>
+        </div>
+
+        {/* miniatura de planta */}
+        <svg viewBox="0 0 90 130" className="w-[90px] h-[130px] mx-auto rounded-lg border jy-border bg-black/25">
+          {Array.from({ length: design.steps + 1 }).map((_, i) => (
+            <line key={i} x1="8" y1={8 + (114 / design.steps) * i} x2="82" y2={8 + (114 / design.steps) * i} stroke="#a1a1aa" strokeWidth="0.8" />
+          ))}
+          <rect x="8" y="8" width="74" height="114" fill="none" stroke="#d4d4d8" strokeWidth="1.2" />
+          <line x1="45" y1="14" x2="45" y2="116" stroke="#f59e0b" strokeWidth="1.4" />
+          <circle cx="45" cy="116" r="2" fill="#f59e0b" />
+          <text x="45" y="6" textAnchor="middle" fontSize="6" fill="#f59e0b">{design.steps}P</text>
+        </svg>
+
+        <button
+          onClick={() => s.insertStair({
+            x: 0, y: 0, w: ancho * PX_PER_M, h: design.len * PX_PER_M,
+            steps: design.steps, riser: design.riser, tread: design.tread, dir,
+          })}
+          className="w-full rounded-xl bg-amber-500 py-2.5 text-[13px] font-black text-zinc-950 hover:brightness-110 active:scale-[0.99] transition-all"
+        >
+          Insertar escalera en el plano
+        </button>
+        <p className="text-[10px] jy-muted text-center">Se inserta al centro de la lámina — use MOVER (clic sobre la escalera) para recolocarla y el menú radial para rotarla.</p>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------- TECHO PARAMÉTRICO ----------------
+
+export function RoofDialog() {
+  const s = useJarumy()
+  const open = s.dialog === 'techo'
+  const [w, setW] = useState(8)
+  const [h, setH] = useState(10)
+  const [slope, setSlope] = useState(30)
+  const [kind, setKind] = useState<RoofGeo['kind']>('dos-aguas')
+  const [ridge, setRidge] = useState<'h' | 'v'>('h')
+
+  if (!open) return null
+  const rise = kind === 'plano' ? 0 : (ridge === 'h' ? h : w) / 2 * (slope / 100)
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && s.setDialog(null)}>
+      <DialogContent className="jy-bg2 jy-text border jy-border max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <ToolIcon name="Layers" className="text-lime-400" size={18} />
+            Techo paramétrico con pendiente
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="grid grid-cols-3 gap-2.5 text-[12px]">
+          <label className="space-y-1">
+            <span className="jy-muted font-semibold">Ancho (m)</span>
+            <input type="number" step="0.5" min="2" max="30" value={w}
+              onChange={(e) => setW(Math.max(2, Math.min(30, Number(e.target.value) || 8)))}
+              className="w-full rounded-lg border jy-border bg-black/25 px-2 py-1.5 jy-text font-mono" />
+          </label>
+          <label className="space-y-1">
+            <span className="jy-muted font-semibold">Fondo (m)</span>
+            <input type="number" step="0.5" min="2" max="30" value={h}
+              onChange={(e) => setH(Math.max(2, Math.min(30, Number(e.target.value) || 10)))}
+              className="w-full rounded-lg border jy-border bg-black/25 px-2 py-1.5 jy-text font-mono" />
+          </label>
+          <label className="space-y-1">
+            <span className="jy-muted font-semibold">Pendiente (%)</span>
+            <input type="number" step="1" min="1" max="100" value={slope}
+              onChange={(e) => setSlope(Math.max(1, Math.min(100, Number(e.target.value) || 30)))}
+              className="w-full rounded-lg border jy-border bg-black/25 px-2 py-1.5 jy-text font-mono" />
+          </label>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          {([['dos-aguas', 'Dos aguas'], ['cuatro-aguas', 'Cuatro aguas'], ['plano', 'Plano']] as const).map(([k, label]) => (
+            <button key={k} onClick={() => setKind(k)}
+              className={`rounded-lg px-3 py-1.5 text-[11px] font-bold transition-all ${
+                kind === k ? 'bg-lime-500 text-zinc-950' : 'border jy-border jy-text hover:border-lime-500/50'}`}>
+              {label}
+            </button>
+          ))}
+          {kind === 'dos-aguas' && (
+            <button onClick={() => setRidge(ridge === 'h' ? 'v' : 'h')}
+              className="rounded-lg px-3 py-1.5 text-[11px] font-bold border jy-border jy-text hover:border-lime-500/50">
+              Cumbrera {ridge === 'h' ? '↔' : '↕'}
+            </button>
+          )}
+        </div>
+
+        {/* miniaturas: planta + alzado */}
+        <div className="flex items-center justify-center gap-4">
+          <svg viewBox="0 0 120 90" className="w-[150px] h-[112px] rounded-lg border jy-border bg-black/25">
+            <rect x="18" y="12" width="84" height="66" fill="rgba(132,204,22,0.08)" stroke="#84cc16" strokeWidth="1.2" strokeDasharray="5 3" />
+            {kind === 'dos-aguas' && (ridge === 'h'
+              ? <line x1="18" y1="45" x2="102" y2="45" stroke="#e4e4e7" strokeWidth="1.4" strokeDasharray="8 3" />
+              : <line x1="60" y1="12" x2="60" y2="78" stroke="#e4e4e7" strokeWidth="1.4" strokeDasharray="8 3" />)}
+            {kind === 'cuatro-aguas' && <g>
+              <line x1="18" y1="12" x2="60" y2="45" stroke="#e4e4e7" strokeWidth="1" strokeDasharray="5 3" />
+              <line x1="102" y1="12" x2="60" y2="45" stroke="#e4e4e7" strokeWidth="1" strokeDasharray="5 3" />
+              <line x1="18" y1="78" x2="60" y2="45" stroke="#e4e4e7" strokeWidth="1" strokeDasharray="5 3" />
+              <line x1="102" y1="78" x2="60" y2="45" stroke="#e4e4e7" strokeWidth="1" strokeDasharray="5 3" />
+            </g>}
+            <text x="60" y="88" textAnchor="middle" fontSize="8" fill="#84cc16">PLANTA · {w}×{h} m</text>
+          </svg>
+          <svg viewBox="0 0 120 90" className="w-[150px] h-[112px] rounded-lg border jy-border bg-black/25">
+            <line x1="12" y1="78" x2="108" y2="78" stroke="#a1a1aa" strokeWidth="1.4" />
+            <line x1="12" y1="48" x2="12" y2="78" stroke="#d4d4d8" strokeWidth="1.2" />
+            <line x1="108" y1="48" x2="108" y2="78" stroke="#d4d4d8" strokeWidth="1.2" />
+            <line x1="12" y1="48" x2="108" y2="48" stroke="#d4d4d8" strokeWidth="1.2" />
+            <path d={`M 12 48 L ${60 - Math.min(40, rise * 4)} ${48 - Math.min(30, rise * 3)} L 60 ${48 - Math.min(32, rise * 3.2)} L ${60 + Math.min(40, rise * 4)} ${48 - Math.min(30, rise * 3)} L 108 48`}
+              fill="none" stroke="#84cc16" strokeWidth="2" />
+            <text x="60" y="88" textAnchor="middle" fontSize="8" fill="#84cc16">{kind === 'plano' ? `PLANO ${slope}%` : `ALZADO · SUBE ${rise.toFixed(2)} m`}</text>
+          </svg>
+        </div>
+
+        <div className="rounded-xl border jy-border bg-black/20 p-3 text-[12px] space-y-1">
+          <div className="flex justify-between"><span className="jy-muted">Área de techo (proyección)</span><span className="font-mono font-bold text-lime-300">{(w * h).toFixed(1)} m²</span></div>
+          <div className="flex justify-between"><span className="jy-muted">Área real con pendiente</span><span className="font-mono font-bold text-lime-300">{(w * h / Math.cos(Math.atan(slope / 100))).toFixed(1)} m²</span></div>
+          <div className="flex justify-between"><span className="jy-muted">Altura de cumbrera</span><span className="font-mono font-bold text-lime-300">{(2.5 + rise).toFixed(2)} m</span></div>
+        </div>
+
+        <button
+          onClick={() => s.insertRoof({ x: 0, y: 0, w: w * PX_PER_M, h: h * PX_PER_M, slope, kind, ridge })}
+          className="w-full rounded-xl bg-lime-500 py-2.5 text-[13px] font-black text-zinc-950 hover:brightness-110 active:scale-[0.99] transition-all"
+        >
+          Insertar techo en el plano
+        </button>
+        <p className="text-[10px] jy-muted text-center">También se dibuja en la vista 3D y en las elevaciones automáticas.</p>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------- NORMATIVA RNE ----------------
+
+export function NormativaDialog() {
+  const s = useJarumy()
+  const open = s.dialog === 'normativa'
+  const report = useMemo(
+    () => (open ? checkNormativa(s.elements, s.mods) : null),
+    [open, s.elements, s.mods],
+  )
+  if (!open || !report) return null
+  const badge = (st: string) =>
+    st === 'ok' ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+      : st === 'warn' ? 'bg-amber-500/15 text-amber-300 border-amber-500/40'
+        : 'bg-red-500/15 text-red-300 border-red-500/40'
+  const icon = (st: string) => st === 'ok' ? 'CheckCircle2' : st === 'warn' ? 'AlertTriangle' : 'XCircle'
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && s.setDialog(null)}>
+      <DialogContent className="jy-bg2 jy-text border jy-border max-w-2xl max-h-[82vh] overflow-hidden flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <ToolIcon name="Scale" className="text-lime-400" size={18} />
+            Verificación normativa RNE — Perú
+            <span className="ml-auto flex gap-1.5 text-[10px] font-bold">
+              <span className="rounded-full border px-2 py-0.5 border-emerald-500/40 bg-emerald-500/15 text-emerald-300">{report.summary.ok} OK</span>
+              <span className="rounded-full border px-2 py-0.5 border-amber-500/40 bg-amber-500/15 text-amber-300">{report.summary.warn} aviso</span>
+              <span className="rounded-full border px-2 py-0.5 border-red-500/40 bg-red-500/15 text-red-300">{report.summary.fail} fallo</span>
+            </span>
+          </DialogTitle>
+        </DialogHeader>
+        <p className="text-[11px] jy-muted -mt-1">
+          Chequeos automáticos sobre el modelo: A.010 (condiciones generales de diseño, higiene y accesibilidad),
+          A.040 (vivienda) y A.130 (requerimientos de evacuación). Los resultados se recalculan al editar el plano.
+        </p>
+        <div className="overflow-y-auto jy-scroll space-y-1.5 pr-1">
+          {report.checks.map((c, i) => (
+            <button key={i}
+              onClick={() => { if (c.elId) { s.setSelected(c.elId); s.setDialog(null) } }}
+              className={`w-full text-left rounded-xl border px-3 py-2 flex items-start gap-2.5 transition-all hover:brightness-125 ${badge(c.status)} ${c.elId ? 'cursor-pointer' : 'cursor-default'}`}>
+              <ToolIcon name={icon(c.status)} size={15} className="shrink-0 mt-0.5" />
+              <span className="min-w-0">
+                <span className="flex items-center gap-2">
+                  <span className="text-[12.5px] font-bold">{c.title}</span>
+                  <span className="text-[9px] font-mono opacity-70">{c.code}</span>
+                  {c.elId && <span className="text-[9px] opacity-60">· ver en plano →</span>}
+                </span>
+                <span className="block text-[11px] leading-snug opacity-90">{c.detail}</span>
+                <span className="block text-[9px] opacity-60 mt-0.5">{c.norm}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------- METRADOS S10 ----------------
+
+export function MetradosDialog() {
+  const s = useJarumy()
+  const open = s.dialog === 'metrados'
+  const [project, setProject] = useState('VIVIENDA UNIFAMILIAR')
+  const report = useMemo(
+    () => (open ? computeMetrados(s.elements, s.mods) : null),
+    [open, s.elements, s.mods],
+  )
+  if (!open || !report) return null
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && s.setDialog(null)}>
+      <DialogContent className="jy-bg2 jy-text border jy-border max-w-2xl max-h-[82vh] overflow-hidden flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <ToolIcon name="Calculator" className="text-lime-400" size={18} />
+            Metrados y presupuesto — formato S10
+          </DialogTitle>
+        </DialogHeader>
+        <div className="flex items-center gap-2">
+          <input value={project} onChange={(e) => setProject(e.target.value)}
+            className="flex-1 rounded-lg border jy-border bg-black/25 px-2.5 py-1.5 text-[12px] jy-text"
+            placeholder="Nombre del proyecto" />
+          <button
+            onClick={() => {
+              const r = downloadS10Workbook(report, project)
+              s.pushConsole({ text: `S10 EXPORTADO: ${r.filename} · ${(r.bytes / 1024).toFixed(1)} KB — ábralo en Excel y complete los precios unitarios`, kind: 'out' })
+            }}
+            className="flex items-center gap-1.5 rounded-xl bg-lime-500 px-3.5 py-2 text-[12px] font-black text-zinc-950 hover:brightness-110 active:scale-95 transition-all"
+          >
+            <ToolIcon name="FileSpreadsheet" size={14} />
+            Excel (.xls)
+          </button>
+        </div>
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 text-center">
+          {[
+            ['Techado', report.resumen.techadoM2, 'm²'],
+            ['Muros', report.resumen.murosM2, 'm²'],
+            ['Pisos', report.resumen.pisosM2, 'm²'],
+            ['Zócalos', report.resumen.zocalosM, 'm'],
+            ['Ventanas', report.resumen.ventanasM2, 'm²'],
+            ['Puertas', report.resumen.puertasUnd, 'und'],
+          ].map(([label, val, und]) => (
+            <div key={String(label)} className="rounded-lg border jy-border bg-black/20 px-1.5 py-1.5">
+              <div className="text-[9px] jy-muted uppercase tracking-wide">{label}</div>
+              <div className="text-[13px] font-mono font-bold text-lime-300">{val}<span className="text-[9px] jy-muted ml-0.5">{und}</span></div>
+            </div>
+          ))}
+        </div>
+        <div className="overflow-y-auto jy-scroll">
+          <table className="w-full text-[11.5px]">
+            <thead>
+              <tr className="jy-muted text-left border-b jy-border">
+                <th className="py-1.5 pr-2">N°</th>
+                <th className="py-1.5 pr-2">Partida</th>
+                <th className="py-1.5 pr-2 text-center">Und</th>
+                <th className="py-1.5 text-right">Metrado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {report.partidas.map((p) => (
+                <tr key={p.n} className="border-b border-white/5">
+                  <td className="py-1.5 pr-2 font-mono jy-muted">{p.n}</td>
+                  <td className="py-1.5 pr-2 jy-text">{p.desc}</td>
+                  <td className="py-1.5 pr-2 text-center jy-muted">{p.und}</td>
+                  <td className="py-1.5 text-right font-mono text-lime-300">{p.metrado.toFixed(2)}</td>
+                </tr>
+              ))}
+              <tr className="font-bold border-t jy-border">
+                <td colSpan={3} className="py-2 jy-text">{report.partidas.length} partidas</td>
+                <td className="py-2 text-right font-mono text-lime-400">
+                  {report.partidas.reduce((n, p) => n + p.metrado, 0).toFixed(0)} <span className="text-[9px] jy-muted">total und.</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="text-[10px] jy-muted">
+          El Excel incluye columna de P.U. editable y fórmulas de parcial + costo directo. Ventanas metradas con alto nominal 1.20 m;
+          altura de muros 2.50 m. Compatible con Excel, LibreOffice y Google Sheets.
+        </p>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------- ELEVACIONES Y SECCIÓN ----------------
+
+const ELEV_DIRS: Array<[ElevDir, string]> = [
+  ['sur', 'Sur ↑'], ['norte', 'Norte ↓'], ['este', 'Este →'], ['oeste', 'Oeste ←'], ['seccion', 'Sección ✂'],
+]
+
+export function ElevationsDialog() {
+  const s = useJarumy()
+  const open = s.dialog === 'elevations'
+  const [dir, setDir] = useState<ElevDir>('sur')
+  const [cutX, setCutX] = useState(600)
+
+  const elev = useMemo(
+    () => (open ? buildElevation(s.elements, s.mods, dir, { wallH: s.sun.wallH, cutX }) : null),
+    [open, s.elements, s.mods, dir, cutX, s.sun.wallH],
+  )
+
+  if (!open || !elev) return null
+  const W = 560, H = 260, pad = 26
+  const sc = Math.min((W - 2 * pad) / elev.width, (H - 2 * pad) / elev.height)
+  const X = (m: number) => pad + m * sc
+  const Y = (m: number) => H - pad - m * sc // metros con Y arriba → SVG invertido
+
+  const exportPdf = async () => {
+    const { jsPDF } = await import('jspdf')
+    const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' })
+    doc.setFillColor(255, 255, 255); doc.rect(0, 0, 297, 210, 'F')
+    // escala: el dibujo ocupa 240 mm de ancho útil
+    const usable = 240
+    const k = usable / elev.width
+    const ox = (297 - elev.width * k) / 2
+    const oy = 178 // baseline
+    doc.setDrawColor(24, 24, 28); doc.setTextColor(24, 24, 28)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13)
+    doc.text(ELEV_LABELS[dir], 14.85, 24)
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(124, 124, 132)
+    doc.text(`VIVIENDA UNIFAMILIAR · ESC ~1:${Math.round((elev.width * 1000) / usable)} · COTA EN METROS · JARUMY APP`, 14.85, 30)
+    doc.setLineWidth(0.2)
+    for (const l of elev.lines) {
+      doc.setLineWidth(Math.max(0.1, l.w * k * 2.2))
+      if (l.dash) doc.setLineDashPattern([1.2, 0.9], 0)
+      doc.line(ox + l.x1 * k, oy - l.y1 * k, ox + l.x2 * k, oy - l.y2 * k)
+      if (l.dash) doc.setLineDashPattern([], 0)
+    }
+    for (const o of elev.opens) {
+      doc.setLineWidth(0.25)
+      if (o.kind === 'window') {
+        doc.setFillColor(245, 250, 252)
+        doc.rect(ox + o.x * k, oy - (o.y0 + o.h) * k, o.w * k, o.h * k, 'FD')
+        doc.setDrawColor(120, 126, 136)
+        doc.line(ox + o.x * k, oy - (o.y0 + o.h / 2) * k, ox + (o.x + o.w) * k, oy - (o.y0 + o.h / 2) * k)
+      } else {
+        doc.rect(ox + o.x * k, oy - o.h * k, o.w * k, o.h * k)
+        // diagonal de la hoja (proyección de apertura)
+        doc.setLineDashPattern([0.6, 0.5], 0)
+        doc.line(ox + o.x * k, oy, ox + (o.x + o.w) * k, oy - o.h * k)
+        doc.setLineDashPattern([], 0)
+      }
+    }
+    // nivel de piso + cotas verticales
+    doc.setFontSize(7); doc.setTextColor(100, 100, 108)
+    doc.text('N.P.T. +0.00', 12, oy + 2)
+    doc.text(`+${(2.5).toFixed(2)}`, 12, oy - 2.5 * k)
+    doc.setDrawColor(180, 83, 9)
+    doc.line(10, oy - 2.5 * k, 20, oy - 2.5 * k)
+    doc.setDrawColor(24, 24, 28); doc.setLineWidth(0.5)
+    doc.line(14.85, oy, 297 - 14.85, oy) // línea de tierra gruesa
+    const fname = `jarumy-elevacion-${dir}-${new Date().toISOString().slice(0, 10)}.pdf`
+    doc.save(fname)
+    s.pushConsole({ text: `ELEVACIÓN ${dir.toUpperCase()} exportada a PDF (${fname})`, kind: 'out' })
+  }
+
+  const exportSvgFile = () => {
+    // pequeño SVG standalone de la elevación
+    const parts: string[] = []
+    for (const l of elev.lines) {
+      parts.push(`<line x1="${X(l.x1).toFixed(1)}" y1="${Y(l.y1).toFixed(1)}" x2="${X(l.x2).toFixed(1)}" y2="${Y(l.y2).toFixed(1)}" stroke="#18181b" stroke-width="${Math.max(0.7, l.w * sc * 2.4).toFixed(2)}"${l.dash ? ' stroke-dasharray="6 4"' : ''} />`)
+    }
+    for (const o of elev.opens) {
+      parts.push(`<rect x="${X(o.x).toFixed(1)}" y="${Y(o.y0 + o.h).toFixed(1)}" width="${(o.w * sc).toFixed(1)}" height="${(o.h * sc).toFixed(1)}" fill="${o.kind === 'window' ? '#eef7fb' : 'none'}" stroke="#18181b" stroke-width="1.1" />`)
+      if (o.kind === 'window') parts.push(`<line x1="${X(o.x).toFixed(1)}" y1="${Y(o.y0 + o.h / 2).toFixed(1)}" x2="${X(o.x + o.w).toFixed(1)}" y2="${Y(o.y0 + o.h / 2).toFixed(1)}" stroke="#78828a" stroke-width="0.9" />`)
+    }
+    const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W * 2}" height="${H * 2}">\n<rect width="${W}" height="${H}" fill="#ffffff"/>\n<text x="14" y="20" font-family="Helvetica" font-size="13" font-weight="bold" fill="#18181b">${ELEV_LABELS[dir]}</text>\n${parts.join('\n')}\n</svg>`
+    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `jarumy-elevacion-${dir}.svg`
+    document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 4000)
+    s.pushConsole({ text: `ELEVACIÓN ${dir.toUpperCase()} exportada a SVG`, kind: 'out' })
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && s.setDialog(null)}>
+      <DialogContent className="jy-bg2 jy-text border jy-border max-w-3xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <ToolIcon name="Landmark" className="text-amber-400" size={18} />
+            Elevaciones y sección automáticas — derivadas del modelo
+          </DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {ELEV_DIRS.map(([d, label]) => (
+            <button key={d} onClick={() => setDir(d)}
+              className={`rounded-lg px-3 py-1.5 text-[11px] font-bold transition-all ${
+                dir === d ? 'bg-amber-500 text-zinc-950' : 'border jy-border jy-text hover:border-amber-500/50'}`}>
+              {label}
+            </button>
+          ))}
+          {dir === 'seccion' && (
+            <label className="flex items-center gap-2 ml-1 text-[10.5px] jy-muted">
+              Corte X: <span className="font-mono text-amber-300">{(cutX / PX_PER_M).toFixed(1)} m</span>
+              <input type="range" min="100" max="1100" step="10" value={cutX}
+                onChange={(e) => setCutX(Number(e.target.value))} className="w-36 accent-amber-500" />
+            </label>
+          )}
+        </div>
+        <div className="rounded-xl border jy-border bg-white p-1">
+          <svg viewBox={`0 0 ${W} ${H}`} className="w-full rounded-lg" style={{ background: '#fff' }}>
+            <text x="14" y="20" fontSize="13" fontWeight="700" fill="#18181b" fontFamily="Helvetica">{ELEV_LABELS[dir]}</text>
+            {elev.lines.map((l, i) => (
+              <line key={i} x1={X(l.x1)} y1={Y(l.y1)} x2={X(l.x2)} y2={Y(l.y2)}
+                stroke="#18181b" strokeWidth={Math.max(0.7, l.w * sc * 2.4)} strokeDasharray={l.dash ? '6 4' : undefined} />
+            ))}
+            {elev.opens.map((o, i) => (
+              <g key={i}>
+                <rect x={X(o.x)} y={Y(o.y0 + o.h)} width={o.w * sc} height={o.h * sc}
+                  fill={o.kind === 'window' ? '#eef7fb' : 'none'} stroke="#18181b" strokeWidth="1.1" />
+                {o.kind === 'window' && (
+                  <line x1={X(o.x)} y1={Y(o.y0 + o.h / 2)} x2={X(o.x + o.w)} y2={Y(o.y0 + o.h / 2)} stroke="#78828a" strokeWidth="0.9" />
+                )}
+              </g>
+            ))}
+            <text x="12" y={Y(0) + 12} fontSize="8" fill="#64646c">N.P.T. +0.00</text>
+            <text x="12" y={Y(2.5) - 2} fontSize="8" fill="#64646c">+2.50</text>
+            <text x={W - 12} y={H - 10} textAnchor="end" fontSize="8" fill="#64646c">
+              ancho {elev.width.toFixed(2)} m · alt. {(s.sun.wallH).toFixed(2)} m
+            </text>
+          </svg>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={exportPdf}
+            className="flex items-center gap-1.5 rounded-xl bg-amber-500 px-4 py-2 text-[12px] font-black text-zinc-950 hover:brightness-110 active:scale-95 transition-all">
+            <ToolIcon name="FileDown" size={14} /> PDF A4 horizontal
+          </button>
+          <button onClick={exportSvgFile}
+            className="flex items-center gap-1.5 rounded-xl border jy-border px-4 py-2 text-[12px] font-bold jy-text hover:border-amber-500/50 transition-all">
+            <ToolIcon name="FileCode" size={14} /> SVG
+          </button>
+          <p className="text-[10px] jy-muted ml-auto max-w-[220px] leading-snug">
+            Vanos: ventana con antepecho 0.90 m · puerta hasta 2.10 m. La sección desliza el corte sobre el eje X.
+          </p>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------- VISTA 3D ISOMÉTRICA INTERACTIVA ----------------
+
+export function Iso3DDialog() {
+  const s = useJarumy()
+  const open = s.dialog === 'iso3d'
+  const [yaw, setYaw] = useState(35)
+  const [pitch, setPitch] = useState(30)
+  const [zoomF, setZoomF] = useState(1)
+  const [furniture, setFurniture] = useState(false)
+
+  const scene = useMemo(
+    () => (open ? buildIsoScene(s.elements, s.mods, { yaw, pitch }, { includeFurniture: furniture }) : null),
+    [open, s.elements, s.mods, yaw, pitch, furniture],
+  )
+
+  if (!open || !scene) return null
+  const W = 640, H = 400
+  const base = Math.min(W / (scene.spanW || 1), H / (scene.spanH || 1)) * 0.85 * zoomF
+  const X = (p: [number, number]) => W / 2 + (p[0] - scene.cx) * base
+  const Y = (p: [number, number]) => H / 2 + (p[1] - scene.cy) * base
+
+  const exportPng3d = async () => {
+    const svgEl = getRegisteredSvg()
+    void svgEl
+    // rasteriza el SVG del propio diálogo: lo construimos inline
+    const parts = scene.quads.map((q) => {
+      const pts = q.pts.map((p) => `${X(p).toFixed(1)},${Y(p).toFixed(1)}`).join(' ')
+      return `<polygon points="${pts}" fill="${q.fill}"${q.stroke ? ` stroke="${q.stroke}" stroke-width="0.5"` : ''} />`
+    }).join('\n')
+    const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W * 2}" height="${H * 2}">\n<rect width="${W}" height="${H}" fill="#101014"/>\n${parts}\n</svg>`
+    try {
+      const img = new Image()
+      await new Promise<void>((res, rej) => {
+        img.onload = () => res()
+        img.onerror = () => rej(new Error('raster'))
+        img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+      })
+      const canvas = document.createElement('canvas')
+      canvas.width = W * 2; canvas.height = H * 2
+      const ctx = canvas.getContext('2d')!
+      ctx.fillStyle = '#101014'; ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(img, 0, 0)
+      const u8 = Uint8Array.from(atob(canvas.toDataURL('image/png').split(',')[1]), (c) => c.charCodeAt(0))
+      const url = URL.createObjectURL(new Blob([u8], { type: 'image/png' }))
+      const a = document.createElement('a')
+      a.href = url; a.download = `jarumy-3d-yaw${yaw}-pitch${pitch}.png`
+      document.body.appendChild(a); a.click(); a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 4000)
+      s.pushConsole({ text: `VISTA 3D exportada a PNG (yaw ${yaw}° · pitch ${pitch}°)`, kind: 'out' })
+    } catch {
+      s.pushConsole({ text: 'Error rasterizando la vista 3D', kind: 'err' })
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && s.setDialog(null)}>
+      <DialogContent className="jy-bg2 jy-text border jy-border max-w-3xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <ToolIcon name="Box" className="text-amber-400" size={18} />
+            Vista 3D interactiva — órbita con extrusión del modelo
+          </DialogTitle>
+        </DialogHeader>
+        <div className="rounded-xl border jy-border overflow-hidden" style={{ background: 'linear-gradient(180deg, #17171c 0%, #101014 100%)' }}>
+          <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
+            {scene.quads.map((q, i) => {
+              const pts = q.pts.map((p) => `${X(p).toFixed(1)},${Y(p).toFixed(1)}`).join(' ')
+              return <polygon key={i} points={pts} fill={q.fill} stroke={q.stroke} strokeWidth="0.5" />
+            })}
+            <text x="12" y="18" fontSize="10" fill="#a1a1aa" fontFamily="Helvetica">
+              AXONOMETRÍA · yaw {yaw}° · pitch {pitch}° · {scene.quads.length} caras · muros h={(s.sun.wallH).toFixed(2)} m
+            </text>
+          </svg>
+        </div>
+        <div className="grid grid-cols-3 gap-3 text-[11px]">
+          <label className="space-y-1">
+            <span className="jy-muted font-semibold flex justify-between">Órbita (azimut) <span className="font-mono text-amber-300">{yaw}°</span></span>
+            <input type="range" min="0" max="360" value={yaw} onChange={(e) => setYaw(Number(e.target.value))} className="w-full accent-amber-500" />
+          </label>
+          <label className="space-y-1">
+            <span className="jy-muted font-semibold flex justify-between">Altura cámara <span className="font-mono text-amber-300">{pitch}°</span></span>
+            <input type="range" min="8" max="85" value={pitch} onChange={(e) => setPitch(Number(e.target.value))} className="w-full accent-amber-500" />
+          </label>
+          <label className="space-y-1">
+            <span className="jy-muted font-semibold flex justify-between">Zoom <span className="font-mono text-amber-300">{zoomF.toFixed(1)}×</span></span>
+            <input type="range" min="0.5" max="2.5" step="0.1" value={zoomF} onChange={(e) => setZoomF(Number(e.target.value))} className="w-full accent-amber-500" />
+          </label>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setFurniture(!furniture)}
+            className={`rounded-xl px-3.5 py-2 text-[11px] font-bold transition-all ${furniture ? 'bg-amber-500 text-zinc-950' : 'border jy-border jy-text hover:border-amber-500/50'}`}>
+            Mobiliario {furniture ? 'sí' : 'no'}
+          </button>
+          <button onClick={exportPng3d}
+            className="flex items-center gap-1.5 rounded-xl bg-amber-500 px-4 py-2 text-[12px] font-black text-zinc-950 hover:brightness-110 active:scale-95 transition-all">
+            <ToolIcon name="Camera" size={14} /> PNG
+          </button>
+          <p className="text-[10px] jy-muted ml-auto max-w-[230px] leading-snug">
+            Cámara ortográfica tipo SketchUp/Rhino. Los techos paramétricos se levantan con su pendiente real.
+          </p>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------- COMPARTIR PLANO + HISTORIAL DE VERSIONES ----------------
+
+export function ShareDialog() {
+  const s = useJarumy()
+  const open = s.dialog === 'share' || s.dialog === 'versions'
+  const [tab, setTab] = useState<'compartir' | 'versiones'>('compartir')
+  const [versions, setVersions] = useState(() => listVersions())
+  const [vname, setVname] = useState('')
+
+  if (!open) return null
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && s.setDialog(null)}>
+      <DialogContent className="jy-bg2 jy-text border jy-border max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <ToolIcon name="Share2" className="text-amber-400" size={18} />
+            Compartir plano e historial
+          </DialogTitle>
+        </DialogHeader>
+        <div className="flex gap-1.5">
+          {(['compartir', 'versiones'] as const).map((t) => (
+            <button key={t} onClick={() => { setTab(t); setVersions(listVersions()) }}
+              className={`rounded-lg px-3.5 py-1.5 text-[11px] font-bold transition-all ${
+                tab === t ? 'bg-amber-500 text-zinc-950' : 'border jy-border jy-text hover:border-amber-500/50'}`}>
+              {t === 'compartir' ? 'Compartir (.json)' : `Versiones (${versions.length})`}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'compartir' ? (
+          <div className="space-y-2.5">
+            <button
+              onClick={() => s.exportShareFile()}
+              className="w-full flex items-center justify-center gap-2 rounded-xl bg-amber-500 py-2.5 text-[13px] font-black text-zinc-950 hover:brightness-110 active:scale-[0.99] transition-all">
+              <ToolIcon name="Download" size={15} />
+              Exportar plano actual (.jarumy.json)
+            </button>
+            <label className="block rounded-xl border border-dashed jy-border hover:border-amber-500/60 transition-all cursor-pointer px-4 py-5 text-center">
+              <input type="file" accept=".json,.jarumy.json,application/json" className="hidden"
+                onChange={async (e) => {
+                  const f = e.target.files?.[0]
+                  if (!f) return
+                  try {
+                    const json = JSON.parse(await f.text())
+                    s.importShareFile(json)
+                  } catch {
+                    s.pushConsole({ text: 'IMPORTAR: el archivo no es un JSON válido', kind: 'err' })
+                  }
+                  e.target.value = ''
+                }} />
+              <ToolIcon name="Upload" className="mx-auto text-amber-400 mb-1" size={20} />
+              <span className="block text-[12px] font-bold jy-text">Importar plano compartido</span>
+              <span className="block text-[10px] jy-muted mt-0.5">Restaura elementos, capas y propiedades (con deshacer disponible)</span>
+            </label>
+            <p className="text-[10px] jy-muted leading-relaxed">
+              El archivo contiene el modelo completo (elementos, capas, modificaciones). Envíelo por WhatsApp/correo:
+              su colega lo importa en su Jarumy y sigue editando. Los pines de comentario viajan incluidos.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex gap-2">
+              <input value={vname} onChange={(e) => setVname(e.target.value)}
+                placeholder="Nombre de la versión (opcional)"
+                className="flex-1 rounded-lg border jy-border bg-black/25 px-2.5 py-2 text-[12px] jy-text" />
+              <button
+                onClick={() => { s.savePlanVersion(vname); setVname(''); setVersions(listVersions()) }}
+                className="flex items-center gap-1.5 rounded-xl bg-amber-500 px-3.5 py-2 text-[12px] font-black text-zinc-950 hover:brightness-110 active:scale-95 transition-all">
+                <ToolIcon name="Save" size={14} /> Guardar
+              </button>
+            </div>
+            <div className="max-h-64 overflow-y-auto jy-scroll space-y-1.5 pr-1">
+              {versions.length === 0 && (
+                <p className="text-[11px] jy-muted text-center py-6">
+                  Aún no hay versiones guardadas — capture el estado actual antes de hacer cambios grandes.
+                </p>
+              )}
+              {versions.map((v) => (
+                <div key={v.id} className="rounded-xl border jy-border bg-black/20 px-3 py-2 flex items-center gap-2.5">
+                  <span className="w-8 h-8 rounded-lg bg-amber-500/15 text-amber-400 flex items-center justify-center shrink-0">
+                    <ToolIcon name="History" size={15} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[12px] font-bold jy-text truncate">{v.name}</span>
+                    <span className="block text-[9.5px] jy-muted">
+                      {new Date(v.savedAt).toLocaleString('es-PE')} · {v.data.elements.length} elementos · {v.data.layers.length} capas
+                    </span>
+                  </span>
+                  <button onClick={() => { s.restorePlanVersion(v.data); s.setDialog(null) }}
+                    className="rounded-lg bg-amber-500 px-2.5 py-1.5 text-[10px] font-black text-zinc-950 hover:brightness-110 transition-all">
+                    Restaurar
+                  </button>
+                  <button onClick={() => { s.deletePlanVersion(v.id); setVersions(listVersions()) }}
+                    className="rounded-lg border border-red-500/40 text-red-300 px-2 py-1.5 text-[10px] font-bold hover:bg-red-500/10 transition-all">
+                    <ToolIcon name="Trash2" size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] jy-muted">
+              Las versiones se guardan en este navegador (localStorage, últimas 30). Para archivarlas o pasarlas a otro equipo, use Compartir (.json).
+            </p>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
