@@ -36,6 +36,10 @@ export default function PlanCanvas() {
   const moveTargetRef = useRef<string | null>(null)
   const trimTargetRef = useRef<string | null>(null)
   const extendTargetRef = useRef<string | null>(null)
+  // ESTIRA: centro de la ventana de cruces del 1er clic
+  const [stretchBase, setStretchBase] = useState<number[] | null>(null)
+  // MATRIZ POR TRAYECTO: elemento a copiar (1er clic)
+  const arrayTargetRef = useRef<string | null>(null)
   const [hint, setHint] = useState(true)
 
   useEffect(() => {
@@ -178,6 +182,22 @@ export default function PlanCanvas() {
       st.pushConsole({ text: `MOVER: ${el.name} — ahora clic en el punto destino`, kind: 'cmd' })
       return
     }
+    // MATRIZ POR TRAYECTO: 1er clic = objeto a copiar · 2º clic = polilínea de trayecto
+    if (st.drawTool?.startsWith('matriztrayecto')) {
+      if ((el.type === 'dibujo' && ['polilinea', 'spline', 'rectangulo'].includes((el.geo as DrawGeo).kind)) || el.type === 'terreno') {
+        if (!arrayTargetRef.current) {
+          st.pushConsole({ text: `MATRIZ POR TRAYECTO: primero seleccione el OBJETO a copiar (clic sobre un mueble/símbolo)`, kind: 'err' })
+          return
+        }
+        st.applyEffect(arrayTargetRef.current, 'arrayPath', `${el.id},${st.drawTool.split(':')[1] || 6}`)
+        arrayTargetRef.current = null
+        st.armDraw(null)
+        return
+      }
+      arrayTargetRef.current = el.id
+      st.pushConsole({ text: `MATRIZ POR TRAYECTO: ${el.name} será copiado — ahora clic en la POLILÍNEA/LOTE de trayecto`, kind: 'cmd' })
+      return
+    }
     // sin herramienta activa: el clic abre el menú radial (o lo cierra si ya estaba abierto)
     if (!st.drawTool) {
       if (st.hovered?.id === el.id) st.setHovered(null)
@@ -219,6 +239,18 @@ export default function PlanCanvas() {
         moveTargetRef.current = null
         st.armDraw(null)
       }
+      return
+    }
+
+    if (st.drawTool === 'estira') {
+      if (!stretchBase) {
+        setStretchBase([p[0], p[1]])
+        st.pushConsole({ text: 'ESTIRA: ventana de cruces centrada (R 1.50 m) — ahora clic en el punto de estiramiento', kind: 'cmd' })
+        return
+      }
+      st.applyEffect(null, 'stretch', `${stretchBase[0].toFixed(1)},${stretchBase[1].toFixed(1)},${(p[0] - stretchBase[0]).toFixed(1)},${(p[1] - stretchBase[1]).toFixed(1)}`)
+      setStretchBase(null)
+      st.armDraw(null)
       return
     }
 
@@ -412,7 +444,7 @@ export default function PlanCanvas() {
       default:
         break
     }
-  }, [toSvg, snapPt, orthoPt])
+  }, [toSvg, snapPt, orthoPt, stretchBase])
 
   // ---------- zoom y paneo ----------
   const onWheel = useCallback((e: React.WheelEvent) => {
@@ -619,7 +651,7 @@ export default function PlanCanvas() {
             ref={svgRef}
             width={VIEW_W} height={VIEW_H}
             viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
-            className={`${s.renderMode ? 'jy-svg-render ' : ''}${geometricTool ? 'jy-geo-draw' : ''}`}
+            className={`${s.renderMode ? 'jy-svg-render ' : ''}${s.renderMode && s.renderQuality === 'ultra' ? 'jy-render-ultra ' : ''}${geometricTool ? 'jy-geo-draw' : ''}`}
             onClick={handleCanvasClick}
             onDoubleClick={(e) => {
               e.stopPropagation()
@@ -676,6 +708,27 @@ export default function PlanCanvas() {
             {s.sun.active && (
               <HeliodonLayer elements={s.elements} mods={s.mods} sun={s.sun} phase="over" />
             )}
+
+            {/* vista previa de ESTIRA: ventana de cruces + vector de estiramiento */}
+            {s.drawTool === 'estira' && (() => {
+              const cur = snapPt(s.cursorSvg)
+              const R = 90
+              if (!stretchBase) {
+                return <g pointerEvents="none">
+                  <circle cx={cur[0]} cy={cur[1]} r={R} fill="rgba(168,85,247,0.07)" stroke="#a855f7" strokeWidth="1.4" strokeDasharray="6 4" />
+                  <line x1={cur[0] - R} y1={cur[1]} x2={cur[0] + R} y2={cur[1]} stroke="#a855f7" strokeWidth="0.8" strokeDasharray="3 3" opacity="0.6" />
+                  <line x1={cur[0]} y1={cur[1] - R} x2={cur[0]} y2={cur[1] + R} stroke="#a855f7" strokeWidth="0.8" strokeDasharray="3 3" opacity="0.6" />
+                </g>
+              }
+              return <g pointerEvents="none">
+                <circle cx={stretchBase[0]} cy={stretchBase[1]} r={R} fill="rgba(168,85,247,0.10)" stroke="#a855f7" strokeWidth="1.6" strokeDasharray="6 4" />
+                <line x1={stretchBase[0]} y1={stretchBase[1]} x2={cur[0]} y2={cur[1]} stroke="#a855f7" strokeWidth="2" strokeDasharray="7 4" />
+                <circle cx={cur[0]} cy={cur[1]} r="4" fill="#a855f7" />
+                <text x={(stretchBase[0] + cur[0]) / 2} y={(stretchBase[1] + cur[1]) / 2 - 7} textAnchor="middle" fontSize="11" fontWeight="700" fill="#c084fc">
+                  Δ {(Math.hypot(cur[0] - stretchBase[0], cur[1] - stretchBase[1]) / PX_PER_M).toFixed(2)} m
+                </text>
+              </g>
+            })()}
 
             {/* vista previa de dibujo */}
             {s.drawTool && !s.drawTool.startsWith('ins:') && !s.drawTool.startsWith('simbolo:') && (() => {
@@ -986,7 +1039,7 @@ export default function PlanCanvas() {
           <div className="flex gap-1.5">
             {s.renderMode && (
               <span className="rounded-full border border-orange-400/50 bg-orange-500/15 px-3 py-1 text-[10px] font-bold text-orange-300 uppercase tracking-wider">
-                Render V-Ray
+                Render {s.renderQuality === 'ultra' ? 'ULTRA — ray tracing' : 'V-Ray'}
               </span>
             )}
             {s.view3D && (

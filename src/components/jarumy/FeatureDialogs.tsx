@@ -5,10 +5,10 @@
 // escalera (Blondel/RNE), techo, normativa RNE, metrados S10.
 // ============================================================
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useJarumy } from '@/lib/store'
-import { PX_PER_M, WALL_TYPES, type StairGeo, type RoofGeo } from '@/lib/plan-data'
+import { PX_PER_M, WALL_TYPES, BLOCK_LIBRARY, BLOCK_CATS, type StairGeo, type RoofGeo } from '@/lib/plan-data'
 import { checkNormativa } from '@/lib/normativa'
 import { computeMetrados, downloadS10Workbook } from '@/lib/metrados'
 import { buildElevation, ELEV_LABELS, type ElevDir } from '@/lib/elevation'
@@ -1130,6 +1130,369 @@ export function PhasesDialog() {
         <div className="text-[10px] jy-muted text-center">
           Comando rápido: FASE existente|demolicion|nueva (sobre la selección) · DEMOLICION abre este panel.
         </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------- ESTRUCTURAL (cargas reales del plano — ETABS/Robot simplificado) ----------------
+
+export function StructuralDialog() {
+  const s = useJarumy()
+  const open = s.dialog === 'structural'
+  const [floors, setFloors] = useState(1)
+
+  const calc = useMemo(() => {
+    const alive = s.elements.filter((e) => !s.mods[e.id]?.deleted)
+    const rooms = alive.filter((e) => e.type === 'espacio')
+    const walls = alive.filter((e) => e.type === 'muro')
+    const cols = alive.filter((e) => e.type === 'columna')
+    const roofs = alive.filter((e) => e.type === 'techo')
+    const stairs = alive.filter((e) => e.type === 'escalera')
+
+    // áreas reales
+    const area = rooms.reduce((n, e) => {
+      const g = e.geo as { w: number; h: number }
+      return n + (g.w * g.h) / (PX_PER_M * PX_PER_M)
+    }, 0)
+
+    // muros: longitud, volumen y peso (ladrillo 1.8 t/m³)
+    let wallLen = 0, wallVol = 0
+    walls.forEach((w) => {
+      const g = w.geo as { x1: number; y1: number; x2: number; y2: number; t: number }
+      const mod = s.mods[w.id] || {}
+      const th = (mod.thickness ?? g.t) / PX_PER_M
+      const H = mod.wallHeight || 2.5
+      const L = Math.hypot(g.x2 - g.x1, g.y2 - g.y1) / PX_PER_M
+      wallLen += L
+      wallVol += L * H * th
+    })
+    const wallWeight = wallVol * 1.8 // t
+
+    // techos reales
+    let roofArea = 0
+    roofs.forEach((r) => {
+      const g = r.geo as { w: number; h: number }
+      roofArea += (g.w * g.h) / (PX_PER_M * PX_PER_M)
+    })
+    const slabArea = roofArea > 0 ? roofArea : area
+
+    // cargas normadas (kg/m²) — E.020 vivienda
+    const D_slab = 200 + 100   // losa aligerada + acabados
+    const L_live = 200         // sobrecarga vivienda
+    const D_roof = slabArea * D_slab / 1000 // t
+    const L_roof = slabArea * L_live / 1000
+    const D_walls = wallWeight
+    const W = (D_roof + D_walls + L_roof * 0.25) * floors // peso sísmico (25% de sobrecarga E.030)
+
+    // columna promedio
+    const nCols = Math.max(cols.length, Math.max(1, Math.round(area / 20))) // mínimo 1 col/20 m²
+    const colLoad = ((D_roof + D_walls + L_roof) * floors) / nCols // t por columna
+    // capacidad de columna 30×30 f'c210 ρ=2%: φPn ≈ 163 t
+    const colCap = 163
+    const colRatio = colLoad / colCap
+
+    // densidad de muros (control de deriva E.030 práctica)
+    const density = (wallLen * 0.15) / Math.max(1, area) // m² de muro / m² de piso
+    const driftOk = density >= 0.01 && density <= 0.04
+
+    // cortante basal E.030 (Lima: Z=0.35, T<T0 → C=2.5, R=8, U=1)
+    const V = 0.35 * 1 * 2.5 / 8 * W
+    const driftEst = Math.min(0.012, V / (Math.max(0.004, density) * W * 250)) // estimación indicativa
+
+    return {
+      area, wallLen, wallVol, wallWeight, slabArea, nCols: cols.length || nCols,
+      D_roof, D_walls, L_roof, W, V, colLoad, colCap, colRatio,
+      density, driftOk, driftEst, stairs: stairs.length, floors,
+    }
+  }, [s.elements, s.mods, floors])
+
+  if (!open) return null
+  const fmt = (t: number) => `${t.toFixed(1)} t`
+  const items = [
+    { k: 'Área techada (por piso)', v: `${calc.area.toFixed(1)} m²`, ok: true },
+    { k: 'Carga muerta D — losa + acabados', v: fmt(calc.D_roof), ok: true },
+    { k: 'Carga muerta D — albañilería', v: `${fmt(calc.D_walls)} (${calc.wallLen.toFixed(1)} ml · ${calc.wallVol.toFixed(1)} m³)`, ok: true },
+    { k: 'Carga viva L — sobrecarga (200 kg/m²)', v: fmt(calc.L_roof), ok: true },
+    { k: 'Peso sísmico W (D + 0.25L)', v: fmt(calc.W), ok: true },
+    { k: 'Cortante basal V (E.030 · Z=0.35 · R=8)', v: fmt(calc.V), ok: calc.V < calc.W * 0.15 },
+    { k: `Carga por columna (${calc.nCols} und · φPn=${calc.colCap} t)`, v: `${fmt(calc.colLoad)} · ${Math.round(calc.colRatio * 100)}% de capacidad`, ok: calc.colRatio < 0.5 },
+    { k: 'Densidad de muros (m² muro/m² piso)', v: `${(calc.density * 100).toFixed(2)} %`, ok: calc.driftOk },
+    { k: 'Deriva estimada de entrepiso', v: `${(calc.driftEst * 100).toFixed(2)} % (máx. 1%)`, ok: calc.driftEst < 0.01 },
+  ]
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && s.setDialog(null)}>
+      <DialogContent className="jy-bg2 jy-text border jy-border max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <ToolIcon name="Landmark" className="text-amber-400" size={18} />
+            Estructural — cargas y reacciones reales (ETABS / Robot)
+          </DialogTitle>
+        </DialogHeader>
+
+        <label className="flex items-center justify-between gap-3 text-[12px] rounded-lg border jy-border bg-black/20 px-3 py-2">
+          <span className="jy-muted font-semibold">N° de pisos</span>
+          <input type="number" min={1} max={5} value={floors}
+            onChange={(e) => setFloors(Math.max(1, Math.min(5, Number(e.target.value) || 1)))}
+            className="w-16 rounded border jy-border bg-black/25 px-2 py-1 jy-text font-mono text-right" />
+        </label>
+
+        <div className="space-y-1.5">
+          {items.map((i) => (
+            <div key={i.k} className="flex items-center justify-between gap-3 text-[12px] border-b border-white/5 pb-1.5">
+              <span className="jy-muted">{i.k}</span>
+              <span className={`font-mono font-semibold ${i.ok ? 'text-emerald-400' : 'text-orange-400'}`}>{i.v}</span>
+            </div>
+          ))}
+        </div>
+        <p className="text-[10px] jy-muted">
+          Cálculo derivado de la geometría real: {calc.wallLen.toFixed(1)} ml de muros, {calc.slabArea.toFixed(1)} m² de losa
+          y columnas de 30×30 cm f&apos;c 210 con ρ=2%. Verificación indicativa — el diseño definitivo requiere modelado en ETABS.
+        </p>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------- COLABORACIÓN (estado real de la sesión) ----------------
+
+export function CollabDialog() {
+  const s = useJarumy()
+  const open = s.dialog === 'collab'
+  const since = useMemo(() => Date.now(), [open])
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    if (!open) return
+    const t = setInterval(() => setTick((v) => v + 1), 1000)
+    return () => clearInterval(t)
+  }, [open])
+  const elapsed = Math.floor((Date.now() - since) / 1000)
+  void tick
+
+  const alive = s.elements.filter((e) => !s.mods[e.id]?.deleted)
+  const byDiscipline = {
+    'Arquitectura (J. Burga)': alive.filter((e) => ['muro', 'puerta', 'ventana', 'espacio', 'apertura', 'techo', 'escalera'].includes(e.type)).length,
+    'MEP — instalaciones': alive.filter((e) => ['instalacion', 'simbolo'].includes(e.type)).length,
+    'Estructura': alive.filter((e) => ['columna'].includes(e.type)).length,
+    'Interiorismo': alive.filter((e) => ['mobiliario', 'sanitario'].includes(e.type)).length,
+    'Contexto / sitio': alive.filter((e) => ['terreno'].includes(e.type)).length,
+  }
+  const edits = s.undoStack.length
+  const versions = typeof window !== 'undefined' ? listVersions().length : 0
+
+  if (!open) return null
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && s.setDialog(null)}>
+      <DialogContent className="jy-bg2 jy-text border jy-border max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <ToolIcon name="Users" className="text-amber-400" size={18} />
+            Colaboración — Worksharing (Revit / BIM 360)
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="rounded-xl border jy-border bg-black/20 p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+            </span>
+            <span className="text-[12px] font-bold jy-text">Modelo central activo — sesión local sincronizada</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-[11px]">
+            <div className="rounded-lg border border-white/8 px-2.5 py-1.5">
+              <span className="jy-muted block">Usuario local</span>
+              <span className="font-bold jy-text">J. Burga · arquitectura</span>
+            </div>
+            <div className="rounded-lg border border-white/8 px-2.5 py-1.5">
+              <span className="jy-muted block">Tiempo de sesión</span>
+              <span className="font-bold font-mono jy-text">{Math.floor(elapsed / 60)}m {elapsed % 60}s</span>
+            </div>
+            <div className="rounded-lg border border-white/8 px-2.5 py-1.5">
+              <span className="jy-muted block">Ediciones en la sesión</span>
+              <span className="font-bold font-mono jy-text">{edits} (DESHACER disponibles)</span>
+            </div>
+            <div className="rounded-lg border border-white/8 px-2.5 py-1.5">
+              <span className="jy-muted block">Versiones guardadas</span>
+              <span className="font-bold font-mono jy-text">{versions} en el historial</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <div className="text-[11px] font-bold jy-text">Elementos por disciplina (en vivo)</div>
+          {Object.entries(byDiscipline).map(([k, n]) => (
+            <div key={k} className="flex items-center justify-between gap-3 text-[12px] border-b border-white/5 pb-1.5">
+              <span className="jy-muted">{k}</span>
+              <span className="font-mono font-semibold text-amber-300">{n} elementos</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-2">
+          <button onClick={() => s.runGlobal('saveNow')}
+            className="flex-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-[11px] py-2 transition-colors">
+            Sincronizar con el central
+          </button>
+          <button onClick={() => s.setDialog('share')}
+            className="flex-1 rounded-lg border jy-border hover:border-amber-500/50 font-bold text-[11px] py-2 transition-colors">
+            Compartir plano
+          </button>
+        </div>
+        <p className="text-[10px] jy-muted">
+          "Sincronizar" guarda una versión real en el historial local (localStorage). Los conteos por disciplina
+          se recalculan con los elementos vivos del modelo.
+        </p>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------- FAMILIAS / OBJETOS (explorador real de la biblioteca) ----------------
+
+export function FamiliasDialog() {
+  const s = useJarumy()
+  const open = s.dialog === 'familias'
+  const [cat, setCat] = useState<string>('todas')
+
+  const cats = useMemo(() => {
+    const groups: Record<string, number> = {}
+    BLOCK_LIBRARY.forEach((b) => { groups[b.cat] = (groups[b.cat] || 0) + 1 })
+    return groups
+  }, [])
+
+  const placed = useMemo(() => {
+    const alive = s.elements.filter((e) => !s.mods[e.id]?.deleted)
+    return alive.filter((e) => e.type === 'mobiliario' || e.type === 'sanitario').length
+  }, [s.elements])
+
+  const list = cat === 'todas' ? BLOCK_LIBRARY : BLOCK_LIBRARY.filter((b) => b.cat === cat)
+
+  if (!open) return null
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && s.setDialog(null)}>
+      <DialogContent className="jy-bg2 jy-text border jy-border max-w-xl max-h-[80vh] overflow-hidden flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <ToolIcon name="Component" className="text-amber-400" size={18} />
+            Familias / Objetos — {BLOCK_LIBRARY.length} cargadas ({placed} colocadas en el plano)
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="flex gap-1 flex-wrap mb-2">
+          <button onClick={() => setCat('todas')}
+            className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-colors ${
+              cat === 'todas' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'jy-muted border border-white/10 hover:border-white/25'}`}>
+            Todas · {BLOCK_LIBRARY.length}
+          </button>
+          {BLOCK_CATS.map((c) => (
+            <button key={c.id} onClick={() => setCat(c.id)}
+              className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-colors ${
+                cat === c.id ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'jy-muted border border-white/10 hover:border-white/25'}`}>
+              {c.label} · {cats[c.id] || 0}
+            </button>
+          ))}
+        </div>
+
+        <div className="overflow-y-auto jy-scroll pr-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+            {list.map((b) => (
+              <button key={b.kind} onClick={() => { s.setDialog('blocks'); s.armDraw(`ins:${b.kind}`) }}
+                className="text-left rounded-lg border border-white/8 px-2.5 py-2 hover:border-amber-500/50 hover:bg-amber-500/5 transition-colors">
+                <div className="flex items-center gap-1.5">
+                  <ToolIcon name={b.sanitary ? 'Bath' : b.cat === 'cocina' ? 'CookingPot' : b.cat === 'exterior' ? 'TreePine' : 'Armchair'} size={13} className="text-amber-400 shrink-0" />
+                  <span className="text-[11px] font-semibold jy-text leading-tight truncate">{b.label}</span>
+                </div>
+                <span className="text-[9.5px] jy-muted block mt-0.5">
+                  {(b.w / PX_PER_M).toFixed(2)} × {(b.h / PX_PER_M).toFixed(2)} m · {b.cat}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="text-[10px] jy-muted mt-1">
+          Clic en una familia para armarla como bloque de inserción — clic en el plano para colocarla (R rota 90°).
+          Conteos calculados en vivo desde la biblioteca y el modelo.
+        </p>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------- EDITOR DE BLOQUES DINÁMICOS (parámetros en vivo) ----------------
+
+export function BlockEditorDialog() {
+  const s = useJarumy()
+  const open = s.dialog === 'blockeditor'
+  const el = s.elements.find((e) => e.id === (s.selectedId || '')) || null
+  const mod = el ? (s.mods[el.id] || {}) : {}
+
+  if (!open) return null
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && s.setDialog(null)}>
+      <DialogContent className="jy-bg2 jy-text border jy-border max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <ToolIcon name="Shapes" className="text-amber-400" size={18} />
+            Editor de bloques dinámicos
+          </DialogTitle>
+        </DialogHeader>
+
+        {!el ? (
+          <p className="text-[12px] jy-muted">
+            Ningún elemento seleccionado. Cierre el diálogo, haga clic sobre un bloque del plano
+            (mueble, sanitario, columna…) y vuelva a abrirlo desde BLOQUE DINÁMICO.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            <div className="rounded-lg border jy-border bg-black/20 px-3 py-2 text-[11px]">
+              <span className="font-bold jy-text">{el.name}</span>
+              <span className="jy-muted block">{el.type} · capa {el.layer} · id {el.id}</span>
+            </div>
+
+            <label className="block space-y-1">
+              <span className="flex justify-between text-[11px] jy-muted font-semibold">
+                <span>Rotación</span><span className="font-mono text-amber-300">{(mod.rotation || 0) % 360}°</span>
+              </span>
+              <input type="range" min={-180} max={180} step={15} value={(mod.rotation || 0) % 360}
+                onChange={(e) => s.applyEffect(el.id, 'rotate', Number(e.target.value) - ((mod.rotation || 0) % 360))}
+                className="w-full accent-amber-400" />
+            </label>
+
+            <label className="block space-y-1">
+              <span className="flex justify-between text-[11px] jy-muted font-semibold">
+                <span>Escala</span><span className="font-mono text-amber-300">{((mod.scale || 1) * 100).toFixed(0)}%</span>
+              </span>
+              <input type="range" min={50} max={220} step={5} value={Math.round((mod.scale || 1) * 100)}
+                onChange={(e) => s.applyEffect(el.id, 'scale', Number(e.target.value) / 100 / (mod.scale || 1))}
+                className="w-full accent-amber-400" />
+            </label>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => s.applyEffect(el.id, 'mirror', 'h')}
+                className="rounded-lg border jy-border hover:border-amber-500/50 text-[11px] font-bold py-2 transition-colors">
+                Voltear H
+              </button>
+              <button onClick={() => s.applyEffect(el.id, 'mirror', 'v')}
+                className="rounded-lg border jy-border hover:border-amber-500/50 text-[11px] font-bold py-2 transition-colors">
+                Voltear V
+              </button>
+              <button onClick={() => s.applyEffect(el.id, 'scale', 'reset')}
+                className="rounded-lg border jy-border hover:border-amber-500/50 text-[11px] font-bold py-2 transition-colors">
+                Restablecer 100%
+              </button>
+              <button onClick={() => s.applyEffect(el.id, 'duplicate')}
+                className="rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 text-[11px] font-bold py-2 transition-colors">
+                Duplicar
+              </button>
+            </div>
+
+            <p className="text-[10px] jy-muted">
+              Parámetros aplicados en vivo sobre la selección con historial de deshacer — igual que las
+              acciones de parámetros de un bloque dinámico de AutoCAD.
+            </p>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   )

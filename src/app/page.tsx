@@ -18,6 +18,7 @@ import {
   StairDialog, RoofDialog, ElevationsDialog, Iso3DDialog,
   NormativaDialog, MetradosDialog, ShareDialog,
   QuickSelectDialog, LightingDialog, AcousticDialog, PhasesDialog,
+  StructuralDialog, CollabDialog, FamiliasDialog, BlockEditorDialog,
 } from '@/components/jarumy/FeatureDialogs'
 import AdminPanel, { PRIMARY_PRESETS } from '@/components/jarumy/AdminPanel'
 import { ToolIcon } from '@/components/jarumy/ToolIcon'
@@ -328,6 +329,10 @@ export default function JarumyApp() {
       <LightingDialog />
       <AcousticDialog />
       <PhasesDialog />
+      <StructuralDialog />
+      <CollabDialog />
+      <FamiliasDialog />
+      <BlockEditorDialog />
 
       {/* ---------- panel de administración ---------- */}
       <AdminPanel onDesignChange={applyDesign} />

@@ -9,6 +9,7 @@ import type {
 import { roomAreaM2, polygonAreaM2, polygonPerimeterM, WALL_TYPES, sampleArc3, sampleCatmullRom, scallopPts, pathFromPts } from '@/lib/plan-data'
 import type { Phase } from '@/lib/plan-data'
 import type { Mod } from '@/lib/store'
+import { useJarumy } from '@/lib/store'
 
 export interface ElHandlers {
   onClickEl: (el: PlanElement) => void
@@ -135,7 +136,7 @@ function Room({ el, mod, showArea = true }: { el: PlanElement; mod?: Mod; showAr
   const subSize = minSide < 120 ? 9 : minSide < 170 ? 10 : 11.5
   const cy = g.y + g.h / 2
   return (
-    <g>
+    <g className="jy-room">
       <rect
         x={g.x} y={g.y} width={g.w} height={g.h}
         fill={mod?.fill || 'rgba(245,158,11,0.035)'}
@@ -229,7 +230,32 @@ function Door({ el, mod }: { el: PlanElement; mod?: Mod }) {
   const flip = !!mod?.hingeFlip
   const swingFlip = !!mod?.swingFlip
 
-  // hoja y arco según giro
+  // CORREDIZA: dos paneles desplazados sobre riel, sin arco de giro
+  if (mod?.doorKind === 'corrediza') {
+    const h = g.axis === 'h'
+    const w = g.r
+    const panelW = w / 2
+    return (
+      <g>
+        {h ? (
+          <g>
+            <rect x={g.cx} y={g.cy - 7} width={panelW} height={5} fill="#d6d6dc" stroke="var(--jy-muted)" strokeWidth="0.8" />
+            <rect x={g.cx + panelW} y={g.cy + 2} width={panelW} height={5} fill="#c8c8cf" stroke="var(--jy-muted)" strokeWidth="0.8" />
+            <line x1={g.cx} y1={g.cy - 9} x2={g.cx + w} y2={g.cy - 9} stroke="var(--jy-muted)" strokeWidth="1" strokeDasharray="4 3" opacity="0.7" />
+          </g>
+        ) : (
+          <g>
+            <rect x={g.cx - 7} y={g.cy} width={5} height={panelW} fill="#d6d6dc" stroke="var(--jy-muted)" strokeWidth="0.8" />
+            <rect x={g.cx + 2} y={g.cy + panelW} width={5} height={panelW} fill="#c8c8cf" stroke="var(--jy-muted)" strokeWidth="0.8" />
+            <line x1={g.cx - 9} y1={g.cy} x2={g.cx - 9} y2={g.cy + w} stroke="var(--jy-muted)" strokeWidth="1" strokeDasharray="4 3" opacity="0.7" />
+          </g>
+        )}
+        <rect className="jy-hover-ring" x={h ? g.cx - 3 : g.cx - 10} y={h ? g.cy - 10 : g.cy - 3}
+          width={h ? w + 6 : 20} height={h ? 20 : w + 6} fill="rgba(245,158,11,0.06)" stroke="transparent" />
+      </g>
+    )
+  }
+
   const leafEnd = swingFlip ? P0 : P1
   const arcFrom = swingFlip ? P1 : P0
   const arcTo = swingFlip ? P0 : P1
@@ -354,15 +380,35 @@ function ColumnNode({ el, mod }: { el: PlanElement; mod?: Mod }) {
 // ---------------- COTA ----------------
 
 function DimNode({ el, mod }: { el: PlanElement; mod?: Mod }) {
+  const units = useJarumy((st) => st.units)
+  const dimStyle = useJarumy((st) => st.dimStyle)
+  const planScale = useJarumy((st) => st.planScale)
   const g = el.geo as DimGeo
   const horizontal = Math.abs(g.x2 - g.x1) >= Math.abs(g.y2 - g.y1)
   const prec = mod?.precision ?? 2
-  const value = (mod?.dimOverride && mod.dimOverride !== '') ? mod.dimOverride
-    : `${(Math.hypot(g.x2 - g.x1, g.y2 - g.y1) / 60).toFixed(prec)}`
+  const meters = Math.hypot(g.x2 - g.x1, g.y2 - g.y1) / 60
+  // unidades del documento: métrico o pies-pulgadas
+  const fmtVal = () => {
+    if (mod?.dimOverride && mod.dimOverride !== '') return mod.dimOverride
+    if (units === 'ft') {
+      const totalIn = meters * 39.3701
+      const ft = Math.floor(totalIn / 12)
+      const inch = Math.round(totalIn - ft * 12)
+      return `${ft}'-${inch}"`
+    }
+    return meters.toFixed(prec)
+  }
+  const value = fmtVal()
+  const unitLabel = (mod?.dimOverride && mod.dimOverride !== '') ? '' : units === 'ft' ? '' : ' m'
   const stroke = 'var(--jy-primary)'
+  // estilo ARQ-60: marcas oblicuas a 45° · LINEAL: flechas
+  const annot = planScale / 75
   const tick = (x: number, y: number, dx: number, dy: number) => (
-    <line x1={x - 4 * dx} y1={y - 4 * dy} x2={x + 4 * dx} y2={y + 4 * dy} stroke={stroke} strokeWidth="1.6" />
+    dimStyle === 'arq60'
+      ? <line x1={x - 5} y1={y - 5} x2={x + 5} y2={y + 5} stroke={stroke} strokeWidth={1.8} />
+      : <line x1={x - 4 * dx} y1={y - 4 * dy} x2={x + 4 * dx} y2={y + 4 * dy} stroke={stroke} strokeWidth="1.6" />
   )
+  const fontSize = (12 * annot).toFixed(1)
 
   if (horizontal) {
     const dy = g.y1 + g.offset
@@ -373,9 +419,9 @@ function DimNode({ el, mod }: { el: PlanElement; mod?: Mod }) {
         <line x1={g.x2} y1={g.y2 + ext * 3} x2={g.x2} y2={dy - ext * 3} stroke={stroke} strokeWidth="0.8" opacity="0.6" />
         <line x1={g.x1} y1={dy} x2={g.x2} y2={dy} stroke={stroke} strokeWidth="1.1" />
         {tick(g.x1, dy, 1, 0.55)}{tick(g.x2, dy, 1, 0.55)}
-        <text x={(g.x1 + g.x2) / 2} y={dy - 5} textAnchor="middle" fontSize="12" fontWeight="700"
+        <text x={(g.x1 + g.x2) / 2} y={dy - 5} textAnchor="middle" fontSize={fontSize} fontWeight="700"
           style={{ fill: stroke }}>
-          {value} m
+          {value}{unitLabel}
         </text>
         <rect className="jy-hover-ring" x={g.x1} y={Math.min(dy, g.y1) - 14} width={g.x2 - g.x1}
           height={Math.abs(dy - g.y1) + 26} fill="none" stroke="var(--jy-primary)" strokeWidth="1.6" />
@@ -390,9 +436,9 @@ function DimNode({ el, mod }: { el: PlanElement; mod?: Mod }) {
       <line x1={g.x2 + ext * 3} y1={g.y2} x2={dx - ext * 3} y2={g.y2} stroke={stroke} strokeWidth="0.8" opacity="0.6" />
       <line x1={dx} y1={g.y1} x2={dx} y2={g.y2} stroke={stroke} strokeWidth="1.1" />
       {tick(dx, g.y1, 0.55, 1)}{tick(dx, g.y2, 0.55, 1)}
-      <text x={dx - 5} y={(g.y1 + g.y2) / 2} textAnchor="middle" fontSize="12" fontWeight="700"
+      <text x={dx - 5} y={(g.y1 + g.y2) / 2} textAnchor="middle" fontSize={fontSize} fontWeight="700"
         style={{ fill: stroke }} transform={`rotate(-90 ${dx - 5} ${(g.y1 + g.y2) / 2})`}>
-        {value} m
+        {value}{unitLabel}
       </text>
       <rect className="jy-hover-ring" x={Math.min(dx, g.x1) - 14} y={g.y1}
         width={Math.abs(dx - g.x1) + 26} height={g.y2 - g.y1} fill="none" stroke="var(--jy-primary)" strokeWidth="1.6" />
@@ -403,11 +449,22 @@ function DimNode({ el, mod }: { el: PlanElement; mod?: Mod }) {
 // ---------------- TEXTO ----------------
 
 function TextNode({ el, mod }: { el: PlanElement; mod?: Mod }) {
+  const textStyle = useJarumy((st) => st.textStyle)
   const g = el.geo as TextGeo
+  const styleProp: React.CSSProperties = {
+    fill: 'var(--jy-muted)',
+    letterSpacing: textStyle === 'arquitectural' ? '0.3px' : '0.5px',
+    fontFamily: textStyle === 'romans'
+      ? '"Times New Roman", "Tinos", serif'
+      : textStyle === 'arquitectural'
+        ? 'Georgia, "Times New Roman", serif'
+        : undefined,
+    transform: textStyle === 'romans' ? 'skewX(-15)' : undefined,
+  }
   return (
     <g>
       <text x={g.x} y={g.y} textAnchor={mod?.justify || g.anchor} fontSize={mod?.textHeight || g.size}
-        fontWeight="600" style={{ fill: 'var(--jy-muted)', letterSpacing: '0.5px' }}>
+        fontWeight="600" style={styleProp}>
         {g.text}
       </text>
       <rect className="jy-hover-ring" x={g.x - 4} y={g.y - (mod?.textHeight || g.size) - 4}
@@ -1408,22 +1465,25 @@ function InstNode({ el, mod }: { el: PlanElement; mod?: Mod }) {
   const tx = mod?.translate?.[0] ?? 0
   const ty = mod?.translate?.[1] ?? 0
   const pts = g.pts.map((p) => `${p[0] + tx},${p[1] + ty}`).join(' ')
-  const dmm = Math.round(g.diameter / 60 * 100) / 10
+  const dia = mod?.pipeDia ?? g.diameter
+  const dmm = Math.max(6, Math.round(dia))
+  // grosor de trazo proporcional al Ø real (Ø6mm → 1.2px · Ø50mm → 3.8px)
+  const sw = Math.max(1.2, Math.min(4.2, dmm / 13))
   const [x0, y0] = [g.pts[0][0] + tx, g.pts[0][1] + ty]
   const [xe, ye] = [g.pts[g.pts.length - 1][0] + tx, g.pts[g.pts.length - 1][1] + ty]
   return (
     <g>
-      <polyline points={pts} fill="none" stroke={color} strokeWidth={g.kind === 'desague' ? 3 : 2.2}
+      <polyline points={pts} fill="none" stroke={color} strokeWidth={sw}
         strokeDasharray={st.dash} strokeLinejoin="round" strokeLinecap="round" />
       {/* codos */}
       {g.pts.map((p, i) => (
-        <circle key={i} cx={p[0] + tx} cy={p[1] + ty} r="2.2" fill={color} />
+        <circle key={i} cx={p[0] + tx} cy={p[1] + ty} r={Math.max(2, sw * 0.9)} fill={color} />
       ))}
       {/* etiqueta de diámetro al inicio */}
       <g>
-        <rect x={x0 - 22} y={y0 - 20} width="44" height="12" rx="2.5" fill="rgba(24,24,27,0.85)" />
+        <rect x={x0 - 26} y={y0 - 20} width="52" height="12" rx="2.5" fill="rgba(24,24,27,0.85)" />
         <text x={x0} y={y0 - 11} textAnchor="middle" fontSize="7.5" fontWeight="700" fill={color}>
-          {st.label} Ø{dmm > 1 ? dmm.toFixed(0) : (g.diameter / 60 * 100).toFixed(0)}mm
+          {st.label} Ø{dmm}mm
         </text>
       </g>
       {/* terminal */}

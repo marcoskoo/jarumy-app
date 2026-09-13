@@ -66,15 +66,15 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       {
         id: 'nuevo', label: 'Nuevo plano', icon: 'FilePlus2', desc: 'Crea una lámina nueva desde plantilla arquitectónica', source: 'AutoCAD',
         options: [
-          { label: 'Plano de plantas', detail: 'Plantilla A1 - métrico', action: I('Plantilla "Planta Arquitectónica A1" cargada. Lámina 841×594 mm, escala 1:60, unidades métricas.') },
+          { label: 'Plano de plantas', detail: 'Plantilla A1 - métrico', action: G('newPlan') },
           { label: 'Lámina en blanco', action: G('newPlan') },
         ],
       },
       {
         id: 'guardar', label: 'Guardar', icon: 'Save', desc: 'Guarda el estado del plano', source: 'AutoCAD',
         options: [
-          { label: 'Guardar plano', detail: 'Ctrl+S', action: I('Plano guardado en la nube Jarumy (versión 1). Historial activado.') },
-          { label: 'Guardar como copia', action: I('Copia creada: jarumy-plano-v2.jrm') },
+          { label: 'Guardar plano', detail: 'Ctrl+S · versión real en el historial', action: G('saveNow') },
+          { label: 'Guardar como copia', detail: 'Copia real en el historial de versiones', action: G('saveCopy') },
         ],
       },
       {
@@ -99,7 +99,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         options: [
           { label: 'Imprimir lámina', detail: 'Ctrl+P', action: G('print') },
           { label: 'PDF a escala', detail: 'Vectorial con cartela y barra de escala', action: G('showPdfExport') },
-          { label: 'Trazado por lotes', action: I('Batch Plot: 3 láminas en cola, impresora "Plotter A1 Jarumy".') },
+          { label: 'Trazado por lotes', detail: '3 láminas en cola → PDF vectorial', action: G('batchPlot') },
         ],
       },
       {
@@ -138,7 +138,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         id: 'polilinea', label: 'Polilínea', icon: 'Spline', desc: 'PLINE: secuencia conectada de segmentos (AutoCAD: PL)', source: 'AutoCAD',
         options: [
           { label: 'Dibujar polilínea', detail: 'Múltiples vértices, doble clic para cerrar', action: D('polilinea') },
-          { label: 'Grosor de línea', action: I('Ancho de polilínea: 0.00 / 0.30 / 0.60 mm') },
+          { label: 'Grosor de línea', detail: '0.00 / 0.30 / 0.60 mm', action: P('Grosor de línea en mm (0 – 2):', 'weight', '0.6') },
         ],
       },
       {
@@ -159,7 +159,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         id: 'rectangulo', label: 'Rectángulo', icon: 'Square', desc: 'RECTANGULO: dos esquinas opuestas (AutoCAD: REC)', source: 'AutoCAD',
         options: [
           { label: 'Dibujar rectángulo', detail: 'Clic: esquina 1 → esquina 2', action: D('rectangulo') },
-          { label: 'Con chaflán', action: I('RECTANGULO con chaflán 0.25×0.25 m configurado') },
+          { label: 'Con chaflán', detail: 'Aplica chaflán 0.10 m al rectángulo seleccionado', action: A('chamferRect', 0.1) },
         ],
       },
       {
@@ -197,7 +197,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         id: 'mover', label: 'Mover', icon: 'Move', desc: 'MUEVE: desplaza objetos (AutoCAD: M)', source: 'AutoCAD',
         options: [
           { label: 'Mover elemento', detail: 'Clic: objeto → punto destino', action: D('mover') },
-          { label: 'Desplazamiento exacto', action: I('MUEVE con coordenadas: @1.50,0.00 (relativo) o 2500,3600 (absoluto).') },
+          { label: 'Desplazamiento exacto', detail: '@dx,dy en metros', action: P('Desplazamiento dx,dy en m (ej. 1.50,0.00):', 'translateM', '1.50,0.00') },
         ],
       },
       {
@@ -213,7 +213,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
           { label: 'Rotar 90°', action: A('rotate', 90) },
           { label: 'Rotar -90°', action: A('rotate', -90) },
           { label: 'Rotar 180°', action: A('rotate', 180) },
-          { label: 'Ángulo exacto', action: I('GIRA: ángulo 45°, punto base en centroide. Referencia: 30°') },
+          { label: 'Ángulo exacto', detail: 'GIRA por valor', action: P('Ángulo de giro en grados:', 'rotate', '45') },
         ],
       },
       {
@@ -222,7 +222,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
           { label: 'Agrandar ×1.15', action: A('scale', 1.15) },
           { label: 'Reducir ×0.87', action: A('scale', 0.87) },
           { label: 'Restaurar tamaño', action: A('scale', 'reset') },
-          { label: 'Factor exacto', action: I('ESCALA: factor 0.75 / 1.5 / 2.0, tipo base de escala métrica.') },
+          { label: 'Factor exacto', detail: '0.5 – 2.2', action: P('Factor de escala:', 'scale', '1.5') },
         ],
       },
       {
@@ -230,7 +230,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         options: [
           { label: 'Eje horizontal', action: A('mirror', 'h') },
           { label: 'Eje vertical', action: A('mirror', 'v') },
-          { label: 'Borrar originales', action: I('SIMETRIA con borrado de origen: eje de simetría 2 puntos (0,0)-(0,10).') },
+          { label: 'Borrar originales', detail: 'Especifica eje x/y y posición', action: P('Eje de simetría (x,7.50 o y,3.00):', 'mirrorErase', 'x,7.50') },
         ],
       },
       {
@@ -263,8 +263,8 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         id: 'empalme', label: 'Empalme', icon: 'Spline', desc: 'EMPALME: une muros en intersección (AutoCAD: F)', source: 'AutoCAD',
         options: [
           { label: 'Radio 0 (unir T/L)', detail: 'Extremos extendidos hasta el eje común', action: G('cleanJoins') },
-          { label: 'Radio 0.15 m', action: I('EMPALME radio 0.15 m aplicado a esquinas interiores.') },
-          { label: 'Achaflanado 0.10', action: I('ACHAFLANA: distancia 0.10 m en ambos lados del vértice.') },
+          { label: 'Radio 0.15 m', detail: 'Arco real de empalme entre muros', action: A('fillet', 0.15) },
+          { label: 'Achaflanado 0.10', detail: 'Corte recto en la esquina', action: A('chamfer', 0.1) },
         ],
       },
       {
@@ -273,12 +273,12 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
           { label: 'Rectangular 3×1', detail: '3 copias alineadas', action: A('duplicateTriple') },
           { label: 'Rectangular exacta…', detail: 'Columnas, filas y separación en m', action: P('MATRIZ RECTANGULAR — columnas,filas,sepX m,sepY m:', 'arrayRect', '3,2,2.00,2.00') },
           { label: 'Polar / circular…', detail: 'N elementos alrededor del centro', action: P('MATRIZ POLAR — cantidad,ángulo total (°):', 'arrayPolar', '6,360') },
-          { label: 'Por trayecto', action: I('MATRIZ sobre trayecto: 14 columnas cada 3.00 m en polilínea de eje.') },
+          { label: 'Por trayecto', detail: '6 copias sobre una polilínea — 2 clics', action: D('matriztrayecto:6') },
         ],
       },
       {
         id: 'estirar', label: 'Estirar', icon: 'StretchHorizontal', desc: 'ESTIRA: deformación por cruces (AutoCAD: S)', source: 'AutoCAD',
-        options: [{ label: 'Ventana de cruces', action: I('ESTIRA: 6 vértices seleccionados, desplazamiento @0.80,0.00 aplicado.') }],
+        options: [{ label: 'Ventana de cruces', detail: 'ESTIRA real: 1er clic centra la ventana, 2º define el estiramiento', action: D('estira') }],
       },
       {
         id: 'descomponer', label: 'Descomponer', icon: 'Ungroup', desc: 'EXPLOT: separa polilíneas y rectángulos en líneas (AutoCAD: X)', source: 'AutoCAD',
@@ -291,7 +291,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         id: 'matchprop', label: 'Igualar propiedades', icon: 'Paintbrush', desc: 'MATCHPROP: copia propiedades (AutoCAD: MA)', source: 'AutoCAD',
         options: [
           { label: 'Aplicar a todos los iguales', action: A('matchAll') },
-          { label: 'Solo capa', action: I('MATCHPROP: solo CAPA y COLOR. Objeto fuente: muro de 0.15 m ladrillo.') },
+          { label: 'Solo capa', detail: 'Copia la capa a los elementos del mismo tipo', action: A('matchLayer') },
         ],
       },
       {
@@ -331,7 +331,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         options: [
           { label: 'Insertar texto', detail: 'Clic en el punto de inserción', action: D('texto') },
           { label: 'Altura 0.20 m', action: A('textHeight', 22) },
-          { label: 'Estilo arquitectural', action: I('Estilo de texto: fuente "Arquitectural", altura 0.20, factor de anchura 0.85.') },
+          { label: 'Estilo arquitectural', detail: 'Fuente serif aplicada a los textos', action: G('textStyleArq') },
         ],
       },
       {
@@ -397,7 +397,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         options: [
           { label: 'Tipo corrediza', action: A('windowType', 1) },
           { label: 'Tipo fija', action: A('windowType', 2) },
-          { label: 'Antepecho 0.90 m', action: I('Ventana: antepecho 0.90 m, alto 1.20 m, vidrio laminado 6+6 mm.') },
+          { label: 'Antepecho 0.90 m', detail: 'Parámetro BIM real de la ventana', action: A('sill', 0.9) },
         ],
       },
       {
@@ -408,7 +408,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         id: 'losa', label: 'Losa / Techo', icon: 'Layers', desc: 'Techos paramétricos con pendiente y aguas + losa aligerada', source: 'Revit / ArchiCAD',
         options: [
           { label: 'Diseñar techo…', detail: 'A dos aguas / cuatro aguas / plano con %', action: G('showRoofDialog') },
-          { label: 'Losa aligerada e=0.20', action: I('LOSA: aligerada 0.20 m, viguetas cada 0.40, concreto f\'c 210.') },
+          { label: 'Losa aligerada e=0.20', detail: 'Viguetas cada 0.40 · f\'c 210 (metrados reales)', action: A('slabType', 'aligerada') },
         ],
       },
       {
@@ -495,7 +495,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       },
       {
         id: 'bloque-dinamico', label: 'Bloque dinámico', icon: 'Shapes', desc: 'Bloques paramétricos con acciones', source: 'AutoCAD',
-        options: [{ label: 'Editor de bloques', action: I('EDITOR DE BLOQUES: parámetros (lineal, girar, voltee) + acciones (estirar, matriz).') }],
+        options: [{ label: 'Editor de bloques', detail: 'Parámetros en vivo: giro · escala · volteo', action: G('showBlockEditor') }],
       },
     ],
   },
@@ -554,15 +554,15 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         id: 'cantidades', label: 'Cuadros de cantidades', icon: 'ClipboardList', desc: 'Schedules BIM por categoría (Revit: Schedule)', source: 'Revit / ArchiCAD',
         options: [
           { label: 'Cuadro de espacios', action: G('showSchedule') },
-          { label: 'Cuadro de muros', action: I('MUROS: 22 unidades · 96.4 m² de área · 28.9 m³ de volumen · 8 tipos.') },
-          { label: 'Cuadro de puertas', action: I('PUERTAS: 5 unidades · 4.6 m² de área · 3 tipos (simple, corrediza, doble).') },
+          { label: 'Cuadro de muros', detail: 'Longitud · espesor · área · volumen reales', action: G('showScheduleMuros') },
+          { label: 'Cuadro de puertas', detail: 'Ancho · alto · tipo · área reales', action: G('showSchedulePuertas') },
         ],
       },
       {
         id: 'colisiones', label: 'Detección de colisiones', icon: 'AlertTriangle', desc: 'Clash Detection entre disciplinas (Navisworks / Revit)', source: 'Revit / Navisworks',
         options: [
           { label: 'Ejecutar revisión', action: G('clashCheck') },
-          { label: 'Configurar reglas', action: I('Reglas: muro↔MEP, losa↔ducto, columna↔tubería. Tolerancia 0.01 m.') },
+          { label: 'Configurar reglas', detail: 'Tolerancia ajustable en cm · reglas muro-MEP', action: G('clashCheck') },
         ],
       },
       {
@@ -580,11 +580,11 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       },
       {
         id: 'colaboracion', label: 'Colaboración', icon: 'Users', desc: 'Worksharing multiusuario (Revit / BIM360)', source: 'Revit',
-        options: [{ label: 'Estado del central', action: I('MODELO CENTRAL: 3 usuarios sincronizados — J. Burga (arquitectura), MEP, estructura.') }],
+        options: [{ label: 'Estado del central', detail: 'Sesión real: elementos por disciplina · ediciones · versiones', action: G('showCollab') }],
       },
       {
         id: 'familias', label: 'Familias / Objetos', icon: 'Component', desc: 'Familias paramétricas (Revit) / Objetos GDL (ArchiCAD)', source: 'Revit / ArchiCAD',
-        options: [{ label: 'Explorador de familias', action: I('FAMILIAS: 142 cargadas — 38 muebles, 24 puertas, 30 ventanas, 50 perfiles.') }],
+        options: [{ label: 'Explorador de familias', detail: 'Biblioteca real con conteos en vivo e inserción', action: G('showFamilias') }],
       },
     ],
   },
@@ -598,8 +598,8 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         id: 'render', label: 'Render', icon: 'Sparkles', desc: 'Render fotorrealista (V-Ray / Lumion / Enscape / Corona / D5)', source: 'V-Ray / Lumion',
         options: [
           { label: 'Vista render', detail: 'Sombras + materiales cálidos', action: G('toggleRender') },
-          { label: 'Calidad: borrador', action: I('RENDER borrador: 30 s, resolución 1280×720, GI básico, sin cálculo de cáusticas.') },
-          { label: 'Calidad: ultra', action: I('RENDER ultra: ray tracing 4K, 2,400 muestras/píxel, denoiser AI activado, HDRI interior.') },
+          { label: 'Calidad: borrador', detail: 'GI básico — vista rápida', action: G('renderDraft') },
+          { label: 'Calidad: ultra', detail: 'Sombras multicapa + texturas afinadas', action: G('renderUltra') },
         ],
       },
       {
@@ -675,7 +675,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       },
       {
         id: 'estructural', label: 'Estructural', icon: 'Landmark', desc: 'Verificación de cargas (ETABS / Robot)', source: 'ETABS / Robot',
-        options: [{ label: 'Cargas y reacciones', action: I('ESTRUCTURAL: carga muerta 5.4 kN/m², viva 2.0 kN/m², deriva sísmica 0.0021 — OK.') }],
+        options: [{ label: 'Cargas y reacciones', detail: 'D · L · W · V (E.030) · columnas · deriva — desde la geometría real', action: G('structuralReport') }],
       },
       {
         id: 'acustica', label: 'Acústica', icon: 'AudioWaveform', desc: 'Aislamiento Rw por tipo de muro con verificación de dormitorios (ISO 12354 simplificado)', source: 'Plugins',
@@ -717,8 +717,11 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         ],
       },
       {
-        id: 'layer-states', label: 'Layer States', icon: 'Save', desc: 'Estados de capa guardados', source: 'AutoCAD',
-        options: [{ label: 'Estado "Revisión"', action: I('ESTADO DE CAPA "Revisión" aplicado: mobiliario apagado, cotas encendidas.') }],
+        id: 'layer-states', label: 'Layer States', icon: 'Save', desc: 'Estados de capa guardados y preajustes reales', source: 'AutoCAD',
+        options: [
+          { label: 'Estado "Revisión"', detail: 'Mobiliario/MEP apagado · cotas y comentarios encendidos', action: G('layerStateRevision') },
+          { label: 'Guardar estado actual', detail: 'Guarda la visibilidad real de las 13 capas', action: G('layerStateSave') },
+        ],
       },
       {
         id: 'tool-palettes', label: 'Tool Palettes', icon: 'Palette', desc: 'Paletas de herramientas AEC', source: 'AutoCAD Arch',
@@ -747,7 +750,7 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
         { label: 'Espesor 0.10', action: A('thickness', 10) },
         { label: 'Espesor 0.15', action: A('thickness', 15) },
         { label: 'Espesor 0.20', action: A('thickness', 20) },
-        { label: 'Altura 2.70', action: I('Altura de muro: 2.70 m · tipo Tabique-15 · ladrillo 18 huecos.') },
+        { label: 'Altura 2.70', detail: 'Parámetro BIM real (cantidades/estructural)', action: A('wallHeight', 2.7) },
         { label: 'Ladrillo', action: A('material', 'ladrillo') },
         { label: 'Concreto', action: A('material', 'concreto') },
         { label: 'Drywall', action: A('material', 'drywall') },
@@ -762,7 +765,7 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
         { label: 'Alargar B', action: A('extendB') },
         { label: 'Engrosar', action: A('thicken', 4) },
         { label: 'Adelgazar', action: A('thicken', -4) },
-        { label: 'Empalme R0', action: I('EMPALME radio 0 aplicado en la intersección más próxima.') },
+        { label: 'Empalme R0', detail: 'Limpia la unión T/L más próxima', action: G('cleanJoins') },
       ],
     },
     {
@@ -776,9 +779,9 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
     {
       id: 'bim', label: 'BIM', icon: 'Boxes',
       options: [
-        { label: 'Cantidades', action: I('MURO: 4.20 m² de área · 1.26 m³ · ladrillo 92 und · mortero 0.31 m³.') },
+        { label: 'Cantidades', detail: 'Área · volumen · ladrillo · mortero reales', action: A('qtyReport') },
         { label: 'Colisiones', action: G('clashCheck') },
-        { label: 'Fase', action: I('FASE: Nueva construcción — elemento en fase "Nueva".') },
+        { label: 'Fase', detail: 'Asigna fase Nueva construcción', action: A('phase', 'nueva') },
       ],
     },
     {
@@ -803,7 +806,7 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
       options: [
         { label: 'Ancho 1.00', action: A('scale', 1.15) },
         { label: 'Ancho 0.90', action: A('scale', 'reset') },
-        { label: 'Altura 2.10', action: I('Alto de puerta: 2.10 m · marco aluminio natural · hoja cedro.' ) },
+        { label: 'Altura 2.10', detail: 'Parámetro BIM real (cuadros y metrados)', action: A('doorHeight', 2.1) },
         { label: 'Hoja vidrio', action: A('material', 'marmol') },
       ],
     },
@@ -820,7 +823,7 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
       options: [
         { label: 'Simple', action: A('scale', 'reset') },
         { label: 'Doble', action: A('scale', 1.6) },
-        { label: 'Corrediza', action: I('Puerta corrediza: riel superior 2 vías, hoja 2.00 m de vidrio templado.') },
+        { label: 'Corrediza', detail: 'Dos paneles sobre riel — cambia el dibujo en planta', action: A('doorKind', 'corrediza') },
       ],
     },
     {
@@ -833,7 +836,7 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
     {
       id: 'bim', label: 'BIM', icon: 'Boxes',
       options: [
-        { label: 'Cantidades', action: I('PUERTA: 1.71 m² · 1 unidad · herrajes 1 juego · tipo simple 0.90 m.') },
+        { label: 'Cantidades', detail: 'Área · herrajes · marco reales', action: A('qtyReport') },
         { label: 'Colisiones', action: G('clashCheck') },
       ],
     },
@@ -851,7 +854,7 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
       options: [
         { label: 'Ancho 1.80', action: A('scale', 1.2) },
         { label: 'Ancho 1.20', action: A('scale', 'reset') },
-        { label: 'Antepecho 0.90', action: I('Antepecho 0.90 m · alto 1.20 m · vidrio laminado 6+6 mm claro.') },
+        { label: 'Antepecho 0.90', detail: 'Parámetro BIM real de la ventana', action: A('sill', 0.9) },
       ],
     },
     {
@@ -872,7 +875,7 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
     {
       id: 'bim', label: 'BIM', icon: 'Boxes',
       options: [
-        { label: 'Cantidades', action: I('VENTANA: 1.68 m² · vidrio 1.5 m² · perfil PVC blanco · U 1.4 W/m²K.') },
+        { label: 'Cantidades', detail: 'Área · vidrio · perfil reales', action: A('qtyReport') },
         { label: 'Colisiones', action: G('clashCheck') },
       ],
     },
@@ -890,7 +893,7 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
       options: [
         { label: 'Renombrar', action: P('Nuevo nombre', 'rename') },
         { label: 'Número', action: P('Número del espacio', 'renumber') },
-        { label: 'Uso: sala', action: I('Uso del espacio: Estar / convivencia. Ocupación: 6 personas.') },
+        { label: 'Uso: sala', detail: 'Estar/convivencia · 6 ocupantes (RNE A.010)', action: A('usage', 'estar') },
       ],
     },
     {
@@ -905,9 +908,9 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
     {
       id: 'area', label: 'Área', icon: 'Ruler',
       options: [
-        { label: 'Calcular área', action: I('AREA: ver cálculo en el propio espacio del plano.') },
-        { label: 'Perímetro', action: I('PERÍMETRO calculado: ver etiqueta del espacio. Límites por línea media de muros.') },
-        { label: 'Volumen', action: I('VOLUMEN: área × altura 2.70 m (auto en BIM).') },
+        { label: 'Calcular área', detail: 'Ancho × alto medidos del elemento', action: A('roomCalc', 'area') },
+        { label: 'Perímetro', detail: '2 × (ancho + alto) real', action: A('roomCalc', 'perim') },
+        { label: 'Volumen', detail: 'Área × altura de muro BIM', action: A('roomCalc', 'vol') },
       ],
     },
     {
@@ -927,7 +930,7 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
       id: 'energia', label: 'Energía', icon: 'Zap',
       options: [
         { label: 'Análisis energético', action: G('energyReport') },
-        { label: 'Iluminación', action: I('ILUMINACIÓN: 280 lx promedio · 5 luminarias LED 9W · factor mantenimiento 0.8.') },
+        { label: 'Iluminación', detail: 'LUX por ambiente (método de lúmenes)', action: G('showLighting') },
       ],
     },
   ],
@@ -968,7 +971,7 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
       id: 'bloque', label: 'Bloque', icon: 'Blocks',
       options: [
         { label: 'Duplicar', action: A('duplicate') },
-        { label: 'Explotar', action: I('EXPLOT: bloque separado en primitivas editables.') },
+        { label: 'Explotar', detail: 'Separa el bloque en 4 líneas editables', action: A('explode') },
       ],
     },
     {
@@ -1018,7 +1021,7 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
     {
       id: 'estilo', label: 'Estilo', icon: 'Settings2',
       options: [
-        { label: 'Flecha arquitect.', action: I('Estilo de cota "ARQ-60": flechas oblicuas, texto 2.5 mm, ISO-25.)') },
+        { label: 'Flecha arquitect.', detail: 'Estilo ARQ-60: marcas oblicuas 45°', action: G('dimStyleArq') },
         { label: 'Texto en ángulo', action: A('rotate', 0) },
         { label: 'Texto horizontal', action: A('rotate', 1) },
       ],
@@ -1042,7 +1045,7 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
       id: 'actualizar', label: 'Actualizar', icon: 'RefreshCw',
       options: [
         { label: 'Recalcular', action: A('dimRefresh') },
-        { label: 'Asociar', action: I('Cota asociada geométricamente al muro: se actualiza al mover el objeto.') },
+        { label: 'Asociar', detail: 'Recalcula el valor desde la geometría', action: A('dimRefresh') },
       ],
     },
     {
@@ -1058,7 +1061,7 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
       id: 'editar', label: 'Editar', icon: 'Pencil',
       options: [
         { label: 'Contenido', action: P('Nuevo texto', 'rename') },
-        { label: 'Copiar texto', action: I('TEXTO copiado al portapapeles del sistema.') },
+        { label: 'Copiar texto', detail: 'Copia REAL al portapapeles', action: A('copyText') },
       ],
     },
     {
@@ -1066,7 +1069,7 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
       options: [
         { label: 'Altura ×1.3', action: A('textHeight', 26) },
         { label: 'Altura ×0.8', action: A('textHeight', 15) },
-        { label: 'Fuente Romans', action: I('Estilo de texto: fuente "Romans", altura 0.20 m, oblicua 15°.') },
+        { label: 'Fuente Romans', detail: 'Serif con oblicua 15° — aplicado en vivo', action: G('textStyleRomans') },
       ],
     },
     {
@@ -1104,7 +1107,7 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
     },
     {
       id: 'bim', label: 'BIM', icon: 'Boxes',
-      options: [{ label: 'Cantidades', action: I('COLUMNA: 0.09 m² · 0.24 m³ · concreto f\'c 210 · acero 4Ø3/4".') }],
+      options: [{ label: 'Cantidades', detail: 'Concreto · acero · encofrado reales', action: A('qtyReport') }],
     },
     {
       id: 'capa', label: 'Capa', icon: 'Layers',
@@ -1118,9 +1121,9 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
     {
       id: 'convertir', label: 'Convertir', icon: 'DoorOpen',
       options: [
-        { label: 'Puerta simple', action: I('Hueco convertido a puerta simple de 0.90 m con giro a la izquierda.') },
-        { label: 'Doble puerta', action: I('Hueco convertido a doble puerta 1.60 m con hojas iguales.') },
-        { label: 'Mantener hueco', action: I('Vano libre mantenido: 1.20 m de ancho sin carpintería.') },
+        { label: 'Puerta simple', detail: 'Convierte el vano en puerta con giro', action: A('convertDoor', 'simple') },
+        { label: 'Doble puerta', detail: 'Dos hojas iguales con giro opuesto', action: A('convertDoor', 'doble') },
+        { label: 'Mantener hueco', detail: 'Vano libre sin carpintería', action: A('convertDoor', 'hueco') },
       ],
     },
     {
@@ -1197,16 +1200,16 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
     {
       id: 'unidades', label: 'Unidades', icon: 'Ruler',
       options: [
-        { label: 'Métrico (m)', action: I('UNIDADES: métrico decimal, precisión 0.00, ángulos decimales grados.') },
-        { label: 'Pulgadas', action: I('UNIDADES: arquitectural (pies-pulgadas), precisión 1/16".') },
+        { label: 'Métrico (m)', detail: 'Cotas en metros — aplicado en vivo', action: G('unitsMetric') },
+        { label: 'Pulgadas', detail: 'Cotas en pies-pulgadas — aplicado en vivo', action: G('unitsImperial') },
       ],
     },
     {
       id: 'escala', label: 'Escala', icon: 'Scaling',
       options: [
-        { label: '1:50', action: I('ESCALA de lámina 1:50 — cotas y textos reajustados automáticamente.') },
-        { label: '1:75', action: I('ESCALA de lámina 1:75 — anotaciones ajustadas al 133%.') },
-        { label: '1:100', action: I('ESCALA de lámina 1:100 — anotaciones ajustadas al 200%.') },
+        { label: '1:50', detail: 'Anotaciones reajustadas al 67%', action: G('scale50') },
+        { label: '1:75', detail: 'Escala base de la lámina', action: G('scale75') },
+        { label: '1:100', detail: 'Anotaciones reajustadas al 133%', action: G('scale100') },
       ],
     },
     {
@@ -1275,8 +1278,8 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
       id: 'diametro', label: 'Diámetro', icon: 'CircleDot',
       options: [
         { label: 'Ø 1/2"', detail: '15 mm', action: A('scale', 1) },
-        { label: 'Ø 3/4"', detail: '20 mm', action: I('Tubería redimensionada a Ø3/4" — 20 mm.') },
-        { label: 'Ø 2"', detail: '50 mm desagüe', action: I('Colector redimensionado a Ø2" — 50 mm con pendiente 1.5%.') },
+        { label: 'Ø 3/4"', detail: '20 mm — cambia el trazo en vivo', action: A('pipeDia', 20) },
+        { label: 'Ø 2"', detail: '50 mm desagüe con pendiente 1.5%', action: A('pipeDia', 50) },
       ],
     },
     {
