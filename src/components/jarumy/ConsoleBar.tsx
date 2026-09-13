@@ -77,6 +77,15 @@ export function StatusBar() {
     { label: 'RENDER', on: s.renderMode, fn: () => s.toggle('renderMode') },
     { label: '3D', on: s.view3D, fn: () => s.toggle('view3D') },
   ]
+  // --- chip de auto-guardado (persistencia total del plano) ---
+  const dot = !s.autosaveOn ? 'bg-zinc-500'
+    : s.autosaveStatus === 'error' ? 'bg-rose-400'
+    : s.autosaveStatus === 'saving' ? 'bg-amber-400 animate-pulse'
+    : s.autosaveStatus === 'saved' ? 'bg-emerald-400'
+    : 'bg-zinc-500'
+  const savedTime = s.autosaveAt
+    ? new Date(s.autosaveAt).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })
+    : null
   return (
     <div
       className="jy-bg border-t jy-border flex items-center gap-1 px-2 py-1 overflow-x-auto jy-scroll"
@@ -92,7 +101,18 @@ export function StatusBar() {
           {t.label}
         </button>
       ))}
-      <span className="ml-auto shrink-0 flex items-center gap-2 text-[9.5px] jy-muted pr-1">
+      <button
+        onClick={() => s.toggleAutosave()}
+        className={`ml-auto shrink-0 flex items-center gap-1.5 rounded px-2 py-1 text-[9.5px] font-bold tracking-wider transition-colors ${
+          s.autosaveOn ? 'text-emerald-300/90 hover:text-emerald-200' : 'text-zinc-500 hover:text-zinc-300'}`}
+        title={s.autosaveOn
+          ? `Auto-guardado activo: el plano completo se guarda solo tras cada cambio (último: ${savedTime ? `${savedTime}` : 'pendiente'}) — clic para desactivar`
+          : 'Auto-guardado desactivado — clic para activar la persistencia total del plano'}
+      >
+        <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
+        AUTO-GUARDADO{s.autosaveOn && savedTime ? ` ${savedTime}` : ''}
+      </button>
+      <span className="shrink-0 flex items-center gap-2 text-[9.5px] jy-muted pr-1">
         <span>Zoom {(s.zoom * 100).toFixed(0)}%</span>
         <span className="hidden sm:inline">·</span>
         <span className="hidden sm:inline">Esc. 1:60</span>

@@ -1,10 +1,13 @@
 'use client'
 
+import { useState } from 'react'
+import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useJarumy } from '@/lib/store'
 import { TOOL_CATEGORIES, TOTAL_TOOLS } from '@/lib/tools-data'
 import { roomAreaM2, PX_PER_M, type RoomGeo, type WallGeo, type DoorGeo, type WindowGeo, type FurnGeo, type InstGeo, type ColGeo } from '@/lib/plan-data'
 import { USAGE_LABELS } from '@/lib/store'
+import { computeBimSchedules, downloadBimWorkbook } from '@/lib/bim-schedules'
 import { ToolIcon } from './ToolIcon'
 
 // ---------------- CUADROS BIM POR CATEGORÍA (datos en vivo) ----------------
@@ -19,6 +22,7 @@ const SCHEDULE_TABS = [
 
 export function ScheduleDialog() {
   const s = useJarumy()
+  const [project, setProject] = useState('VIVIENDA UNIFAMILIAR')
   const alive = s.elements.filter((e) => !s.mods[e.id]?.deleted)
   const rows = alive.filter((e) => e.type === 'espacio')
   const total = rows.reduce((n, e) => n + roomAreaM2(e.geo as RoomGeo), 0)
@@ -73,6 +77,26 @@ export function ScheduleDialog() {
               {t.label}
             </button>
           ))}
+        </div>
+
+        {/* --- exportación a Excel multi-hoja --- */}
+        <div className="flex items-center gap-2 mb-2">
+          <input value={project} onChange={(e) => setProject(e.target.value)}
+            className="flex-1 min-w-0 rounded-lg border jy-border bg-black/25 px-2.5 py-1.5 text-[11.5px] jy-text"
+            placeholder="Nombre del proyecto" />
+          <button
+            onClick={() => {
+              const data = computeBimSchedules(s.elements, s.mods)
+              const r = downloadBimWorkbook(data, project)
+              s.pushConsole({ text: `CUADROS BIM EXPORTADOS: ${r.filename} · ${(r.bytes / 1024).toFixed(1)} KB — 6 hojas: Resumen, Espacios, Muros, Puertas, Ventanas y Sanitarios`, kind: 'out' })
+              toast.success('Cuadros BIM exportados a Excel', { description: `${r.filename} · ábralo en Excel, LibreOffice o Google Sheets` })
+            }}
+            className="flex items-center gap-1.5 rounded-xl bg-amber-500 px-3 py-1.5 text-[11.5px] font-black text-zinc-950 hover:brightness-110 active:scale-95 transition-all shrink-0"
+            title="Exportar el resumen + los 5 cuadros a un Excel multi-hoja (.xls)"
+          >
+            <ToolIcon name="FileSpreadsheet" size={14} />
+            Excel (.xls)
+          </button>
         </div>
 
         {tab === 'espacios' && (
@@ -231,7 +255,7 @@ export function ScheduleDialog() {
 
         <p className="text-[10px] jy-muted">
           Cuadros generados con datos en vivo del modelo ({alive.length} elementos): cantidades, espesores, alturas y usos
-          se recalculan al instante al editar el plano.
+          se recalculan al instante al editar el plano. Exportación con fórmulas de totales por hoja.
         </p>
       </DialogContent>
     </Dialog>

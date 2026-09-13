@@ -339,8 +339,11 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         options: [{ label: 'Insertar directriz', detail: 'Clic: flecha · destino · escribe el rótulo', action: D('directriz') }],
       },
       {
-        id: 'tabla', label: 'Tabla', icon: 'Table', desc: 'TABLA: cuadros con estilos (AutoCAD: TB)', source: 'AutoCAD / Revit',
-        options: [{ label: 'Cuadro de espacios', detail: 'Generado desde los espacios BIM', action: G('showSchedule') }],
+        id: 'tabla', label: 'Tabla', icon: 'Table', desc: 'TABLA: cuadros BIM con estilos y exportación a Excel multi-hoja (AutoCAD: TB)', source: 'AutoCAD / Revit',
+        options: [
+          { label: 'Cuadro de espacios', detail: 'Generado desde los espacios BIM', action: G('showSchedule') },
+          { label: 'Exportar cuadros BIM', detail: 'Resumen + Espacios/Muros/Puertas/Ventanas/Sanitarios a .xls', action: G('bimExcel') },
+        ],
       },
       {
         id: 'rotulado-areas', label: 'Rotulado de áreas', icon: 'Tags', desc: 'Etiquetas automáticas de nombre + m² por ambiente, calculadas en tiempo real (Revit: Rooms)', source: 'Revit / ArchiCAD',

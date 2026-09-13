@@ -12,6 +12,7 @@ import { dayOfYear } from '@/lib/solar'
 import {
   downloadPlanJson, parsePlanFile, listVersions, saveVersion, deleteVersion, type PlanSnapshotData,
 } from '@/lib/plan-files'
+import { saveAutosave, loadAutosave, clearAutosave, readAutosavePref, writeAutosavePref } from './autosave'
 
 // ---------------- tipos ----------------
 
@@ -126,6 +127,10 @@ interface JarumyState {
   // historial
   undoStack: Snapshot[]
   redoStack: Snapshot[]
+  // auto-guardado (persistencia total del plano)
+  autosaveOn: boolean
+  autosaveStatus: 'idle' | 'saving' | 'saved' | 'error'
+  autosaveAt: number | null
   // acciones
   setHovered: (h: HoverInfo | null) => void
   setSelected: (id: string | null) => void
@@ -168,6 +173,8 @@ interface JarumyState {
   redo: () => void
   newPlan: () => void
   walkthrough: () => void
+  toggleAutosave: () => void
+  restoreAutosave: () => boolean
 }
 
 // ---------------- utilidades ----------------
@@ -337,6 +344,9 @@ export const useJarumy = create<JarumyState>((set, get) => ({
   ],
   undoStack: [],
   redoStack: [],
+  autosaveOn: true,
+  autosaveStatus: 'idle',
+  autosaveAt: null,
 
   setHovered: (h) => set((s) => ({
     hovered: h,
@@ -1462,6 +1472,16 @@ export const useJarumy = create<JarumyState>((set, get) => ({
         s.savePlanVersion(`Copia jarumy-plano-v${n}`)
         break
       }
+      case 'bimExcel': {
+        // cuadros BIM → Excel multi-hoja (Resumen + 5 cuadros)
+        import('@/lib/bim-schedules').then((mod) => {
+          const st = get()
+          const data = mod.computeBimSchedules(st.elements, st.mods)
+          const r = mod.downloadBimWorkbook(data, 'PLANO JARUMY')
+          get().pushConsole({ text: `CUADROS BIM EXPORTADOS: ${r.filename} · ${(r.bytes / 1024).toFixed(1)} KB · 6 hojas (Resumen + Espacios + Muros + Puertas + Ventanas + Sanitarios) — ábralo en Excel, LibreOffice o Google Sheets`, kind: 'out' })
+        })
+        break
+      }
       // ---------- ajustes de documento reales ----------
       case 'unitsMetric':
         set({ units: 'm' })
@@ -1749,6 +1769,67 @@ export const useJarumy = create<JarumyState>((set, get) => ({
     get().pushConsole({ text: `VERSIÓN RESTAURADA: ${data.elements.length} elementos · ${new Date(data.savedAt).toLocaleString('es-PE')}`, kind: 'out' })
   },
 
+  toggleAutosave: () => {
+    const next = !get().autosaveOn
+    writeAutosavePref(next)
+    if (next) {
+      set({ autosaveOn: true })
+      persistAutosaveNow() // snapshot inmediato del estado actual
+      get().pushConsole({ text: 'AUTO-GUARDADO ACTIVADO: el plano completo (elementos, capas, ajustes y vista) se guarda solo tras cada cambio en este navegador', kind: 'out' })
+    } else {
+      clearAutosave()
+      set({ autosaveOn: false, autosaveStatus: 'idle', autosaveAt: null })
+      get().pushConsole({ text: 'AUTO-GUARDADO DESACTIVADO: copia local eliminada — use GUARDAR (versiones) o COMPARTIR (.json) para conservar el plano', kind: 'out' })
+    }
+  },
+
+  restoreAutosave: () => {
+    if (typeof window === 'undefined') return false
+    if (!readAutosavePref()) {
+      set({ autosaveOn: false })
+      get().pushConsole({ text: 'AUTO-GUARDADO desactivado (preferencia recordada) — actívelo en la barra de estado para persistir el plano', kind: 'out' })
+      return false
+    }
+    const data = loadAutosave()
+    if (!data) return false // arranque limpio: no hay plano guardado
+    set({
+      elements: data.elements,
+      mods: data.mods,
+      layers: data.layers,
+      gridSpacing: data.gridSpacing,
+      nextId: data.nextId,
+      renderQuality: data.renderQuality,
+      planScale: data.planScale,
+      units: data.units,
+      dimStyle: data.dimStyle,
+      textStyle: data.textStyle,
+      clashTolerance: data.clashTolerance,
+      sun: data.sun,
+      renderMode: data.renderMode,
+      view3D: data.view3D,
+      showGrid: data.showGrid,
+      snap: data.snap,
+      ortho: data.ortho,
+      radialEnabled: data.radialEnabled,
+      showLayers: data.showLayers,
+      showProperties: data.showProperties,
+      areaLabels: data.areaLabels,
+      autoDims: data.autoDims,
+      insertRotation: data.insertRotation,
+      phaseFilter: data.phaseFilter,
+      autosaveOn: true,
+    })
+    // la vista se aplica tras el auto-encuadre inicial del lienzo
+    // (PlanCanvas mide su tamaño de forma asíncrona y re-encuadra)
+    const { zoom, panX, panY } = data
+    setTimeout(() => useJarumy.setState({ zoom, panX, panY }), 300)
+    get().pushConsole({
+      text: `PLANO RESTAURADO del auto-guardado: ${data.elements.length} elementos · ${data.layers.length} capas · guardado ${new Date(data.savedAt).toLocaleString('es-PE')}`,
+      kind: 'out',
+    })
+    return true
+  },
+
   setLayerVisible: (id, v) => set((s) => ({
     layers: s.layers.map((l) => (l.id === id ? { ...l, visible: v } : l)),
   })),
@@ -1842,6 +1923,8 @@ export const useJarumy = create<JarumyState>((set, get) => ({
       'RECORRIDO': () => s.runGlobal('walkthrough'),
       // --- herramientas reales nuevas ---
       'GUARDAR': () => s.runGlobal('saveNow'), 'GRABAR': () => s.runGlobal('saveNow'),
+      'AUTOGUARDADO': () => s.toggleAutosave(), 'AUTOGUARDA': () => s.toggleAutosave(), 'AUTOSAVE': () => s.toggleAutosave(),
+      'EXCELBIM': () => s.runGlobal('bimExcel'), 'CUADROEXCEL': () => s.runGlobal('bimExcel'), 'BIMEXCEL': () => s.runGlobal('bimExcel'),
       'ESTRUCTURAL': () => s.runGlobal('structuralReport'), 'CARGAS': () => s.runGlobal('structuralReport'),
       'COLABORACION': () => s.runGlobal('showCollab'), 'FAMILIAS': () => s.runGlobal('showFamilias'),
       'LAYERSTATES': () => s.runGlobal('layerStateSave'), 'ESTADOCAPA': () => s.runGlobal('layerStateSave'),
@@ -1886,8 +1969,8 @@ export const useJarumy = create<JarumyState>((set, get) => ({
         'PARAMÉTRICOS: ESCALERA · TECHO · LOTE · CURVA · UNIONES (T/L limpias)',
         'BIM: FASES (existente/demolición/nueva) · FASE (asignar a selección) · QSELECT',
         'ANÁLISIS: NORMATIVA (RNE A.010/A.130) · METRADOS/S10/PRESUPUESTO · ELEVACIONES · LUX (iluminación) · ACUSTICA (Rw)',
-        'EXPORTAR: PDF · DXF/DWG · PNG · SVG · COMPARTIR (.json) · HISTORIAL/VERSIONES · GUARDAR · BATCHPLOT',
-        'DOC: UNIDADES (m/ft) · ESCALA (1:50/1:75/1:100) · COLABORACION · FAMILIAS · LAYERSTATES',
+        'EXPORTAR: PDF · DXF/DWG · PNG · SVG · EXCELBIM (cuadros BIM) · COMPARTIR (.json) · HISTORIAL/VERSIONES · GUARDAR · BATCHPLOT',
+        'DOC: UNIDADES (m/ft) · ESCALA (1:50/1:75/1:100) · COLABORACION · FAMILIAS · LAYERSTATES · AUTOGUARDADO (on/off)',
       ]
       ayuda.forEach((l) => s.pushConsole({ text: l, kind: 'out' }))
       return
@@ -1950,3 +2033,88 @@ export const useJarumy = create<JarumyState>((set, get) => ({
     step()
   },
 }))
+
+// ---------------- auto-guardado total (suscripción con debounce) ----------------
+// Persiste TODO el plano (documento + ajustes + vista + modos) 0.9 s después
+// de cada cambio real, con volcados de seguridad al cerrar la pestaña, al
+// ocultar la ventana y un respaldo periódico cada 20 s.
+
+function autosavePayload() {
+  const st = useJarumy.getState()
+  return {
+    elements: st.elements,
+    mods: st.mods,
+    layers: st.layers,
+    gridSpacing: st.gridSpacing,
+    nextId: st.nextId,
+    renderQuality: st.renderQuality,
+    planScale: st.planScale,
+    units: st.units,
+    dimStyle: st.dimStyle,
+    textStyle: st.textStyle,
+    clashTolerance: st.clashTolerance,
+    sun: st.sun,
+    zoom: st.zoom,
+    panX: st.panX,
+    panY: st.panY,
+    renderMode: st.renderMode,
+    view3D: st.view3D,
+    showGrid: st.showGrid,
+    snap: st.snap,
+    ortho: st.ortho,
+    radialEnabled: st.radialEnabled,
+    showLayers: st.showLayers,
+    showProperties: st.showProperties,
+    areaLabels: st.areaLabels,
+    autoDims: st.autoDims,
+    insertRotation: st.insertRotation,
+    phaseFilter: st.phaseFilter,
+  }
+}
+
+let autosaveTimer: ReturnType<typeof setTimeout> | null = null
+let autosaveErrLogged = false
+
+function persistAutosaveNow() {
+  if (autosaveTimer) { clearTimeout(autosaveTimer); autosaveTimer = null }
+  const st = useJarumy.getState()
+  if (!st.autosaveOn) return
+  const ok = saveAutosave(autosavePayload())
+  useJarumy.setState({
+    autosaveStatus: ok ? 'saved' : 'error',
+    autosaveAt: ok ? Date.now() : st.autosaveAt,
+  })
+  if (!ok && !autosaveErrLogged) {
+    autosaveErrLogged = true
+    useJarumy.getState().pushConsole({ text: 'AUTO-GUARDADO: el navegador rechazó la escritura (cuota llena o modo privado) — use COMPARTIR (.json) para conservar el plano', kind: 'err' })
+  } else if (ok) {
+    autosaveErrLogged = false
+  }
+}
+
+if (typeof window !== 'undefined') {
+  useJarumy.subscribe((st, prev) => {
+    if (!st.autosaveOn) return
+    // solo reacciona a cambios de datos persistibles (ignora hover/selección/consola)
+    const unchanged = st.elements === prev.elements && st.mods === prev.mods && st.layers === prev.layers
+      && st.gridSpacing === prev.gridSpacing && st.nextId === prev.nextId && st.sun === prev.sun
+      && st.zoom === prev.zoom && st.panX === prev.panX && st.panY === prev.panY
+      && st.renderQuality === prev.renderQuality && st.planScale === prev.planScale && st.units === prev.units
+      && st.dimStyle === prev.dimStyle && st.textStyle === prev.textStyle && st.clashTolerance === prev.clashTolerance
+      && st.renderMode === prev.renderMode && st.view3D === prev.view3D && st.showGrid === prev.showGrid
+      && st.snap === prev.snap && st.ortho === prev.ortho && st.radialEnabled === prev.radialEnabled
+      && st.showLayers === prev.showLayers && st.showProperties === prev.showProperties
+      && st.areaLabels === prev.areaLabels && st.autoDims === prev.autoDims
+      && st.insertRotation === prev.insertRotation && st.phaseFilter === prev.phaseFilter
+    if (unchanged) return
+    useJarumy.setState({ autosaveStatus: 'saving' })
+    if (autosaveTimer) clearTimeout(autosaveTimer)
+    autosaveTimer = setTimeout(persistAutosaveNow, 900)
+  })
+  // volcados de seguridad: cierre de pestaña, pestaña oculta y respaldo periódico
+  window.addEventListener('beforeunload', () => { if (autosaveTimer) persistAutosaveNow() })
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && autosaveTimer) persistAutosaveNow()
+  })
+  window.setInterval(() => { if (autosaveTimer) persistAutosaveNow() }, 20000)
+}

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { toast } from 'sonner'
 import { useJarumy } from '@/lib/store'
 import { TOTAL_TOOLS } from '@/lib/tools-data'
 import { BLOCK_LIBRARY } from '@/lib/plan-data'
@@ -83,6 +84,17 @@ export default function JarumyApp() {
     }
   })
 
+  // restauración del auto-guardado (tras la hidratación, para no
+  // desincronizar el render del servidor con el estado persistido)
+  useEffect(() => {
+    const restored = useJarumy.getState().restoreAutosave()
+    if (restored) {
+      toast.success('Plano restaurado del auto-guardado', {
+        description: 'Elementos, capas, ajustes y vista intactos — nada se perdió',
+      })
+    }
+  }, [])
+
   // aviso cuando cambia la sesión (ej. al cerrar desde admin)
   useEffect(() => {
     useJarumy.getState().pushConsole({
@@ -101,7 +113,7 @@ export default function JarumyApp() {
     { icon: 'Calculator', label: 'Metrados S10', detail: 'Presupuesto por partidas → Excel', fn: () => s.setDialog('metrados') },
     { icon: 'Sun', label: 'Heliodón', detail: 'Sol, sombras y trayectorias reales', fn: () => s.runGlobal('toggleSun') },
     { icon: 'Library', label: `Catálogo (${TOTAL_TOOLS})`, detail: 'Herramientas recopiladas de 10 apps', fn: () => s.setDialog('catalog') },
-    { icon: 'ClipboardList', label: 'Cuadro BIM', detail: 'Espacios, áreas y acabados', fn: () => s.setDialog('schedule') },
+    { icon: 'ClipboardList', label: 'Cuadro BIM', detail: 'Espacios, áreas y acabados + exportar a Excel', fn: () => s.setDialog('schedule') },
     { icon: 'Share2', label: 'Compartir e historial', detail: 'Plano .json + versiones guardadas', fn: () => s.setDialog('share') },
   ]
   const panelActions: { icon: string; label: string; next: MobileSheet }[] = [
