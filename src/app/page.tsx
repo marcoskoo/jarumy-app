@@ -111,11 +111,28 @@ export default function JarumyApp() {
     })
   }, [])
 
-  // ---------- PWA: registro del service worker (offline) ----------
+  // ---------- PWA: registro del service worker (SOLO producción) ----------
+  // En desarrollo NO se registra — los chunks de dev son mutables y un SW
+  // cache-first serviría código viejo tras reiniciar el servidor — y además
+  // se DES-registra cualquier SW residual y se vacían sus caches, para que
+  // el navegador siempre muestre la versión fresca de la app.
   useEffect(() => {
-    if ('serviceWorker' in navigator) {
+    if (!('serviceWorker' in navigator)) return
+    if (process.env.NODE_ENV === 'production') {
       navigator.serviceWorker.register('/sw.js').catch(() => { /* sin SW */ })
+      return
     }
+    const cleanup = async () => {
+      try {
+        const regs = await navigator.serviceWorker.getRegistrations()
+        await Promise.all(regs.map((r) => r.unregister()))
+        if (typeof caches !== 'undefined') {
+          const keys = await caches.keys()
+          await Promise.all(keys.map((k) => caches.delete(k)))
+        }
+      } catch { /* sin SW */ }
+    }
+    void cleanup()
   }, [])
 
   // ---------- importación de DXF (input oculto + evento de la consola) ----------

@@ -816,7 +816,7 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
                       </p>
                       {totpSetup.qrSvg ? (
                         <div
-                          className="mx-auto w-[196px] h-[196px] rounded-xl bg-white p-2 shadow-lg"
+                          className="mx-auto w-[196px] h-[196px] rounded-xl bg-white p-2 shadow-lg [&>svg]:block [&>svg]:mx-auto [&>svg]:w-[180px] [&>svg]:h-[180px]"
                           aria-label="Código QR otpauth para Google Authenticator"
                           role="img"
                           dangerouslySetInnerHTML={{ __html: totpSetup.qrSvg }}

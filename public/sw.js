@@ -1,14 +1,20 @@
 /* ============================================================
- * JARUMY APP — Service Worker (PWA offline).
+ * JARUMY APP — Service Worker (PWA offline, SOLO producción).
  * Estrategia:
  *   · Estáticos (/_next/static, iconos, logo): cache-first
+ *     (en producción los chunks llevan hash de contenido → inmutables)
  *   · Navegación (documento /): network-first con respaldo offline
  *   · /api/*: SIEMPRE red (nunca se cachean datos de sesión/planos)
  * El plano en sí lo persiste el auto-guardado en localStorage,
  * por lo que la app funciona sin conexión tras la primera visita.
+ *
+ * NOTA: en desarrollo la app NO registra este SW (page.tsx lo des-
+ * registra y vacía las caches): los chunks de dev son mutables y un
+ * cache-first serviría código obsoleto tras cada cambio/reinicio.
+ * v4: purga de caches v3 (stale tras actualizaciones de la app).
  * ============================================================ */
 
-const CACHE = 'jarumy-v3'
+const CACHE = 'jarumy-v4'
 const OFFLINE_URLS = ['/', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png', '/logo-jarumy.png', '/logo.svg']
 
 self.addEventListener('install', (event) => {
