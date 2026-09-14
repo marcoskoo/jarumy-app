@@ -127,7 +127,6 @@ export function planToMesh(elements: PlanElement[], mods: Record<string, Mod>): 
     const wM = g.w / PX_PER_M
     const run = g.h / PX_PER_M / g.steps // avance en planta por paso (m)
     for (let i = 0; i < g.steps; i++) {
-      const yApx = g.y + ty + (g.h / g.steps) * i      // borde inferior del paso (px, Y-abajo)
       const yBpx = g.y + ty + (g.h / g.steps) * (i + 1) // borde superior del paso (px)
       const yTop = YM(yBpx)                              // mayor y mundo
       pushBox(XM(g.x + tx), yTop - run, 0, wM, run + 0.01, g.riser * (i + 1))

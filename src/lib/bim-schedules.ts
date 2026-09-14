@@ -11,6 +11,7 @@ import type { RoomGeo, WallGeo, DoorGeo, WindowGeo, FurnGeo } from './plan-data'
 import { PX_PER_M, roomAreaM2 } from './plan-data'
 import type { Mod } from './store'
 import { USAGE_LABELS } from './store'
+import { usageOf, occupantsFor } from './evacuation'
 
 // ---------------- datos calculados (espejo del diálogo) ----------------
 
@@ -43,12 +44,15 @@ export function computeBimSchedules(elements: PlanElement[], mods: Record<string
   const espacios = alive.filter((e) => e.type === 'espacio').map((e) => {
     const g = e.geo as RoomGeo
     const area = roomAreaM2(g)
+    // misma regla de ocupancia que el informe de evacuación A.130
+    // (por uso RNE; antes usaba área/4.5 y divergía del informe de evacuación)
+    const ocup = occupantsFor(usageOf(e, mods[e.id]), area)
     return {
       num: String(g.num ?? ''),
       name: g.name || 'Espacio',
       uso: USAGE_LABELS[mod(e.id).usage || ''] || '—',
       area: r2(area),
-      ocup: Math.max(1, Math.round(area / 4.5)),
+      ocup,
     }
   })
   const espaciosTotal = r2(espacios.reduce((n, r) => n + r.area, 0))

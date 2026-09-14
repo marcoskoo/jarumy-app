@@ -470,7 +470,6 @@ export function ClashDialog() {
     }
   }
 
-  const nAlta = clashes.filter((c) => c.sev === 'Alta').length
   const modelArea = alive.filter((e) => e.type === 'espacio').reduce((n, e) => n + roomAreaM2(e.geo as RoomGeo), 0)
 
   return (

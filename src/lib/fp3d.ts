@@ -27,14 +27,6 @@ export interface FpScene {
 const EYE = 1.6
 const FOV = (Math.PI / 180) * 70 // 70° horizontal
 
-function shade(hex: string, k: number): string {
-  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
-  if (!m) return hex
-  const c = [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)]
-    .map((v) => Math.max(0, Math.min(255, Math.round(v * k))))
-  return `rgb(${c[0]},${c[1]},${c[2]})`
-}
-
 /** Construye la escena en perspectiva desde la cámara. W/H en px de pantalla. */
 export function buildFpScene(
   elements: PlanElement[],

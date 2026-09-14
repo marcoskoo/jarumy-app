@@ -176,7 +176,6 @@ function Wall({ el, mod }: { el: PlanElement; mod?: Mod }) {
   const t = mod?.thickness ?? g.t
   const wdef = mod?.wallType ? WALL_TYPES[mod.wallType] : undefined
   const fill = wdef ? wdef.color : (mod?.material || '#3f3f46')
-  const x = Math.min(g.x1, g.x2), y = Math.min(g.y1, g.y2)
   const w = g.x1 === g.x2 ? t : Math.abs(g.x2 - g.x1)
   const h = g.y1 === g.y2 ? t : Math.abs(g.y2 - g.y1)
   const vertical = g.x1 === g.x2

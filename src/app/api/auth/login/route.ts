@@ -3,7 +3,12 @@ import { db, ensureSchema } from '@/lib/db'
 import { verifyPassword, createSessionToken } from '@/lib/auth'
 import { verifyTotp } from '@/lib/totp'
 import { ensureSeed, getSettings, logAudit } from '@/lib/settings'
-import { getLoginLock, recordLoginFailure, clearLoginAttempts, rateLimit } from '@/lib/rate-limit'
+import { getLoginLock, recordLoginFailure, clearLoginAttempts, rateLimit, purgeStaleLoginAttempts } from '@/lib/rate-limit'
+import { hashPassword } from '@/lib/auth'
+
+// hash centinela (formato salt:scrypt, nunca coincide): iguala el tiempo de
+// respuesta entre usuarios existentes e inexistentes → sin oráculo de timing
+const DUMMY_HASH = hashPassword('jarumy-sentinel-irrelevante')
 
 export async function POST(req: NextRequest) {
   try {
@@ -17,6 +22,10 @@ export async function POST(req: NextRequest) {
     if (!raw || !password) {
       return NextResponse.json({ error: 'Usuario y contraseña requeridos' }, { status: 400 })
     }
+
+    // purga oportunista (~15% de los logins) de intentos/ventanas expirados:
+    // evita que LoginAttempt crezca para siempre sin necesitar un cron
+    if (Math.random() < 0.15) void purgeStaleLoginAttempts()
 
     // rate-limit por IP + usuario (protege contra fuerza bruta distribuida)
     const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'local'
@@ -48,11 +57,24 @@ export async function POST(req: NextRequest) {
     })
     const ok = user && !user.disabled ? verifyPassword(String(password), user.passwordHash) : false
 
-    if (!ok || !user) {
+    if (!user) {
+      // usuario NO registrado: NO crea filas de bloqueo (evita la acumulación
+      // infinita de LoginAttempt y el bloqueo de nombres inexistentes — DoS
+      // pre-autenticado). La protección real es el rate-limit por IP de arriba.
+      // Se ejecuta el mismo scrypt contra un hash centinela para que el tiempo
+      // de respuesta no revea si el usuario existe o no.
+      verifyPassword(String(password), DUMMY_HASH)
+      if (security.auditEnabled) {
+        await logAudit(key, 'login_fallido', 'Usuario no registrado (sin bloqueo: rate-limit por IP)')
+      }
+      return NextResponse.json({ error: 'Usuario o contraseña incorrectos' }, { status: 401 })
+    }
+
+    if (!ok) {
       const { count } = await recordLoginFailure(key, security.maxAttempts, security.lockMinutes)
       const lockNow = count >= security.maxAttempts
       if (security.auditEnabled) {
-        await logAudit(key, 'login_fallido', `Intento ${count}/${security.maxAttempts}${lockNow ? ' — bloqueado' : ''}${user?.disabled ? ' · usuario deshabilitado' : ''}`)
+        await logAudit(key, 'login_fallido', `Intento ${count}/${security.maxAttempts}${lockNow ? ' — bloqueado' : ''}${user.disabled ? ' · usuario deshabilitado' : ''}`)
       }
       if (lockNow) {
         // la cuenta ACABA de bloquearse: se entrega la duración exacta para

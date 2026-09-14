@@ -84,3 +84,17 @@ export async function clearLoginAttempts(username: string): Promise<void> {
     await db.loginAttempt.deleteMany({ where: { username } })
   } catch { /* no crítico */ }
 }
+
+/**
+ * Purga oportunista de filas expiradas: LoginAttempt de usuarios que no
+ * volvieron a entrar (cualquier bloqueo de hace >24 h ya venció) y ventanas
+ * de RateLimit muertas (>1 h). Se llama con probabilidad desde /api/auth/login
+ * para que la tabla no crezca indefinidamente sin necesitar un cron.
+ */
+export async function purgeStaleLoginAttempts(): Promise<void> {
+  try {
+    const now = Date.now()
+    await db.loginAttempt.deleteMany({ where: { updatedAt: { lt: new Date(now - 24 * 3600_000) } } })
+    await db.rateLimit.deleteMany({ where: { windowStart: { lt: new Date(now - 3600_000) } } })
+  } catch { /* no crítico */ }
+}

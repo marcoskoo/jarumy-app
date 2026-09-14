@@ -134,24 +134,24 @@ function elBounds(el: PlanElement, mod: Mod | undefined, includeFurniture: boole
     case 'columna': {
       const g = el.geo as ColGeo
       const s = mod?.size ?? g.size
-      return { minX: g.x - s / 2, minY: g.y - s / 2, maxX: g.x + s / 2, maxY: g.y + s / 2 }
+      return { minX: g.x - s / 2 + tx, minY: g.y - s / 2 + ty, maxX: g.x + s / 2 + tx, maxY: g.y + s / 2 + ty }
     }
     case 'puerta': {
       const g = el.geo as DoorGeo
-      return { minX: g.cx - g.r, minY: g.cy - g.r, maxX: g.cx + g.r, maxY: g.cy + g.r }
+      return { minX: g.cx - g.r + tx, minY: g.cy - g.r + ty, maxX: g.cx + g.r + tx, maxY: g.cy + g.r + ty }
     }
     case 'ventana': {
       const g = el.geo as WindowGeo
       const h = g.orient === 'h'
       return h
-        ? { minX: g.x, minY: g.y - 7, maxX: g.x + g.len, maxY: g.y + 7 }
-        : { minX: g.x - 7, minY: g.y, maxX: g.x + 7, maxY: g.y + g.len }
+        ? { minX: g.x + tx, minY: g.y - 7 + ty, maxX: g.x + g.len + tx, maxY: g.y + 7 + ty }
+        : { minX: g.x - 7 + tx, minY: g.y + ty, maxX: g.x + 7 + tx, maxY: g.y + g.len + ty }
     }
     case 'apertura': {
       const g = el.geo as OpenGeo
       return g.orient === 'h'
-        ? { minX: g.x, minY: g.y - 8, maxX: g.x + g.len, maxY: g.y + 8 }
-        : { minX: g.x - 8, minY: g.y, maxX: g.x + 8, maxY: g.y + g.len }
+        ? { minX: g.x + tx, minY: g.y - 8 + ty, maxX: g.x + g.len + tx, maxY: g.y + 8 + ty }
+        : { minX: g.x - 8 + tx, minY: g.y + ty, maxX: g.x + 8 + tx, maxY: g.y + g.len + ty }
     }
     case 'mobiliario':
     case 'sanitario': {
@@ -412,8 +412,11 @@ export async function exportPlanPdf(
   setFill(C.col)
   for (const el of byType('columna')) {
     const g = el.geo as ColGeo
-    const s = mods[el.id]?.size ?? g.size
-    doc.rect(X(g.x - s / 2), Y(g.y - s / 2), L(s), L(s), 'F')
+    const m = mods[el.id]
+    const s = m?.size ?? g.size
+    const tx = m?.translate?.[0] ?? 0
+    const ty = m?.translate?.[1] ?? 0
+    doc.rect(X(g.x - s / 2 + tx), Y(g.y - s / 2 + ty), L(s), L(s), 'F')
   }
 
   // vanos / aperturas
@@ -421,25 +424,31 @@ export async function exportPlanPdf(
   doc.setLineDashPattern([0.8, 0.8], 0)
   for (const el of byType('apertura')) {
     const g = el.geo as OpenGeo
-    if (g.orient === 'h') { line(g.x, g.y - 6, g.x + g.len, g.y - 6); line(g.x, g.y + 6, g.x + g.len, g.y + 6) }
-    else { line(g.x - 6, g.y, g.x - 6, g.y + g.len); line(g.x + 6, g.y, g.x + 6, g.y + g.len) }
+    const m = mods[el.id]
+    const tx = m?.translate?.[0] ?? 0
+    const ty = m?.translate?.[1] ?? 0
+    if (g.orient === 'h') { line(g.x + tx, g.y - 6 + ty, g.x + g.len + tx, g.y - 6 + ty); line(g.x + tx, g.y + 6 + ty, g.x + g.len + tx, g.y + 6 + ty) }
+    else { line(g.x - 6 + tx, g.y + ty, g.x - 6 + tx, g.y + g.len + ty); line(g.x + 6 + tx, g.y + ty, g.x + 6 + tx, g.y + g.len + ty) }
   }
   doc.setLineDashPattern([], 0)
 
   // ventanas
   for (const el of byType('ventana')) {
     const g = el.geo as WindowGeo
+    const m = mods[el.id]
+    const tx = m?.translate?.[0] ?? 0
+    const ty = m?.translate?.[1] ?? 0
     const h = g.orient === 'h'
     const t = 14
-    const rx = h ? g.x : g.x - t / 2
-    const ry = h ? g.y - t / 2 : g.y
+    const rx = (h ? g.x : g.x - t / 2) + tx
+    const ry = (h ? g.y - t / 2 : g.y) + ty
     const w = h ? g.len : t
     const hh = h ? t : g.len
     setDraw(C.glass, 0.14)
     setFill([252, 252, 252])
     doc.rect(X(rx), Y(ry), L(w), L(hh), 'FD')
-    if (h) { line(g.x, g.y - 3, g.x + g.len, g.y - 3); line(g.x, g.y + 3, g.x + g.len, g.y + 3) }
-    else { line(g.x - 3, g.y, g.x - 3, g.y + g.len); line(g.x + 3, g.y, g.x + 3, g.y + g.len) }
+    if (h) { line(g.x + tx, g.y - 3 + ty, g.x + g.len + tx, g.y - 3 + ty); line(g.x + tx, g.y + 3 + ty, g.x + g.len + tx, g.y + 3 + ty) }
+    else { line(g.x - 3 + tx, g.y + ty, g.x - 3 + tx, g.y + g.len + ty); line(g.x + 3 + tx, g.y + ty, g.x + 3 + tx, g.y + g.len + ty) }
   }
 
   // puertas: hoja + arco de giro (aprox. con segmentos)
@@ -447,25 +456,29 @@ export async function exportPlanPdf(
   for (const el of byType('puerta')) {
     const g = el.geo as DoorGeo
     const m = mods[el.id]
-    const P0 = polar(g.cx, g.cy, g.r, g.a0)
-    const P1 = polar(g.cx, g.cy, g.r, g.a1)
+    const tx = m?.translate?.[0] ?? 0
+    const ty = m?.translate?.[1] ?? 0
+    const cx = g.cx + tx
+    const cy = g.cy + ty
+    const P0 = polar(cx, cy, g.r, g.a0)
+    const P1 = polar(cx, cy, g.r, g.a1)
     const swingFlip = !!m?.swingFlip
     const leafEnd = swingFlip ? P0 : P1
-    line(g.cx, g.cy, leafEnd[0], leafEnd[1])
+    line(cx, cy, leafEnd[0], leafEnd[1])
     const from = swingFlip ? P1 : P0
     const to = swingFlip ? P0 : P1
     const steps = 8
     doc.setLineDashPattern([0.6, 0.5], 0)
     for (let i = 0; i < steps; i++) {
-      const a0 = Math.atan2(from[1] - g.cy, from[0] - g.cx)
-      const a1 = Math.atan2(to[1] - g.cy, to[0] - g.cx)
+      const a0 = Math.atan2(from[1] - cy, from[0] - cx)
+      const a1 = Math.atan2(to[1] - cy, to[0] - cx)
       let d = a1 - a0
       while (d > Math.PI) d -= 2 * Math.PI
       while (d < -Math.PI) d += 2 * Math.PI
       const t0 = a0 + (d * i) / steps
       const t1 = a0 + (d * (i + 1)) / steps
-      line(g.cx + g.r * Math.cos(t0), g.cy + g.r * Math.sin(t0),
-        g.cx + g.r * Math.cos(t1), g.cy + g.r * Math.sin(t1))
+      line(cx + g.r * Math.cos(t0), cy + g.r * Math.sin(t0),
+        cx + g.r * Math.cos(t1), cy + g.r * Math.sin(t1))
     }
     doc.setLineDashPattern([], 0)
   }

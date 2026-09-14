@@ -441,6 +441,15 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         ],
       },
       {
+        id: 'vidrio', label: 'Vidrio', icon: 'Layers', desc: 'Vidriería real de la ventana: U y SHGC que usan térmica/energía/metrados', source: 'Revit / E.020',
+        options: [
+          { label: 'Vidrio simple 6 mm', detail: 'U 5.8 W/m²K · SHGC 0.82', action: A('glazing', 0) },
+          { label: 'Vidrio laminado 6+6', detail: 'U 5.4 W/m²K · SHGC 0.74', action: A('glazing', 1) },
+          { label: 'DVH doble hermético (aire)', detail: 'U 2.8 W/m²K · SHGC 0.70', action: A('glazing', 2) },
+          { label: 'DVH low-E + argón (PVC)', detail: 'U 1.4 W/m²K · SHGC 0.60', action: A('glazing', 3) },
+        ],
+      },
+      {
         id: 'escalera', label: 'Escalera', icon: 'ArrowUpNarrowWide', desc: 'Escalera paramétrica por reglamento: contrahuella ≤ 17.5 cm (RNE)', source: 'AutoCAD Arch / Revit',
         options: [{ label: 'Diseñar escalera…', detail: 'Altura a vencer → pasos y huella (Blondel)', action: G('showStairDialog') }],
       },
@@ -946,6 +955,15 @@ export const RADIAL_TOOLS: Record<string, RadialTool[]> = {
         { label: 'Corrediza', action: A('windowType', 1) },
         { label: 'Fija', action: A('windowType', 2) },
         { label: 'Abatible', action: A('windowType', 3) },
+      ],
+    },
+    {
+      id: 'vidrio', label: 'Vidrio', icon: 'Layers',
+      options: [
+        { label: 'Vidrio simple 6 mm', detail: 'U 5.8 · SHGC 0.82', action: A('glazing', 0) },
+        { label: 'Vidrio laminado 6+6', detail: 'U 5.4 · SHGC 0.74', action: A('glazing', 1) },
+        { label: 'DVH doble hermético', detail: 'U 2.8 · SHGC 0.70', action: A('glazing', 2) },
+        { label: 'DVH low-E + argón', detail: 'U 1.4 · SHGC 0.60', action: A('glazing', 3) },
       ],
     },
     {

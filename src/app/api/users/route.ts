@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db, ensureSchema } from '@/lib/db'
-import { verifySessionToken, isAdmin, hashPassword, validatePasswordPolicy, sanitizeRole, denyAllUserSessions } from '@/lib/auth'
+import { verifySessionToken, isAdmin, hashPassword, validatePasswordPolicy, sanitizeRole } from '@/lib/auth'
 import { getSettings, logAudit } from '@/lib/settings'
 import { rateLimit } from '@/lib/rate-limit'
 

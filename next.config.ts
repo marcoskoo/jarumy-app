@@ -1,44 +1,29 @@
 import type { NextConfig } from "next";
 
 // ============================================================
-// Cabeceras de seguridad (OWASP Secure Headers / google strict):
+// Cabeceras de seguridad estáticas (OWASP Secure Headers):
 // · X-Frame-Options DENY + frame-ancestors 'none'  → anti clickjacking
 // · nosniff                                          → anti MIME-sniffing
 // · Referrer-Policy                                  → no filtra URLs internas
 // · Permissions-Policy                               → APIs del navegador off
 // · HSTS                                             → HTTPS obligatorio (navegador)
-// · CSP restrictiva                                  → anti XSS / inyección de
-//   scripts remotos. Next.js requiere 'unsafe-inline' para su runtime
-//   (hidratación) y 'unsafe-eval' solo en desarrollo (HMR).
+//
+// La CSP ya NO se declara aquí: al usar nonce + strict-dynamic debe
+// generarse POR PETICIÓN en src/middleware.ts (patrón oficial Next.js).
 // ============================================================
-
-const CSP = [
-  "default-src 'self'",
-  process.env.NODE_ENV === 'production'
-    ? "script-src 'self' 'unsafe-inline'"
-    : "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "font-src 'self' data:",
-  // socket.io de colaboración (ws:// o wss:// según esquema de la página)
-  "connect-src 'self' ws: wss:",
-  "worker-src 'self' blob:",
-  "manifest-src 'self'",
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "frame-ancestors 'none'",
-  "upgrade-insecure-requests",
-].join('; ')
 
 const nextConfig: NextConfig = {
   // "standalone" solo para auto-alojamiento (sandbox/bun server.js);
   // en Vercel (VERCEL=1) se usa el output estándar de la plataforma.
   ...(process.env.VERCEL ? {} : { output: "standalone" }),
+  // sin ignoreBuildErrors: el build verificación de tipos SIEMPRE corre
+  // (npm run typecheck la replica en local/CI sin generar artefactos)
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
-  reactStrictMode: false,
+  // React 19 + StrictMode: detecta efectos duplicados y APIs inseguras
+  // en desarrollo — el estándar de la industria, ya activo en producción.
+  reactStrictMode: true,
   async headers() {
     return [
       {
@@ -56,7 +41,6 @@ const nextConfig: NextConfig = {
             key: "Strict-Transport-Security",
             value: "max-age=63072000; includeSubDomains",
           },
-          { key: "Content-Security-Policy", value: CSP },
         ],
       },
     ];

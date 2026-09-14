@@ -1,7 +1,7 @@
 import crypto from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { db, ensureSchema } from '@/lib/db'
-import { verifySessionToken } from '@/lib/auth'
+import { verifySessionToken, canEdit } from '@/lib/auth'
 import { logAudit } from '@/lib/settings'
 
 // ---------- Enlaces compartidos (Ola 4 + expiración Ola 8) ----------
@@ -65,6 +65,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const token = req.cookies.get('jarumy_session')?.value
     const session = token ? await verifySessionToken(token) : null
     if (!session) return unauthorized()
+    if (!canEdit(session.role)) {
+      await logAudit(session.username, 'plano_enlace_denegado', 'Rol visor no puede crear enlaces')
+      return NextResponse.json({ error: 'Su rol es de solo lectura — no puede compartir planos' }, { status: 403 })
+    }
 
     const { id } = await params
     const plan = await getOwnedPlan(id, session.userId)
@@ -119,6 +123,10 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     const token = req.cookies.get('jarumy_session')?.value
     const session = token ? await verifySessionToken(token) : null
     if (!session) return unauthorized()
+    if (!canEdit(session.role)) {
+      await logAudit(session.username, 'plano_enlace_denegado', 'Rol visor no puede revocar enlaces')
+      return NextResponse.json({ error: 'Su rol es de solo lectura — no puede revocar enlaces' }, { status: 403 })
+    }
 
     const { id } = await params
     const plan = await getOwnedPlan(id, session.userId)

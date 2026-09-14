@@ -58,10 +58,17 @@ export function buildElevation(
       const cutX = (opts.cutX ?? 600) / PX_PER_M
       const wx1 = Math.min(g.x1, g.x2) / PX_PER_M + tx
       const wx2 = Math.max(g.x1, g.x2) / PX_PER_M + tx
-      // muro cortado: cruza la línea de corte
-      if (vert && wx1 <= cutX && cutX <= wx2 + 0.001) {
-        const x0 = cutX - t / 2
-        // rectángulo sólido (muro cortado) — dos caras + relleno implícito
+      // ¿el plano de corte cruza este muro?
+      // · muro vertical (en y): el plano pasa por su espesor → |cutX − x| ≤ t/2
+      // · muro horizontal (en x): el plano cruza su longitud → x1 ≤ cutX ≤ x2
+      const crossed = vert
+        ? Math.abs(cutX - wx1) <= t / 2 + 0.001
+        : wx1 <= cutX && cutX <= wx2 + 0.001
+      // muro cortado: rectángulo sólido centrado donde el plano lo corta
+      if (crossed) {
+        const cx = vert ? wx1 : cutX
+        const x0 = cx - t / 2
+        // dos caras + relleno implícito
         lines.push({ x1: x0, y1: 0, x2: x0, y2: wallH, w: 0.05 })
         lines.push({ x1: x0 + t, y1: 0, x2: x0 + t, y2: wallH, w: 0.05 })
         lines.push({ x1: x0, y1: wallH, x2: x0 + t, y2: wallH, w: 0.04 })
@@ -74,7 +81,7 @@ export function buildElevation(
         }
         width = Math.max(width, x0 + t)
       } else if (!vert) {
-        // muro horizontal visto de frente (línea de fondo)
+        // muro horizontal visto de fondo (no cortado): proyección tenue
         const x0 = wx1
         const x1 = wx2
         lines.push({ x1: x0, y1: 0, x2: x1, y2: 0, w: 0.03 })
@@ -84,7 +91,8 @@ export function buildElevation(
         width = Math.max(width, x1)
       } else {
         // muro vertical detrás del corte: proyecta como línea fina
-        const cx = wx1 + tx
+        // (wx1 ya incluye la traslación +tx calculada arriba — NO sumarla de nuevo)
+        const cx = wx1
         lines.push({ x1: cx, y1: 0, x2: cx, y2: wallH, w: 0.02, dash: true })
         width = Math.max(width, cx)
       }

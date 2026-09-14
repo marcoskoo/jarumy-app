@@ -12,7 +12,7 @@ import { PX_PER_M, WALL_TYPES, BLOCK_LIBRARY, BLOCK_CATS, type StairGeo, type Ro
 import { checkNormativa } from '@/lib/normativa'
 import { computeMetrados, downloadS10Workbook } from '@/lib/metrados'
 import { buildElevation, ELEV_LABELS, type ElevDir } from '@/lib/elevation'
-import { getRegisteredSvg, exportPlanSvg } from '@/lib/raster-export'
+import { getRegisteredSvg } from '@/lib/raster-export'
 import { buildIsoScene, type Vec3 } from '@/lib/iso3d'
 import { solarPosition } from '@/lib/solar'
 import { listVersions } from '@/lib/plan-files'
@@ -1300,15 +1300,15 @@ export function StructuralDialog() {
 export function CollabDialog() {
   const s = useJarumy()
   const open = s.dialog === 'collab'
-  const since = useMemo(() => Date.now(), [open])
-  const [tick, setTick] = useState(0)
+  // reloj de sesión SIN llamadas impuras en render ni setState síncrono en
+  // el efecto: el intervalo actualiza el tiempo transcurrido cada segundo
+  const [elapsed, setElapsed] = useState(0)
   useEffect(() => {
     if (!open) return
-    const t = setInterval(() => setTick((v) => v + 1), 1000)
-    return () => clearInterval(t)
+    const start = Date.now()
+    const t = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000)
+    return () => { clearInterval(t); setElapsed(0) }
   }, [open])
-  const elapsed = Math.floor((Date.now() - since) / 1000)
-  void tick
 
   const alive = s.elements.filter((e) => !s.mods[e.id]?.deleted)
   const byDiscipline = {

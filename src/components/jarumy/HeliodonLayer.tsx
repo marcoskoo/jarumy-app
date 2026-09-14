@@ -12,7 +12,7 @@ import type { PlanElement } from '@/lib/plan-data'
 import type { WallGeo, ColGeo } from '@/lib/plan-data'
 import type { Mod, SunSettings } from '@/lib/store'
 import {
-  solarPosition, sunTimes, sunPathForDay, shadowVector, convexHull, dayOfYear, dayLabel,
+  solarPosition, sunPathForDay, shadowVector, convexHull, dayOfYear, dayLabel,
 } from '@/lib/solar'
 
 const CX = 600          // centro del plano (150..1050)
@@ -61,7 +61,6 @@ function hourToLabel(h: number): string {
 
 export default function HeliodonLayer({ elements, mods, sun, phase }: Props) {
   const pos = solarPosition(sun.lat, sun.day, sun.hour)
-  const times = sunTimes(sun.lat, sun.day)
 
   // ---------- fase UNDER: sombras proyectadas ----------
   if (phase === 'under') {

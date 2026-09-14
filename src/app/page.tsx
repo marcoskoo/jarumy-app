@@ -83,7 +83,7 @@ export default function JarumyApp() {
   }, [applyDesign])
 
   // módulos ocultos desde el panel admin (lectura diferida)
-  const [hiddenCats, setHiddenCats] = useState<string[]>(() => {
+  const [hiddenCats] = useState<string[]>(() => {
     if (typeof window === 'undefined') return []
     try {
       return JSON.parse(localStorage.getItem('jarumy_hidden_cats') || '[]')

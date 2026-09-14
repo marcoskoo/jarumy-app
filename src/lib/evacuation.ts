@@ -46,10 +46,16 @@ export interface EvacuationReport {
 }
 
 // ---- ocupantes por uso (RNE A.010 / A.130) — copia local de USAGE_OCCUPANCY ----
-const USAGE_OCCUPANCY: Record<string, number> = {
+// Exportada para que bim-schedules use EXACTAMENTE la misma ocupancia que
+// el informe de evacuación (una sola regla de negocio, cero divergencia).
+export const USAGE_OCCUPANCY: Record<string, number> = {
   estar: 6, dormitorio: 2, cocina: 3, bano: 1, lavanderia: 1, comedor: 6,
   estudio: 2, garaje: 2, pasillo: 1, escalera: 1, deposito: 1,
 }
+
+/** Ocupantes de un ambiente: por uso RNE; sin uso reconocido, 1 por 6 m². */
+export const occupantsFor = (usage: string, areaM2: number): number =>
+  USAGE_OCCUPANCY[usage] ?? Math.max(1, Math.round(areaM2 / 6))
 
 // distancia máxima de recorrido en vivienda (RNE A.130): 25 m — constante
 // compartida con normativa.ts (src/lib/rne.ts) para que ambos módulos
@@ -58,7 +64,7 @@ const USAGE_OCCUPANCY: Record<string, number> = {
 const PERSONS_PER_CM_LOCAL = PERSONS_PER_CM
 
 /** Uso inferido de un espacio: mod.usage, o por el nombre. */
-const usageOf = (el: PlanElement, mod?: Mod): string => {
+export const usageOf = (el: PlanElement, mod?: Mod): string => {
   if (mod?.usage) return mod.usage
   const n = `${el.name} ${(el.geo as RoomGeo).name ?? ''}`.toLowerCase()
   if (n.includes('sala') || n.includes('estar')) return 'estar'
@@ -98,7 +104,7 @@ export function computeEvacuation(elements: PlanElement[], mods: Record<string, 
     const areaM2 = Math.round(((g.w / PX_PER_M) * (g.h / PX_PER_M)) * 100) / 100
     const usage = usageOf(r, mods[r.id])
     // ocupancia por uso; si no hay uso reconocido se estima 1 persona por 6 m²
-    const occupants = USAGE_OCCUPANCY[usage] ?? Math.max(1, Math.round(areaM2 / 6))
+    const occupants = occupantsFor(usage, areaM2)
     const centroid: [number, number] = [g.x + g.w / 2, g.y + g.h / 2]
 
     // distancia mínima (euclidiana, en m) al borde de giro de cada puerta

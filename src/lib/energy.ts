@@ -12,8 +12,8 @@
 // ============================================================
 
 import type { PlanElement } from '@/lib/plan-data'
-import type { WallGeo, RoofGeo, WindowGeo, RoomGeo, DoorGeo } from '@/lib/plan-data'
-import { PX_PER_M } from '@/lib/plan-data'
+import type { WallGeo, RoofGeo, WindowGeo, RoomGeo } from '@/lib/plan-data'
+import { PX_PER_M, glazingOf } from '@/lib/plan-data'
 import type { Mod } from '@/lib/store'
 
 // ---------- zonas E.020: HDD (del thermal.ts) + CDD estimados ----------
@@ -37,10 +37,9 @@ const ZONE_SOLAR_VERT: Record<string, number> = {
   '1': 1150, '2': 850, '3': 950, '4': 1450, '5': 1550, '6': 1600, '7': 1000, '8': 1250,
 }
 
-// U de ventanas por tipo de vidrio del mod.windowType (W/m²·K)
-const U_WINDOW_BY_TYPE = [5.8, 3.3, 1.8] // simple · laminado 6+6 · DVH doble
-const U_WINDOW_DEFAULT = 3.3
-const SHGC_BY_TYPE = [0.82, 0.74, 0.6]
+// U y SHGC de ventanas: única fuente de verdad = GLAZING_TYPES (plan-data),
+// elegido con mod.glazing. mod.windowType es la APERTURA (corrediza/fija/
+// abatible) y no altera la transmitancia del vidrio.
 
 // ---------- fugas de envolvente a 50 Pa (m³/h por elemento) ----------
 // Valores de construcción sin sellado (marco de aluminio sin doble junta,
@@ -91,12 +90,14 @@ export interface EnergyReport {
 function wallU(g: WallGeo, mod: Mod | undefined): number {
   const t = (mod?.thickness ?? g.t) / PX_PER_M // m
   const wallType = mod?.wallType
-  let masonryLambda = 0.90 // ladrillo
-  let masonryT = Math.max(0.07, t - 0.03)
+  let masonryLambda = 0.90 // ladrillo (se reasigna según wallType)
+  const masonryT = Math.max(0.07, t - 0.03)
   if (wallType === 'c175') masonryLambda = 1.75
   else if (wallType === 'dw100') {
-    // drywall: 2 placas de yeso + cámara de aire
-    const r = 2 * (0.0125 / 0.25) + 0.05 / 5.5
+    // drywall 100: 2 placas de yeso 12.5 mm + lana de vidrio 75 mm
+    // (MISMO ensamblaje que thermal.ts — antes modelaba una supuesta cámara de
+    // aire con λ 5.5 W/m·K, que es un coeficiente superficial, no una λ)
+    const r = 2 * (0.0125 / 0.25) + 0.075 / 0.036
     return Math.round((1 / (RSI + r + RSE)) * 100) / 100
   } else if (wallType === 'l230') masonryLambda = 1.35
   const r = RSI + RSE + 2 * (0.015 / 1.15) + masonryT / masonryLambda
@@ -167,11 +168,10 @@ export function computeEnergy(
   const uWindow = glassAreaM2 > 0
     ? windows.reduce((n, e) => {
         const g = e.geo as WindowGeo
-        const wt = mods[e.id]?.windowType ?? 1
         const a = (g.len / PX_PER_M) * 1.2
-        return n + (U_WINDOW_BY_TYPE[wt] ?? U_WINDOW_DEFAULT) * a
+        return n + glazingOf(mods[e.id]).u * a
       }, 0) / glassAreaM2
-    : U_WINDOW_DEFAULT
+    : glazingOf().u
   const uRoof = roofs.length
     ? roofs.reduce((n, e) => n + roofU(e.geo as RoofGeo, mods[e.id]), 0) / roofs.length
     : roofU({} as RoofGeo, undefined)
@@ -211,10 +211,9 @@ export function computeEnergy(
   const shgc = glassAreaM2 > 0
     ? windows.reduce((n, e) => {
         const g = e.geo as WindowGeo
-        const wt = mods[e.id]?.windowType ?? 1
-        return n + (SHGC_BY_TYPE[wt] ?? 0.74) * ((g.len / PX_PER_M) * 1.2)
+        return n + glazingOf(mods[e.id]).shgc * ((g.len / PX_PER_M) * 1.2)
       }, 0) / glassAreaM2
-    : 0.74
+    : glazingOf().shgc
   const shadeFactor = 0.72 // derrames/cortinas típicas
   const qSolarC = shgc * glassAreaM2 * solarVert * shadeFactor
   const qTransmitC =

@@ -91,6 +91,17 @@ export async function POST(req: NextRequest) {
 
     const projName = String(projectName ?? '').trim() || 'Proyecto sin nombre'
 
+    // techo de planos por usuario: evita inundar la BD con creaciones
+    // automatizadas (cada plano lleva data + versiones + miniatura)
+    const ownedCount = await db.plan.count({ where: { ownerId: session.userId } })
+    if (ownedCount >= 300) {
+      await logAudit(session.username, 'plano_creacion_denegada', `Límite de 300 planos por usuario alcanzado (${ownedCount})`)
+      return NextResponse.json(
+        { error: 'Límite de planos por usuario alcanzado (300). Elimine planos de la papelera para continuar.' },
+        { status: 409 }
+      )
+    }
+
     const plan = await db.plan.create({
       data: {
         ownerId: session.userId,

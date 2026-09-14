@@ -74,7 +74,7 @@ export function arcFrom3Pts(p1: number[], p2: number[], p3: number[]): { cx: num
   const uy = ((x1 * x1 + y1 * y1) * (x3 - x2) + (x2 * x2 + y2 * y2) * (x1 - x3) + (x3 * x3 + y3 * y3) * (x2 - x1)) / d
   const cx = ux, cy = uy
   const r = Math.hypot(x1 - cx, y1 - cy)
-  let a1 = Math.atan2(y1 - cy, x1 - cx), a2 = Math.atan2(y2 - cy, x2 - cx), a3 = Math.atan2(y3 - cy, x3 - cx)
+  const a1 = Math.atan2(y1 - cy, x1 - cx), a2 = Math.atan2(y2 - cy, x2 - cx), a3 = Math.atan2(y3 - cy, x3 - cx)
   // sentido p1→p3 pasando por p2
   const ccw = ((a2 - a1 + Math.PI * 2) % (Math.PI * 2)) < ((a3 - a1 + Math.PI * 2) % (Math.PI * 2))
   const norm = (a: number) => (a < 0 ? a + Math.PI * 2 : a)
@@ -251,6 +251,21 @@ export const WALL_TYPES: Record<string, WallTypeDef> = {
   c175: { id: 'c175', label: 'Concreto 175', t: 10.5, hatch: 'concreto', color: '#52525b' },
   dw100: { id: 'dw100', label: 'Drywall 100', t: 6, hatch: 'drywall', color: '#8b8b96' },
 }
+
+// --- vidriería de ventanas (ÚNICA fuente de verdad para U/SHGC) ---
+// OJO: mod.windowType es el TIPO DE APERTURA (corrediza/fija/abatible) y NO
+// afecta la transmitancia. El vidrio se elige con mod.glazing (0-3) y todos
+// los módulos (térmica, energía, metrados, BIM) leen ESTA tabla.
+export interface GlazingTypeDef { label: string; u: number; shgc: number; glassCm: number }
+export const GLAZING_TYPES: Record<number, GlazingTypeDef> = {
+  0: { label: 'Vidrio simple 6 mm', u: 5.8, shgc: 0.82, glassCm: 0.6 },
+  1: { label: 'Vidrio laminado 6+6', u: 5.4, shgc: 0.74, glassCm: 1.2 },
+  2: { label: 'DVH aire (doble hermético)', u: 2.8, shgc: 0.70, glassCm: 2.4 },
+  3: { label: 'DVH low-E + argón (PVC)', u: 1.4, shgc: 0.60, glassCm: 3.6 },
+}
+/** Definición de vidrio de una ventana (por defecto: vidrio simple). */
+export const glazingOf = (m?: { glazing?: number }): GlazingTypeDef =>
+  GLAZING_TYPES[m?.glazing ?? 0] ?? GLAZING_TYPES[0]
 
 const wall = (id: string, x1: number, y1: number, x2: number, y2: number, t: number): PlanElement => ({
   id: `muro-${id}`, type: 'muro', layer: 'muros', name: `Muro ${id}`,

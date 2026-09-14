@@ -1,9 +1,9 @@
 'use client'
 
 import { create } from 'zustand'
-import type { PlanElement, LayerDef, StairGeo, RoofGeo, Phase, DrawGeo, HatchPattern, WallGeo, DoorGeo, WindowGeo, RoomGeo, ColGeo, OpenGeo, TextGeo, FurnGeo, InstGeo, LevelDef } from '@/lib/plan-data'
+import type { PlanElement, LayerDef, StairGeo, RoofGeo, Phase, DrawGeo, WallGeo, DoorGeo, WindowGeo, RoomGeo, ColGeo, OpenGeo, TextGeo, FurnGeo, InstGeo, LevelDef } from '@/lib/plan-data'
 import {
-  BASE_ELEMENTS, LAYERS, BLOCK_LIBRARY, VIEW_W, VIEW_H, WALL_TYPES, PX_PER_M,
+  BASE_ELEMENTS, LAYERS, BLOCK_LIBRARY, VIEW_W, VIEW_H, WALL_TYPES, PX_PER_M, glazingOf,
   HATCH_PATTERNS, offsetPolyline, segIntersect, sampleCatmullRom, DEFAULT_LEVELS, levelOf,
 } from '@/lib/plan-data'
 import type { ToolAction } from '@/lib/tools-data'
@@ -31,6 +31,7 @@ export interface Mod {
   swingFlip?: boolean
   hingeFlip?: boolean
   windowType?: number
+  glazing?: number // tipo de vidrio (0 simple · 1 laminado 6+6 · 2 DVH aire · 3 DVH low-E) — ver GLAZING_TYPES
   size?: number
   deleted?: boolean
   colorLine?: string
@@ -290,8 +291,9 @@ export function quantifyElement(el: PlanElement, mod: Mod): string[] {
     const h = 1.2
     const area = w * h
     const sill = mod.sill ?? 0.9
+    const glass = glazingOf(mod)
     out.push(`CANTIDADES · ${el.name.toUpperCase()} — ${w.toFixed(2)} × ${h.toFixed(2)} m · antepecho ${sill.toFixed(2)} m`)
-    out.push(`  Área: ${area.toFixed(2)} m² · Vidrio laminado 6+6: ${(area * 0.85).toFixed(2)} m² · Perfil PVC: ${(w * 2 + h * 2).toFixed(2)} ml · U 1.4 W/m²K`)
+    out.push(`  Área: ${area.toFixed(2)} m² · ${glass.label}: ${(area * 0.85).toFixed(2)} m² · Perfil: ${(w * 2 + h * 2).toFixed(2)} ml · U ${glass.u} W/m²K`)
   } else if (el.type === 'columna') {
     const g = el.geo as ColGeo
     const s = (mod.size ?? g.size) / PX_PER_M
@@ -887,6 +889,11 @@ export const useJarumy = create<JarumyState>((set, get) => ({
       case 'windowType':
         pushHistory()
         m.windowType = Number(value)
+        break
+      case 'glazing':
+        // vidrio de la ventana — única fuente: GLAZING_TYPES (plan-data)
+        pushHistory()
+        m.glazing = Number(value)
         break
       case 'colorLine':
         pushHistory()

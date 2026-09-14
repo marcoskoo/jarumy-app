@@ -12,9 +12,10 @@
  * registra y vacía las caches): los chunks de dev son mutables y un
  * cache-first serviría código obsoleto tras cada cambio/reinicio.
  * v6: purga de caches v5 (stale tras actualizaciones de la app).
+ * v7: hardening Fase 0-4 (cálculo, seguridad, CSP, e2e) — purga v6.
  * ============================================================ */
 
-const CACHE = 'jarumy-v6'
+const CACHE = 'jarumy-v7'
 const OFFLINE_URLS = ['/', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png', '/logo-jarumy.png', '/logo.svg']
 
 self.addEventListener('install', (event) => {

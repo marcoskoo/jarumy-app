@@ -8,8 +8,8 @@
 // ============================================================
 
 import type { PlanElement } from '@/lib/plan-data'
-import type { WallGeo, RoofGeo, WindowGeo } from '@/lib/plan-data'
-import { PX_PER_M, WALL_TYPES } from '@/lib/plan-data'
+import type { WallGeo } from '@/lib/plan-data'
+import { PX_PER_M, WALL_TYPES, glazingOf } from '@/lib/plan-data'
 import type { Mod } from '@/lib/store'
 
 export interface ThermalLayer {
@@ -173,12 +173,10 @@ const ROOF_ASSEMBLIES: Record<string, { label: string; layers: ThermalLayer[] }>
   },
 }
 
-/** U de ventana según tipo de vidrio (mod.windowType: 1 doble · 2 hermético PVC). */
+/** U de ventana según vidrio (mod.glazing) — única fuente: GLAZING_TYPES de plan-data. */
 const windowU = (m?: Mod): { u: number; label: string; thicknessCm: number } => {
-  const t = m?.windowType ?? 0
-  if (t === 2) return { u: 1.4, label: 'Ventana hermética PVC doble vidrio', thicknessCm: 3.6 }
-  if (t === 1) return { u: 3.1, label: 'Ventana de vidrio doble', thicknessCm: 2.4 }
-  return { u: 5.8, label: 'Ventana de vidrio simple', thicknessCm: 0.6 }
+  const glass = glazingOf(m)
+  return { u: glass.u, label: `Ventana · ${glass.label}`, thicknessCm: glass.glassCm }
 }
 
 /** Ensamblaje de muro para un elemento: mod.wallType, o el más cercano por espesor. */

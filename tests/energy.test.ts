@@ -46,11 +46,13 @@ describe('Análisis energético (cálculo real del modelo)', () => {
     expect(dry.n50).toBeGreaterThan(r.n50)
   })
 
-  it('LEED responde a la envolvente: DVH (windowType 2) mejora la puntuación', () => {
+  it('LEED responde a la envolvente: DVH (glazing 2) mejora la puntuación', () => {
     const base = computeEnergy(BASE_ELEMENTS, {}, '2')
-    // cambia todas las ventanas a DVH doble (U 1.8 vs 3.3)
-    const mods: Record<string, { windowType: number }> = {}
-    for (const el of BASE_ELEMENTS) if (el.type === 'ventana') mods[el.id] = { windowType: 2 }
+    // cambia todas las ventanas a DVH doble hermético (U 2.8 vs 5.8 simple).
+    // OJO: mod.glazing es el VIDRIO; mod.windowType es la apertura y NO
+    // altera la transmitancia (fijado en la Fase 0 del diagnóstico)
+    const mods: Record<string, { glazing: number }> = {}
+    for (const el of BASE_ELEMENTS) if (el.type === 'ventana') mods[el.id] = { glazing: 2 }
     const mejor = computeEnergy(BASE_ELEMENTS, mods as never, '2')
     expect(mejor.uWindow).toBeLessThan(base.uWindow)
     expect(mejor.euiKwhM2a).toBeLessThan(base.euiKwhM2a)

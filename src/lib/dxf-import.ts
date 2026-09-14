@@ -384,7 +384,8 @@ export function parseDxf(text: string): DxfImportResult {
       }
       case 'ARC': {
         const cx = pairNum(e, 10), cy = pairNum(e, 20), r = pairNum(e, 40)
-        let a0 = pairNum(e, 50), a1 = pairNum(e, 51)
+        const a0 = pairNum(e, 50)
+        let a1 = pairNum(e, 51)
         if (![cx, cy, r, a0, a1].every(Number.isFinite) || r <= 0) { stats.others++; break }
         // DXF mide ángulos antihorario desde +X (Y-arriba); el barrido va de a0 a a1 CCW
         if (a1 < a0) a1 += 360

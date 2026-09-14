@@ -3,7 +3,7 @@
 import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react'
 import { useJarumy, type HoverInfo } from '@/lib/store'
 import type { PlanElement, DrawGeo } from '@/lib/plan-data'
-import { VIEW_W, VIEW_H, PX_PER_M, elementSummary, BLOCK_LIBRARY, roomAreaM2, type RoomGeo, sampleArc3, sampleCatmullRom, scallopPts, pathFromPts, type HatchPattern } from '@/lib/plan-data'
+import { VIEW_W, VIEW_H, PX_PER_M, elementSummary, BLOCK_LIBRARY, roomAreaM2, type RoomGeo, sampleArc3, sampleCatmullRom, scallopPts, pathFromPts } from '@/lib/plan-data'
 import { PlanElementNode, FurnShape } from './ElementRenderers'
 import RadialMenu from './RadialMenu'
 import HeliodonLayer from './HeliodonLayer'

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db, ensureSchema } from '@/lib/db'
 import { logAudit } from '@/lib/settings'
+import { rateLimit } from '@/lib/rate-limit'
 
 // ---------- Acceso público por enlace (Ola 4) ----------
 // GET /api/share/:token → { permission, plan: {id,name,projectName,updatedAt}, data }
@@ -30,9 +31,22 @@ async function findActiveShare(token: string) {
   return { share, plan }
 }
 
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ token: string }> }) {
+/** Rate-limit por IP para rutas públicas por token (anti-fuerza bruta de tokens). */
+async function shareRateLimit(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'local'
+  const rl = await rateLimit(`share:${ip}`, 60, 60_000)
+  if (rl.ok) return null
+  return NextResponse.json(
+    { error: `Demasiadas solicitudes. Espere ${rl.retryAfterS} s.` },
+    { status: 429, headers: { 'Retry-After': String(rl.retryAfterS) } }
+  )
+}
+
+export async function GET(req: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   try {
     await ensureSchema()
+    const limited = await shareRateLimit(req)
+    if (limited) return limited
     const { token } = await params
     const found = await findActiveShare(token)
     if (!found) return gone('Enlace no disponible')
@@ -59,6 +73,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   try {
     await ensureSchema()
+    const limited = await shareRateLimit(req)
+    if (limited) return limited
     const { token } = await params
     const found = await findActiveShare(token)
     if (!found) return gone('Enlace no disponible')
