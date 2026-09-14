@@ -34,6 +34,14 @@ const ROLE_OPTIONS: Array<{ id: string; label: string; desc: string }> = [
   { id: 'visor', label: 'Visor', desc: 'Solo lectura: consulta planos, sin guardar cambios' },
 ]
 
+// ---------- bloqueo de login con cuenta regresiva ----------
+// El servidor responde 429 con retryAfter (segundos exactos que
+// faltan según SU reloj); la UI los convierte en un temporizador
+// vivo que baja cada segundo y se recalibra en cada reintento.
+const fmtCountdown = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+const LOCK_R = 24
+const LOCK_CIRC = 2 * Math.PI * LOCK_R
+
 export const PRIMARY_PRESETS: Record<string, string> = {
   amber: '#f59e0b', orange: '#f97316', emerald: '#10b981', rose: '#f43f5e',
   violet: '#8b5cf6', teal: '#14b8a6', lime: '#84cc16',
@@ -70,6 +78,11 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
   const [needs2FA, setNeeds2FA] = useState(false)
   const [loginError, setLoginError] = useState('')
   const [logging, setLogging] = useState(false)
+  // bloqueo con cuenta regresiva (429 del servidor con retryAfter)
+  const [lockMsg, setLockMsg] = useState('')
+  const [lockUntil, setLockUntil] = useState(0)   // deadline epoch ms
+  const [lockTotal, setLockTotal] = useState(0)   // duración inicial (anillo)
+  const [lockLeft, setLockLeft] = useState(0)     // segundos restantes
 
   // settings
   const [security, setSecurity] = useState<SecuritySettings | null>(null)
@@ -200,6 +213,26 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
 
   useEffect(() => { if (s.adminOpen) refresh() }, [s.adminOpen, refresh])
 
+  // ---------- ticker de la cuenta regresiva (1 tick/s) ----------
+  // Al llegar a 0 avisa y limpia; si el usuario reintenta antes, el
+  // servidor devuelve un retryAfter fresco y el contador se recalibra.
+  useEffect(() => {
+    if (!lockUntil) return
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((lockUntil - Date.now()) / 1000))
+      setLockLeft(left)
+      if (left <= 0) {
+        setLockUntil(0)
+        setLockTotal(0)
+        setLockMsg('')
+        toast.success('Tiempo de espera cumplido — ya puede reintentar el acceso')
+      }
+    }
+    tick()
+    const t = setInterval(tick, 1000)
+    return () => clearInterval(t)
+  }, [lockUntil])
+
   const doLogin = async (e?: React.FormEvent, otpVal?: string) => {
     e?.preventDefault()
     setLogging(true)
@@ -211,7 +244,16 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
         body: JSON.stringify({ username, password, otp: otpVal }),
       })
       const data = await res.json()
-      if (data.requires2FA) {
+      // 429 con espera conocida → cuenta regresiva en vivo (m:ss)
+      const waitS = Math.max(0, Math.floor(Number(data.retryAfter) || 0))
+      if (waitS > 0) {
+        setNeeds2FA(false)
+        setLockMsg(String(data.error || 'Acceso temporalmente bloqueado'))
+        setLockUntil(Date.now() + waitS * 1000)
+        setLockTotal(waitS)
+        setLockLeft(waitS)
+        setLoginError('')
+      } else if (data.requires2FA) {
         setNeeds2FA(true)
         if (data.method === 'totp') {
           if (otpVal && data.error) setLoginError(data.error)
@@ -221,6 +263,10 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
         setLoginError(data.error || 'Error de autenticación')
       } else {
         setUser(data.user)
+        setLockMsg('')
+        setLockUntil(0)
+        setLockLeft(0)
+        setLockTotal(0)
         toast.success(`Bienvenido, ${data.user.displayName || data.user.username}`)
         refresh()
       }
@@ -238,6 +284,10 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
     setPassword('')
     setOtp('')
     setNeeds2FA(false)
+    setLockMsg('')
+    setLockUntil(0)
+    setLockLeft(0)
+    setLockTotal(0)
     toast.success('Sesión cerrada')
   }
 
@@ -376,7 +426,40 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
                         </Button>
                       </div>
                     )}
-                    {loginError && <p className="text-[11px] text-rose-400">{loginError}</p>}
+                    {lockLeft > 0 ? (
+                      <div
+                        className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2.5 flex items-center gap-3 select-none"
+                        role="status"
+                        aria-label="Cuenta bloqueada temporalmente. Reintento disponible al terminar la cuenta regresiva."
+                      >
+                        {/* anillo de progreso de la espera (mismo lenguaje visual del Autenticador Jarumy) */}
+                        <svg width="56" height="56" viewBox="0 0 56 56" className="shrink-0" aria-hidden="true">
+                          <circle cx="28" cy="28" r={LOCK_R} fill="none" stroke="currentColor" strokeWidth="4" className="text-white/10" />
+                          <circle
+                            cx="28" cy="28" r={LOCK_R} fill="none"
+                            stroke={lockLeft <= 10 ? '#fb7185' : '#f43f5e'}
+                            strokeWidth="4" strokeLinecap="round"
+                            strokeDasharray={LOCK_CIRC}
+                            strokeDashoffset={LOCK_CIRC * (1 - (lockTotal > 0 ? lockLeft / lockTotal : 0))}
+                            transform="rotate(-90 28 28)"
+                            style={{ transition: 'stroke-dashoffset 0.9s linear, stroke 0.3s' }}
+                          />
+                          <text x="28" y="32.5" textAnchor="middle" fontSize="11.5" fontWeight="700" fill="currentColor" className="jy-text font-mono">
+                            {fmtCountdown(lockLeft)}
+                          </text>
+                        </svg>
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-semibold text-rose-300 leading-snug flex items-center gap-1.5">
+                            <ToolIcon name="Clock" size={12} className="shrink-0" /> {lockMsg}
+                          </p>
+                          <p className="text-[9.5px] jy-muted mt-1 leading-relaxed">
+                            Reintento disponible al terminar la cuenta regresiva.
+                          </p>
+                        </div>
+                      </div>
+                    ) : loginError ? (
+                      <p className="text-[11px] text-rose-400">{loginError}</p>
+                    ) : null}
                     <Button type="submit" className="w-full" disabled={logging || !username || !password}>
                       {logging ? 'Verificando…' : 'Iniciar sesión'}
                     </Button>

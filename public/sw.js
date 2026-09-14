@@ -11,10 +11,10 @@
  * NOTA: en desarrollo la app NO registra este SW (page.tsx lo des-
  * registra y vacía las caches): los chunks de dev son mutables y un
  * cache-first serviría código obsoleto tras cada cambio/reinicio.
- * v4: purga de caches v3 (stale tras actualizaciones de la app).
+ * v5: purga de caches v4 (stale tras actualizaciones de la app).
  * ============================================================ */
 
-const CACHE = 'jarumy-v4'
+const CACHE = 'jarumy-v5'
 const OFFLINE_URLS = ['/', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png', '/logo-jarumy.png', '/logo.svg']
 
 self.addEventListener('install', (event) => {

@@ -19,7 +19,7 @@ import {
   Share2, Droplets, Waves, PlugZap, Mountain, MessageSquare, Scale, Calculator,
   DraftingCompass, IdCard, FileSpreadsheet, Upload, Download, ImageDown, FileCode,
   Camera, CheckCircle2, XCircle, Axis3d, MountainSnow,
-  QrCode, Smartphone, KeyRound, ShieldOff, ToggleLeft, ToggleRight,
+  QrCode, Smartphone, KeyRound, ShieldOff, ToggleLeft, ToggleRight, Clock,
 } from 'lucide-react'
 
 const ICONS: Record<string, React.ComponentType<{ className?: string; size?: number; strokeWidth?: number }>> = {
@@ -41,7 +41,7 @@ const ICONS: Record<string, React.ComponentType<{ className?: string; size?: num
   Share2, Droplets, Waves, PlugZap, Mountain, MessageSquare, Scale, Calculator,
   DraftingCompass, IdCard, FileSpreadsheet, Upload, Download, ImageDown, FileCode,
   Camera, CheckCircle2, XCircle, Axis3d, MountainSnow,
-  QrCode, Smartphone, KeyRound, ShieldOff, ToggleLeft, ToggleRight,
+  QrCode, Smartphone, KeyRound, ShieldOff, ToggleLeft, ToggleRight, Clock,
 }
 
 export function ToolIcon({ name, className, size = 16 }: { name: string; className?: string; size?: number }) {

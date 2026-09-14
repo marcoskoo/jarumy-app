@@ -22,8 +22,9 @@ export async function POST(req: NextRequest) {
     const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'local'
     const rl = await rateLimit(`login:${ip}`, 30, 60_000)
     if (!rl.ok) {
+      // retryAfter (s) → la UI muestra una cuenta regresiva en vivo
       return NextResponse.json(
-        { error: `Demasiados intentos desde esta conexión. Espere ${rl.retryAfterS} s.` },
+        { error: `Demasiados intentos desde esta conexión. Espere ${rl.retryAfterS} s.`, retryAfter: rl.retryAfterS },
         { status: 429, headers: { 'Retry-After': String(rl.retryAfterS) } }
       )
     }
@@ -32,9 +33,11 @@ export async function POST(req: NextRequest) {
     const lock = await getLoginLock(key)
     if (lock.lockedUntil && lock.lockedUntil.getTime() > Date.now()) {
       const secs = Math.ceil((lock.lockedUntil.getTime() - Date.now()) / 1000)
+      // el número exacto del servidor va en retryAfter; la UI lo convierte
+      // en una cuenta regresiva (m:ss) que baja cada segundo
       return NextResponse.json(
-        { error: `Cuenta bloqueada temporalmente. Intente en ${secs} segundos.` },
-        { status: 429 }
+        { error: 'Cuenta bloqueada temporalmente.', locked: true, retryAfter: secs },
+        { status: 429, headers: { 'Retry-After': String(secs) } }
       )
     }
 
@@ -51,14 +54,16 @@ export async function POST(req: NextRequest) {
       if (security.auditEnabled) {
         await logAudit(key, 'login_fallido', `Intento ${count}/${security.maxAttempts}${lockNow ? ' — bloqueado' : ''}${user?.disabled ? ' · usuario deshabilitado' : ''}`)
       }
-      return NextResponse.json(
-        {
-          error: lockNow
-            ? `Demasiados intentos. Cuenta bloqueada ${security.lockMinutes} minutos.`
-            : 'Credenciales incorrectas',
-        },
-        { status: 401 }
-      )
+      if (lockNow) {
+        // la cuenta ACABA de bloquearse: se entrega la duración exacta para
+        // que la UI arranque la cuenta regresiva desde el primer segundo
+        const lockS = security.lockMinutes * 60
+        return NextResponse.json(
+          { error: 'Demasiados intentos. Cuenta bloqueada temporalmente.', locked: true, retryAfter: lockS },
+          { status: 429, headers: { 'Retry-After': String(lockS) } }
+        )
+      }
+      return NextResponse.json({ error: 'Credenciales incorrectas' }, { status: 401 })
     }
 
     // ---------- 2FA REAL (TOTP RFC 6238 — app autenticadora) ----------
@@ -71,6 +76,15 @@ export async function POST(req: NextRequest) {
       }
       if (!verifyTotp(user.totpSecret, String(otp))) {
         const { count } = await recordLoginFailure(key, security.maxAttempts, security.lockMinutes)
+        if (count >= security.maxAttempts) {
+          // el bloqueo también se aplica por códigos TOTP erróneos
+          const lockS = security.lockMinutes * 60
+          if (security.auditEnabled) await logAudit(key, 'login_fallido', `Intento ${count}/${security.maxAttempts} — bloqueado (TOTP)`)
+          return NextResponse.json(
+            { error: 'Demasiados intentos. Cuenta bloqueada temporalmente.', locked: true, retryAfter: lockS },
+            { status: 429, headers: { 'Retry-After': String(lockS) } }
+          )
+        }
         if (security.auditEnabled) await logAudit(key, '2fa_fallido', `Código TOTP incorrecto (intento ${count})`)
         return NextResponse.json(
           { error: 'Código de autenticador incorrecto (6 dígitos, vence cada 30 s)', requires2FA: true, method: 'totp' },
