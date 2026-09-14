@@ -64,6 +64,9 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
   const [totpSetup, setTotpSetup] = useState<{ secret: string; uri: string; qrSvg?: string } | null>(null)
   const [totpCode, setTotpCode] = useState('')
   const [totpBusy, setTotpBusy] = useState(false)
+  // desactivación del 2FA desde la casilla (requiere código del autenticador)
+  const [totpDisableOpen, setTotpDisableOpen] = useState(false)
+  const [totpDisableCode, setTotpDisableCode] = useState('')
   const [needs2FA, setNeeds2FA] = useState(false)
   const [loginError, setLoginError] = useState('')
   const [logging, setLogging] = useState(false)
@@ -125,14 +128,75 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
     }
   }, [])
 
-  // estado del 2FA TOTP del usuario (pestaña cuenta)
+  // estado del 2FA TOTP del usuario (cuenta · seguridad · resumen)
   useEffect(() => {
-    if (!user || tab !== 'cuenta') return
+    if (!user || (tab !== 'cuenta' && tab !== 'seguridad' && tab !== 'resumen')) return
     fetch('/api/auth/totp')
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d) setTotp({ active: !!d.active, pending: !!d.pending, secret: d.secret ?? null }) })
       .catch(() => { /* sin servidor */ })
   }, [user, tab])
+
+  // ---------- acciones 2FA compartidas (casilla de Seguridad · Cuenta y clave) ----------
+  // La casilla y el Resumen muestran el estado REAL (totp.active de la BD);
+  // el ajuste security.twoFactor se sincroniza en silencio para no mentir en la API.
+  const syncTwoFactorSetting = (active: boolean) => {
+    setTotp({ active, pending: false })
+    if (security) {
+      const next = { ...security, twoFactor: active }
+      setSecurity(next)
+      void fetch('/api/settings', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ security: next, design }),
+      }).catch(() => { /* mejor esfuerzo */ })
+    }
+  }
+
+  // activar la casilla → genera secreto + QR y abre el flujo de confirmación
+  const startTotpSetup = async () => {
+    if (totpBusy || totpSetup) return
+    setTotpBusy(true)
+    setTotpDisableOpen(false)
+    try {
+      const r = await fetch('/api/auth/totp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'setup' }) })
+      const d = await r.json()
+      if (r.ok) {
+        setTotpSetup({ secret: d.secret, uri: d.uri, qrSvg: d.qrSvg })
+        setTotp({ active: false, pending: true })
+        toast.success('QR generado — escanéelo con Google Authenticator')
+      } else toast.error(d.error || 'No se pudo generar el secreto')
+    } finally { setTotpBusy(false) }
+  }
+
+  const confirmTotpSetup = async () => {
+    setTotpBusy(true)
+    try {
+      const r = await fetch('/api/auth/totp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'verify', code: totpCode }) })
+      const d = await r.json()
+      if (r.ok) {
+        setTotpSetup(null)
+        setTotpCode('')
+        syncTwoFactorSetting(true)
+        toast.success('2FA activado — el login exigirá su código')
+      } else toast.error(d.error || 'Código incorrecto')
+    } finally { setTotpBusy(false) }
+  }
+
+  const disableTotpWithCode = async (code: string) => {
+    setTotpBusy(true)
+    try {
+      const r = await fetch('/api/auth/totp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'disable', code }) })
+      const d = await r.json()
+      if (r.ok) {
+        setTotpDisableOpen(false)
+        setTotpDisableCode('')
+        setTotpSetup(null)
+        syncTwoFactorSetting(false)
+        toast.success('2FA desactivado')
+      } else toast.error(d.error || 'No se pudo desactivar')
+      return r.ok
+    } finally { setTotpBusy(false) }
+  }
 
   useEffect(() => { if (s.adminOpen) refresh() }, [s.adminOpen, refresh])
 
@@ -334,7 +398,7 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
                   {[
                     { v: String(managedUsers?.length ?? (user ? 1 : 0)), l: 'Usuarios', i: 'Users' },
                     { v: String(audit.length), l: 'Eventos de auditoría', i: 'History' },
-                    { v: String(security?.twoFactor ? 'Sí' : 'No'), l: '2FA activo', i: 'ShieldCheck' },
+                    { v: String(totp?.active ? 'Sí' : 'No'), l: '2FA activo', i: 'ShieldCheck' },
                     { v: `${security?.sessionTimeout ?? 30} min`, l: 'Timeout de sesión', i: 'Activity' },
                   ].map((c, i) => (
                     <div key={i} className="rounded-xl border jy-border jy-bg2 p-3">
@@ -373,12 +437,74 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
               <div className="space-y-4 max-w-xl">
                 <SectionTitle icon="ShieldCheck" title="Autenticación" desc="Control de accesos al panel de administración" />
                 <div className="rounded-xl border jy-border jy-bg2 divide-y divide-white/5">
-                  <SwitchRow
-                    label="Autenticación en dos factores (2FA)"
-                    desc="Código TOTP real (RFC 6238) generado en la app autenticadora"
-                    checked={security.twoFactor}
-                    onChange={(v) => setSecurity({ ...security, twoFactor: v })}
-                  />
+                  {/* casilla 2FA conectada al TOTP REAL: al activarla se genera
+                      el QR escaneable; se enciende al confirmar el código */}
+                  <div className="px-4 py-3">
+                    <div className="flex items-center justify-between gap-4">
+                      <Field
+                        label="Autenticación en dos factores (2FA)"
+                        desc={totp?.active
+                          ? 'ACTIVO: el login exige el código de 6 dígitos de su app autenticadora'
+                          : totpSetup
+                            ? 'Escanee el QR y confirme el código — la casilla se encenderá al activarse'
+                            : 'Al activarla se muestra el código QR para escanear con Google Authenticator'}
+                      />
+                      <Switch
+                        checked={!!totp?.active}
+                        onCheckedChange={(v) => {
+                          if (v === !!totp?.active) return
+                          if (v) void startTotpSetup()
+                          else setTotpDisableOpen(true)
+                        }}
+                      />
+                    </div>
+
+                    {/* secreto pendiente de un intento anterior */}
+                    {totp?.pending && !totpSetup && !totp?.active && (
+                      <div className="mt-2.5 rounded-lg border border-amber-400/30 bg-amber-400/5 px-3 py-2 text-[10.5px] text-amber-300 leading-relaxed">
+                        Tiene un secreto TOTP pendiente de confirmación (aún no se exige en el login).
+                        <button type="button" className="underline font-semibold ml-1" onClick={() => { setTotpSetup(null); void startTotpSetup() }}>
+                          Regenerar QR
+                        </button>
+                      </div>
+                    )}
+
+                    {/* flujo de configuración: QR + match + confirmación */}
+                    {totpSetup && (
+                      <div className="mt-3">
+                        <TotpSetupFlow
+                          setup={totpSetup}
+                          code={totpCode}
+                          setCode={setTotpCode}
+                          busy={totpBusy}
+                          onConfirm={() => void confirmTotpSetup()}
+                          onCancel={() => { setTotpSetup(null); setTotpCode('') }}
+                        />
+                      </div>
+                    )}
+
+                    {/* desactivación con código del autenticador */}
+                    {totpDisableOpen && (
+                      <div className="mt-3 rounded-lg border jy-border bg-black/20 p-3 space-y-2">
+                        <p className="text-[11px] jy-muted leading-relaxed">
+                          Para desactivar el 2FA escriba el código actual de su app autenticadora:
+                        </p>
+                        <div className="flex gap-2">
+                          <Input value={totpDisableCode}
+                            onChange={(e) => setTotpDisableCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                            placeholder="123 456" inputMode="numeric" className="h-9 bg-black/20 font-mono" />
+                          <Button type="button" disabled={totpDisableCode.length < 6 || totpBusy}
+                            onClick={() => void disableTotpWithCode(totpDisableCode)}>
+                            Desactivar
+                          </Button>
+                          <Button type="button" variant="ghost" size="sm" className="h-9"
+                            onClick={() => { setTotpDisableOpen(false); setTotpDisableCode('') }}>
+                            Cancelar
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   <SliderRow
                     label="Timeout de sesión"
                     desc="Los administradores serán desconectados tras este tiempo de inactividad"
@@ -775,12 +901,7 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
                           onClick={async () => {
                             const pw = await useJarumy.getState().requestPrompt('Código actual del autenticador (para confirmar la desactivación):')
                             if (!pw || !pw.trim()) return
-                            setTotpBusy(true)
-                            try {
-                              const r = await fetch('/api/auth/totp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'disable', code: pw }) })
-                              const d = await r.json()
-                              if (r.ok) { setTotp({ active: false, pending: false }); toast.success('2FA desactivado') } else toast.error(d.error || 'No se pudo desactivar')
-                            } finally { setTotpBusy(false) }
+                            await disableTotpWithCode(pw.trim())
                           }} disabled={totpBusy}>
                           Desactivar
                         </Button>
@@ -796,67 +917,19 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
                     </p>
                   )}
                   {!totp?.active && !totpSetup && (
-                    <Button type="button" className="w-full"
-                      onClick={async () => {
-                        setTotpBusy(true)
-                        try {
-                          const r = await fetch('/api/auth/totp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'setup' }) })
-                          const d = await r.json()
-                          if (r.ok) { setTotpSetup({ secret: d.secret, uri: d.uri, qrSvg: d.qrSvg }); toast.success('QR generado — escanéelo con Google Authenticator') }
-                          else toast.error(d.error || 'No se pudo generar el secreto')
-                        } finally { setTotpBusy(false) }
-                      }} disabled={totpBusy}>
+                    <Button type="button" className="w-full" onClick={() => void startTotpSetup()} disabled={totpBusy}>
                       <ToolIcon name="QrCode" size={14} className="mr-1.5" /> Configurar 2FA con app autenticadora
                     </Button>
                   )}
                   {totpSetup && (
-                    <div className="space-y-2.5">
-                      <p className="text-[11px] jy-muted leading-relaxed">
-                        1. Abra <b>Google Authenticator</b> → añadir cuenta → <b>escanear código QR</b>:
-                      </p>
-                      {totpSetup.qrSvg ? (
-                        <div
-                          className="mx-auto w-[196px] h-[196px] rounded-xl bg-white p-2 shadow-lg [&>svg]:block [&>svg]:mx-auto [&>svg]:w-[180px] [&>svg]:h-[180px]"
-                          aria-label="Código QR otpauth para Google Authenticator"
-                          role="img"
-                          dangerouslySetInnerHTML={{ __html: totpSetup.qrSvg }}
-                        />
-                      ) : (
-                        <div className="mx-auto w-[196px] h-[196px] rounded-xl border jy-border jy-bg2 grid place-items-center text-[10px] jy-muted">
-                          QR no disponible — use la clave manual
-                        </div>
-                      )}
-                      <p className="text-[10.5px] jy-muted leading-relaxed">
-                        ¿Sin cámara? Ingreso manual con la clave (A-Z y 2-7):
-                      </p>
-                      <div className="rounded-lg border jy-border bg-black/30 px-3 py-2 font-mono text-[12px] tracking-[0.18em] text-amber-300 select-all text-center">
-                        {totpSetup.secret}
-                      </div>
-                      <p className="text-[9px] jy-muted break-all font-mono">{totpSetup.uri}</p>
-                      {/* Comparación en vivo: este código debe IGUALAR al de Google Authenticator */}
-                      <TotpLive title="Compruebe el match con Google Authenticator" variant="compact" />
-                      <p className="text-[11px] jy-muted">2. Si ambos códigos coinciden, confirme para activar el 2FA:</p>
-                      <div className="flex gap-2">
-                        <Input value={totpCode} onChange={(e) => setTotpCode(e.target.value)} placeholder="123 456"
-                          inputMode="numeric" className="h-9 bg-black/20 font-mono" />
-                        <Button type="button" disabled={totpCode.length < 6 || totpBusy}
-                          onClick={async () => {
-                            setTotpBusy(true)
-                            try {
-                              const r = await fetch('/api/auth/totp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'verify', code: totpCode }) })
-                              const d = await r.json()
-                              if (r.ok) { setTotp({ active: true, pending: false }); setTotpSetup(null); setTotpCode(''); toast.success('2FA activado — el login exigirá su código') }
-                              else toast.error(d.error || 'Código incorrecto')
-                            } finally { setTotpBusy(false) }
-                          }}>
-                          Confirmar
-                        </Button>
-                        <Button type="button" variant="ghost" size="sm" className="h-9"
-                          onClick={() => { setTotpSetup(null); setTotpCode('') }}>
-                          Cancelar
-                        </Button>
-                      </div>
-                    </div>
+                    <TotpSetupFlow
+                      setup={totpSetup}
+                      code={totpCode}
+                      setCode={setTotpCode}
+                      busy={totpBusy}
+                      onConfirm={() => void confirmTotpSetup()}
+                      onCancel={() => { setTotpSetup(null); setTotpCode('') }}
+                    />
                   )}
                   <p className="text-[10px] jy-muted leading-relaxed">
                     Estándar RFC 6238 (SHA-1, 30 s, 6 dígitos) verificado contra los vectores oficiales.
@@ -966,6 +1039,59 @@ function InputRow({ label, value, onChange, max }: { label: string; value: strin
       <Input value={value} maxLength={max}
         onChange={(e) => onChange(e.target.value)}
         className="h-8 w-44 bg-black/20 text-[12px]" />
+    </div>
+  )
+}
+
+// ---------------- flujo de configuración TOTP (QR + confirmación) ----------------
+// Reutilizado por la casilla de la pestaña Seguridad y por Cuenta y clave:
+// QR escaneable por Google Authenticator + clave manual + código en vivo
+// para comprobar el match + confirmación con el código de 6 dígitos.
+function TotpSetupFlow({ setup, code, setCode, busy, onConfirm, onCancel }: {
+  setup: { secret: string; uri: string; qrSvg?: string }
+  code: string
+  setCode: (v: string) => void
+  busy: boolean
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  return (
+    <div className="space-y-2.5">
+      <p className="text-[11px] jy-muted leading-relaxed">
+        1. Abra <b>Google Authenticator</b> → añadir cuenta → <b>escanear código QR</b>:
+      </p>
+      {setup.qrSvg ? (
+        <div
+          className="mx-auto w-[196px] h-[196px] rounded-xl bg-white p-2 shadow-lg [&>svg]:block [&>svg]:mx-auto [&>svg]:w-[180px] [&>svg]:h-[180px]"
+          aria-label="Código QR otpauth para Google Authenticator"
+          role="img"
+          dangerouslySetInnerHTML={{ __html: setup.qrSvg }}
+        />
+      ) : (
+        <div className="mx-auto w-[196px] h-[196px] rounded-xl border jy-border jy-bg2 grid place-items-center text-[10px] jy-muted">
+          QR no disponible — use la clave manual
+        </div>
+      )}
+      <p className="text-[10.5px] jy-muted leading-relaxed">
+        ¿Sin cámara? Ingreso manual con la clave (A-Z y 2-7):
+      </p>
+      <div className="rounded-lg border jy-border bg-black/30 px-3 py-2 font-mono text-[12px] tracking-[0.18em] text-amber-300 select-all text-center">
+        {setup.secret}
+      </div>
+      <p className="text-[9px] jy-muted break-all font-mono">{setup.uri}</p>
+      {/* Comparación en vivo: este código debe IGUALAR al de Google Authenticator */}
+      <TotpLive title="Compruebe el match con Google Authenticator" variant="compact" />
+      <p className="text-[11px] jy-muted">2. Si ambos códigos coinciden, confirme para activar el 2FA:</p>
+      <div className="flex gap-2">
+        <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="123 456"
+          inputMode="numeric" className="h-9 bg-black/20 font-mono" />
+        <Button type="button" disabled={code.replace(/\D/g, '').length < 6 || busy} onClick={onConfirm}>
+          Confirmar
+        </Button>
+        <Button type="button" variant="ghost" size="sm" className="h-9" onClick={onCancel}>
+          Cancelar
+        </Button>
+      </div>
     </div>
   )
 }
