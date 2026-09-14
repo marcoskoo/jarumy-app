@@ -92,6 +92,20 @@ export function verifyTotp(secretBase32: string, code: string): boolean {
   return false
 }
 
+/**
+ * Código TOTP actual + segundos restantes de la ventana de 30 s.
+ * Lo usa el "Autenticador Jarumy" (panel de cuenta) para mostrar en
+ * vivo el MISMO código que genera Google Authenticator / Authy.
+ */
+export function totpNow(secretBase32: string, step = 30, digits = 6): {
+  code: string
+  secondsRemaining: number
+} {
+  const code = totpCode(secretBase32, 0, step, digits)
+  const secondsRemaining = step - (Math.floor(Date.now() / 1000) % step)
+  return { code, secondsRemaining }
+}
+
 /** URI otpauth:// para registrar el secreto en apps de autenticador. */
 export function otpauthUri(secretBase32: string, account: string, issuer = 'Jarumy'): string {
   return [

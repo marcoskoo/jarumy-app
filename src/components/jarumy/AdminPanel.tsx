@@ -10,6 +10,7 @@ import { toast } from 'sonner'
 import { useJarumy } from '@/lib/store'
 import { TOOL_CATEGORIES } from '@/lib/tools-data'
 import { ToolIcon } from './ToolIcon'
+import { TotpLive } from './TotpLive'
 import type { SecuritySettings, DesignSettings } from '@/lib/settings'
 
 interface AdminUser { username: string; displayName: string | null; role: string }
@@ -22,6 +23,7 @@ interface ManagedUser {
   disabled: boolean
   mustChangePassword: boolean
   twoFactor: boolean
+  pending2fa?: boolean
   planCount: number
   createdAt: string
 }
@@ -58,8 +60,8 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [otp, setOtp] = useState('')
-  const [totp, setTotp] = useState<{ active: boolean; secret?: string | null } | null>(null)
-  const [totpSetup, setTotpSetup] = useState<{ secret: string; uri: string } | null>(null)
+  const [totp, setTotp] = useState<{ active: boolean; pending?: boolean; secret?: string | null } | null>(null)
+  const [totpSetup, setTotpSetup] = useState<{ secret: string; uri: string; qrSvg?: string } | null>(null)
   const [totpCode, setTotpCode] = useState('')
   const [totpBusy, setTotpBusy] = useState(false)
   const [needs2FA, setNeeds2FA] = useState(false)
@@ -128,7 +130,7 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
     if (!user || tab !== 'cuenta') return
     fetch('/api/auth/totp')
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d) setTotp({ active: !!d.active, secret: d.secret ?? null }) })
+      .then((d) => { if (d) setTotp({ active: !!d.active, pending: !!d.pending, secret: d.secret ?? null }) })
       .catch(() => { /* sin servidor */ })
   }, [user, tab])
 
@@ -502,7 +504,7 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
                           {u.mustChangePassword && !u.disabled && <span className="ml-1.5 text-[9px] text-amber-400">debe cambiar clave</span>}
                         </p>
                         <p className="text-[10px] jy-muted leading-tight">
-                          @{u.username} · {u.planCount} plano(s) · {u.twoFactor ? '2FA activo' : 'sin 2FA'} · desde {new Date(u.createdAt).toLocaleDateString('es-PE')}
+                          @{u.username} · {u.planCount} plano(s) · {u.twoFactor ? '2FA activo' : u.pending2fa ? '2FA pendiente' : 'sin 2FA'} · desde {new Date(u.createdAt).toLocaleDateString('es-PE')}
                         </p>
                       </div>
                       <div className="flex gap-0.5 rounded-lg border jy-border p-0.5">
@@ -564,6 +566,33 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
                       >
                         <ToolIcon name="KeyRound" size={13} />
                       </button>
+                      {(u.twoFactor || u.pending2fa) && (
+                        <button
+                          disabled={usersBusy}
+                          title={u.twoFactor ? 'Restablecer 2FA (usuario perdió su app autenticadora)' : 'Descartar secreto TOTP pendiente'}
+                          onClick={async () => {
+                            const ok = window.confirm(`¿Restablecer el 2FA de ${u.username}? Deberá volver a configurarlo desde su cuenta.`)
+                            if (!ok) return
+                            setUsersBusy(true)
+                            try {
+                              const res = await fetch(`/api/users/${u.id}`, {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ resetTwoFactor: true }),
+                              })
+                              const d = await res.json()
+                              if (!res.ok) throw new Error(d.error || 'Error')
+                              toast.success(`2FA de ${u.username} restablecido`)
+                              refreshUsers()
+                            } catch (err) {
+                              toast.error('No se pudo restablecer el 2FA', { description: String(err instanceof Error ? err.message : err) })
+                            } finally { setUsersBusy(false) }
+                          }}
+                          className="flex h-7 w-7 items-center justify-center rounded-lg border jy-border jy-muted hover:jy-text hover:border-rose-500/40 disabled:opacity-40"
+                        >
+                          <ToolIcon name="ShieldOff" size={13} />
+                        </button>
+                      )}
                       <button
                         disabled={usersBusy || u.username === user.username}
                         title={u.username === user.username ? 'No puede deshabilitar su propia cuenta' : 'Deshabilitar (blando)'}
@@ -735,26 +764,36 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
                 </form>
 
                 {/* ---------- 2FA REAL (TOTP RFC 6238) ---------- */}
-                <SectionTitle icon="ShieldCheck" title="Doble factor (TOTP real)" desc="App autenticadora: Google Authenticator, Authy, 1Password, Bitwarden…" />
+                <SectionTitle icon="ShieldCheck" title="Doble factor (TOTP real)" desc="Compatible con Google Authenticator, Authy, 1Password, Bitwarden…" />
                 <div className="rounded-xl border jy-border jy-bg2 p-4 space-y-3">
                   {totp?.active && !totpSetup && (
-                    <div className="flex items-center gap-2 text-[12px] text-emerald-400 font-bold">
-                      <ToolIcon name="ShieldCheck" size={15} /> 2FA ACTIVO — el login exige el código de 6 dígitos
-                      <span className="ml-auto" />
-                      <Button type="button" variant="outline" size="sm" className="h-8"
-                        onClick={async () => {
-                          const pw = await useJarumy.getState().requestPrompt('Código actual del autenticador (para confirmar la desactivación):')
-                          if (!pw || !pw.trim()) return
-                          setTotpBusy(true)
-                          try {
-                            const r = await fetch('/api/auth/totp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'disable', code: pw }) })
-                            const d = await r.json()
-                            if (r.ok) { setTotp({ active: false }); toast.success('2FA desactivado') } else toast.error(d.error || 'No se pudo desactivar')
-                          } finally { setTotpBusy(false) }
-                        }} disabled={totpBusy}>
-                        Desactivar
-                      </Button>
-                    </div>
+                    <>
+                      <div className="flex items-center gap-2 text-[12px] text-emerald-400 font-bold">
+                        <ToolIcon name="ShieldCheck" size={15} /> 2FA ACTIVO — el login exige el código de 6 dígitos
+                        <span className="ml-auto" />
+                        <Button type="button" variant="outline" size="sm" className="h-8"
+                          onClick={async () => {
+                            const pw = await useJarumy.getState().requestPrompt('Código actual del autenticador (para confirmar la desactivación):')
+                            if (!pw || !pw.trim()) return
+                            setTotpBusy(true)
+                            try {
+                              const r = await fetch('/api/auth/totp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'disable', code: pw }) })
+                              const d = await r.json()
+                              if (r.ok) { setTotp({ active: false, pending: false }); toast.success('2FA desactivado') } else toast.error(d.error || 'No se pudo desactivar')
+                            } finally { setTotpBusy(false) }
+                          }} disabled={totpBusy}>
+                          Desactivar
+                        </Button>
+                      </div>
+                      {/* Autenticador Jarumy: código en vivo, igual que Google Authenticator */}
+                      <TotpLive title="Autenticador Jarumy — código en vivo" variant="full" />
+                    </>
+                  )}
+                  {totp?.pending && !totpSetup && (
+                    <p className="text-[11px] text-amber-300 leading-relaxed">
+                      Tiene un secreto TOTP <b>pendiente de confirmación</b>. El 2FA no se exige en el
+                      login hasta confirmarlo. Vuelva a ejecutar la configuración para regenerarlo.
+                    </p>
                   )}
                   {!totp?.active && !totpSetup && (
                     <Button type="button" className="w-full"
@@ -763,7 +802,7 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
                         try {
                           const r = await fetch('/api/auth/totp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'setup' }) })
                           const d = await r.json()
-                          if (r.ok) { setTotpSetup({ secret: d.secret, uri: d.uri }); toast.success('Secreto generado — añádalo a su autenticadora') }
+                          if (r.ok) { setTotpSetup({ secret: d.secret, uri: d.uri, qrSvg: d.qrSvg }); toast.success('QR generado — escanéelo con Google Authenticator') }
                           else toast.error(d.error || 'No se pudo generar el secreto')
                         } finally { setTotpBusy(false) }
                       }} disabled={totpBusy}>
@@ -773,13 +812,30 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
                   {totpSetup && (
                     <div className="space-y-2.5">
                       <p className="text-[11px] jy-muted leading-relaxed">
-                        1. Añada esta cuenta en su app autenticadora (ingreso manual con la clave o el URI otpauth).
+                        1. Abra <b>Google Authenticator</b> → añadir cuenta → <b>escanear código QR</b>:
+                      </p>
+                      {totpSetup.qrSvg ? (
+                        <div
+                          className="mx-auto w-[196px] h-[196px] rounded-xl bg-white p-2 shadow-lg"
+                          aria-label="Código QR otpauth para Google Authenticator"
+                          role="img"
+                          dangerouslySetInnerHTML={{ __html: totpSetup.qrSvg }}
+                        />
+                      ) : (
+                        <div className="mx-auto w-[196px] h-[196px] rounded-xl border jy-border jy-bg2 grid place-items-center text-[10px] jy-muted">
+                          QR no disponible — use la clave manual
+                        </div>
+                      )}
+                      <p className="text-[10.5px] jy-muted leading-relaxed">
+                        ¿Sin cámara? Ingreso manual con la clave (A-Z y 2-7):
                       </p>
                       <div className="rounded-lg border jy-border bg-black/30 px-3 py-2 font-mono text-[12px] tracking-[0.18em] text-amber-300 select-all text-center">
                         {totpSetup.secret}
                       </div>
-                      <p className="text-[9.5px] jy-muted break-all font-mono">{totpSetup.uri}</p>
-                      <p className="text-[11px] jy-muted">2. Escriba el código de 6 dígitos que muestra la app para confirmar:</p>
+                      <p className="text-[9px] jy-muted break-all font-mono">{totpSetup.uri}</p>
+                      {/* Comparación en vivo: este código debe IGUALAR al de Google Authenticator */}
+                      <TotpLive title="Compruebe el match con Google Authenticator" variant="compact" />
+                      <p className="text-[11px] jy-muted">2. Si ambos códigos coinciden, confirme para activar el 2FA:</p>
                       <div className="flex gap-2">
                         <Input value={totpCode} onChange={(e) => setTotpCode(e.target.value)} placeholder="123 456"
                           inputMode="numeric" className="h-9 bg-black/20 font-mono" />
@@ -789,18 +845,22 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
                             try {
                               const r = await fetch('/api/auth/totp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'verify', code: totpCode }) })
                               const d = await r.json()
-                              if (r.ok) { setTotp({ active: true }); setTotpSetup(null); setTotpCode(''); toast.success('2FA activado — el login exigirá su código') }
+                              if (r.ok) { setTotp({ active: true, pending: false }); setTotpSetup(null); setTotpCode(''); toast.success('2FA activado — el login exigirá su código') }
                               else toast.error(d.error || 'Código incorrecto')
                             } finally { setTotpBusy(false) }
                           }}>
                           Confirmar
+                        </Button>
+                        <Button type="button" variant="ghost" size="sm" className="h-9"
+                          onClick={() => { setTotpSetup(null); setTotpCode('') }}>
+                          Cancelar
                         </Button>
                       </div>
                     </div>
                   )}
                   <p className="text-[10px] jy-muted leading-relaxed">
                     Estándar RFC 6238 (SHA-1, 30 s, 6 dígitos) verificado contra los vectores oficiales.
-                    Sin códigos simulados: el secreto vive solo en la base de datos y en su app.
+                    Contraseñas con scrypt + sal aleatoria; sesiones firmadas y revocables.
                   </p>
                 </div>
               </div>

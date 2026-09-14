@@ -89,7 +89,10 @@ export interface SessionUser {
   role: string
 }
 
-export interface SessionInfo extends SessionUser {
+export interface SessionInfo {
+  userId: string
+  username: string
+  role: string
   jti: string
   epoch: number
 }

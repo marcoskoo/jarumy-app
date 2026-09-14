@@ -5,7 +5,7 @@ import { parseDxf } from '../src/lib/dxf-import'
 import { PX_PER_M } from '../src/lib/plan-data'
 
 // helper: pares código/valor → texto DXF de UNA sección (sin EOF: el parser lo tolera)
-const dxf = (pairs: Array<[number, string]>, sections?: { blocks?: boolean }): string => {
+const dxf = (pairs: Array<[string | number, string]>, sections?: { blocks?: boolean }): string => {
   const rows: string[] = ['0', 'SECTION', '2', sections?.blocks ? 'BLOCKS' : 'ENTITIES']
   for (const [c, v] of pairs) rows.push(String(c), v)
   rows.push('0', 'ENDSEC')
@@ -13,7 +13,7 @@ const dxf = (pairs: Array<[number, string]>, sections?: { blocks?: boolean }): s
 }
 
 /** archivo completo con DOS secciones (BLOCKS + ENTITIES) y un único EOF */
-const dxfTwoSections = (blocksPairs: Array<[number, string]>, entitiesPairs: Array<[number, string]>): string =>
+const dxfTwoSections = (blocksPairs: Array<[string | number, string]>, entitiesPairs: Array<[string | number, string]>): string =>
   dxf(blocksPairs, { blocks: true }) + '\n' + dxf(entitiesPairs) + '\n0\nEOF\n'
 
 describe('DXF import — entidades básicas', () => {

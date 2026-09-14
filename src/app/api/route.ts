@@ -9,7 +9,7 @@ export async function GET() {
     health: '/api/health',
     docs: 'Consulte el README del repositorio',
     endpoints: {
-      auth: ['/api/auth/login', '/api/auth/logout', '/api/auth/session', '/api/auth/password', '/api/auth/totp'],
+      auth: ['/api/auth/login', '/api/auth/logout', '/api/auth/session', '/api/auth/password', '/api/auth/totp', '/api/auth/totp/live'],
       plans: ['/api/plans', '/api/plans/:id', '/api/plans/:id/versions', '/api/plans/:id/share', '/api/share/:token'],
       users: ['/api/users', '/api/users/:id'],
       ai: ['/api/ai/plan', '/api/ai/normativa'],

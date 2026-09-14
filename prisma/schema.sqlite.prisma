@@ -25,6 +25,7 @@ model User {
   mustChangePassword Boolean  @default(false)
   tokenEpoch         Int      @default(0) // invalida sesiones al cambiar la clave
   totpSecret         String?
+  totpConfirmed      Boolean  @default(false) // 2FA solo se exige tras verificar con la app autenticadora
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   plans              Plan[]

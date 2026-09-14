@@ -3,7 +3,7 @@ import { db, ensureSchema } from '@/lib/db'
 import { verifySessionToken, isAdmin, hashPassword, validatePasswordPolicy, sanitizeRole, denyAllUserSessions } from '@/lib/auth'
 import { getSettings, logAudit } from '@/lib/settings'
 
-// PATCH /api/users/:id → { role?, displayName?, disabled?, password? }
+// PATCH /api/users/:id → { role?, displayName?, disabled?, password?, resetTwoFactor? }
 // DELETE /api/users/:id → deshabilitado blando (conserva planos/auditoría)
 
 function unauthorized() {
@@ -45,8 +45,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const { id } = await params
 
     const body = await req.json().catch(() => null)
-    const { role, displayName, disabled, password } = (body ?? {}) as {
-      role?: unknown; displayName?: unknown; disabled?: unknown; password?: unknown
+    const { role, displayName, disabled, password, resetTwoFactor } = (body ?? {}) as {
+      role?: unknown; displayName?: unknown; disabled?: unknown; password?: unknown; resetTwoFactor?: unknown
     }
 
     const nextRole = role !== undefined ? sanitizeRole(role) : undefined
@@ -66,6 +66,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       disabled?: boolean
       passwordHash?: string
       mustChangePassword?: boolean
+      totpSecret?: string | null
+      totpConfirmed?: boolean
     } = {}
     if (nextRole !== undefined) updates.role = nextRole
     if (displayName !== undefined) {
@@ -92,6 +94,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       updates.mustChangePassword = true
     }
 
+    // válvula de escape: admin restablece el 2FA de un usuario bloqueado
+    // (perdió el teléfono). Requiere re-configurarlo desde cero.
+    if (resetTwoFactor === true) {
+      updates.totpSecret = null
+      updates.totpConfirmed = false
+    }
+
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: 'Nada que actualizar' }, { status: 400 })
     }
@@ -112,6 +121,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       nextDisabled !== undefined ? (nextDisabled ? 'deshabilitado' : 'habilitado') : null,
       updates.passwordHash ? 'clave restablecida' : null,
       displayName !== undefined ? 'nombre actualizado' : null,
+      resetTwoFactor === true ? '2FA restablecido' : null,
     ].filter(Boolean).join(' · ')
     await logAudit(session.username, 'usuario_actualizado', `${user.username}: ${changes}`)
 

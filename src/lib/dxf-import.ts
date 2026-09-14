@@ -215,13 +215,13 @@ export function parseDxf(text: string): DxfImportResult {
             const q = T(px, Number.parseFloat(v))
             setNum(10, q[0]); setNum(20, q[1])
             px = null
-          } else if (code === 70) setNum(70, v)
+          } else if (code === 70) setNum(70, Number.parseFloat(v) || 0)
         }
         break
       }
       case 'POLYLINE': {
         out.verts = sub.verts.map(([x, y]) => T(x, y))
-        for (const [code, v] of sub.pairs) if (code === 70) setNum(70, v)
+        for (const [code, v] of sub.pairs) if (code === 70) setNum(70, Number.parseFloat(v) || 0)
         break
       }
       case 'POINT': {

@@ -1,7 +1,7 @@
 // Pruebas TOTP (RFC 6238/4226): vector de referencia de RFC y
 // verificación con tolerancia de ±1 ventana.
 import { describe, expect, it, vi } from 'vitest'
-import { generateTotpSecret, base32Decode, totpCode, verifyTotp, otpauthUri } from '../src/lib/totp'
+import { generateTotpSecret, base32Decode, totpCode, totpNow, verifyTotp, otpauthUri } from '../src/lib/totp'
 
 describe('TOTP RFC 6238 — 2FA real', () => {
   it('genera secretos base32 válidos (A-Z2-7, sin relleno)', () => {
@@ -46,6 +46,44 @@ describe('TOTP RFC 6238 — 2FA real', () => {
     expect(uri).toContain('otpauth://totp/Jarumy:jperez')
     expect(uri).toContain('secret=JBSWY3DPEHPK3PXP')
     expect(uri).toContain('period=30')
+  })
+
+  it('totpNow: el código en vivo coincide con totpCode y la cuenta regresiva es 1..30', () => {
+    const s = generateTotpSecret()
+    const { code, secondsRemaining } = totpNow(s)
+    expect(code).toMatch(/^\d{6}$/)
+    expect(code).toBe(totpCode(s)) // mismo código que Google Authenticator
+    expect(secondsRemaining).toBeGreaterThanOrEqual(1)
+    expect(secondsRemaining).toBeLessThanOrEqual(30)
+    // el código cambia con la ventana: reloj adelantado 35 s → otra ventana
+    vi.setSystemTime(Date.now() + 35_000)
+    const next = totpNow(s)
+    expect(next.secondsRemaining).toBeGreaterThanOrEqual(1)
+    vi.useRealTimers()
+  })
+})
+
+describe('Hash de contraseñas — scrypt + sal aleatoria', () => {
+  // import diferido: auth.ts depende de prisma/db; solo probamos el hash
+  // (la importación de db no ejecuta consultas hasta su primer uso).
+  it('hashPassword/verifyPassword: redondo correcto, rechaza incorrecta', async () => {
+    const { hashPassword, verifyPassword } = await import('../src/lib/auth')
+    const stored = hashPassword('Muro#2024Seguro')
+    expect(stored).toMatch(/^[0-9a-f]{32}:[0-9a-f]{128}$/) // sal:hash
+    expect(stored).not.toContain('Muro#2024Seguro') // NUNCA texto plano
+    expect(verifyPassword('Muro#2024Seguro', stored)).toBe(true)
+    expect(verifyPassword('muro2024', stored)).toBe(false)
+    expect(verifyPassword('', stored)).toBe(false)
+    expect(verifyPassword('Muro#2024Seguro', 'formato-corrupto')).toBe(false)
+  })
+
+  it('cada hash usa sal única (dos hashes del mismo password difieren)', async () => {
+    const { hashPassword, verifyPassword } = await import('../src/lib/auth')
+    const a = hashPassword('MismaClave!9')
+    const b = hashPassword('MismaClave!9')
+    expect(a).not.toBe(b) // sal aleatoria distinta
+    expect(verifyPassword('MismaClave!9', a)).toBe(true)
+    expect(verifyPassword('MismaClave!9', b)).toBe(true)
   })
 })
 

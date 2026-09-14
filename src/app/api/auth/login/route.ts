@@ -38,7 +38,8 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // usuario tolerante a mayúsculas (los seed históricos usan "J. Burga")
+    // usuario tolerante a mayúsculas (los seed históricos usan "J. Burga").
+    // Deshabilitado = credenciales inválidas (no revela estado de la cuenta).
     const user = await db.user.findFirst({
       where: { OR: [{ username: key }, { username: raw }] },
     })
@@ -48,7 +49,7 @@ export async function POST(req: NextRequest) {
       const { count } = await recordLoginFailure(key, security.maxAttempts, security.lockMinutes)
       const lockNow = count >= security.maxAttempts
       if (security.auditEnabled) {
-        await logAudit(key, 'login_fallido', `Intento ${count}/${security.maxAttempts}${lockNow ? ' — bloqueado' : ''}`)
+        await logAudit(key, 'login_fallido', `Intento ${count}/${security.maxAttempts}${lockNow ? ' — bloqueado' : ''}${user?.disabled ? ' · usuario deshabilitado' : ''}`)
       }
       return NextResponse.json(
         {
@@ -59,15 +60,11 @@ export async function POST(req: NextRequest) {
         { status: 401 }
       )
     }
-    if (user.disabled) {
-      if (security.auditEnabled) await logAudit(key, 'login_bloqueado', 'Usuario deshabilitado')
-      return NextResponse.json({ error: 'Usuario deshabilitado — contacte al administrador' }, { status: 403 })
-    }
 
     // ---------- 2FA REAL (TOTP RFC 6238 — app autenticadora) ----------
-    // Activo cuando el usuario configuró su secreto TOTP desde el Panel Admin
-    // (cuenta › Seguridad). Tolerancia ±30 s (1 ventana) por desfase de reloj.
-    if (user.totpSecret) {
+    // Activo cuando el usuario configuró Y CONFIRMÓ su secreto TOTP desde
+    // el Panel Admin (cuenta › Seguridad). Tolerancia ±30 s (1 ventana).
+    if (user.totpSecret && user.totpConfirmed) {
       if (!otp) {
         if (security.auditEnabled) await logAudit(key, '2fa_codigo_requerido', 'TOTP')
         return NextResponse.json({ requires2FA: true, method: 'totp' }, { status: 401 })
@@ -88,22 +85,27 @@ export async function POST(req: NextRequest) {
       security.sessionTimeout
     )
     if (security.auditEnabled) {
-      await logAudit(user.username, 'login_exitoso', user.totpSecret ? 'Panel de administración · 2FA TOTP' : 'Panel de administración')
+      await logAudit(user.username, 'login_exitoso', user.totpConfirmed ? 'Panel de administración · 2FA TOTP' : 'Panel de administración')
     }
 
+    // cookie de sesión endurecida: httpOnly + SameSite=Lax + Secure en HTTPS
+    const isHttps =
+      req.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() === 'https' ||
+      req.nextUrl.protocol === 'https:'
     const res = NextResponse.json({
       ok: true,
       user: {
         username: user.username,
         displayName: user.displayName,
         role: user.role,
-        twoFactor: !!user.totpSecret,
+        twoFactor: !!(user.totpSecret && user.totpConfirmed),
         mustChangePassword: user.mustChangePassword,
       },
     })
     res.cookies.set('jarumy_session', token, {
       httpOnly: true,
       sameSite: 'lax',
+      secure: isHttps,
       path: '/',
       maxAge: security.sessionTimeout * 60,
     })

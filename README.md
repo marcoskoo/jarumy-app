@@ -94,14 +94,17 @@ Contraseña inicial: se imprime en el registro del servidor al primer
 ```
 
 Cámbiela desde *Cuenta y clave* y active el **2FA real (TOTP RFC 6238)** con su
-app autenticadora (Google Authenticator, Authy…).
+app autenticadora (Google Authenticator, Authy…): el panel muestra un **QR
+escaneable**, el **código de 6 dígitos en vivo** (idéntico al de Google
+Authenticator) para comprobar el *match* antes de confirmar, y un
+**Autenticador Jarumy** permanente con anillo de cuenta regresiva de 30 s.
 
 Desde el panel se configura:
 
 | Módulo | Opciones |
 |---|---|
-| **🔐 Seguridad** | 2FA (TOTP real), timeout de sesión, bloqueo por intentos, política de contraseñas (longitud/mayúsculas/números/símbolos), auditoría on/off |
-| **👥 Usuarios** | CRUD completo: crear/editar/deshabilitar, **roles admin/editor/visor** con enforcement en el servidor, restablecer contraseña (revoca sesiones) |
+| **🔐 Seguridad** | 2FA (TOTP real con QR + autenticador integrado), timeout de sesión, bloqueo por intentos, política de contraseñas (longitud/mayúsculas/números/símbolos), auditoría on/off |
+| **👥 Usuarios** | CRUD completo: crear/editar/deshabilitar, **roles admin/editor/visor** con enforcement en el servidor, restablecer contraseña (revoca sesiones) y **restablecer 2FA** (válvula de escape si un usuario pierde su app autenticadora) |
 | **🎨 Diseño web** | Marca, logo, tema claro/oscuro, 7 colores primarios, color de acento, radio de bordes, densidad — **aplicados en vivo y persistidos en BD** |
 | **🔑 Cambio de clave** | Con validación de política y verificación de clave actual; revoca TODAS las sesiones activas |
 | **📜 Auditoría** | Últimos eventos con usuario, acción, detalle e IP (paginado, filtro por usuario) |
@@ -129,7 +132,7 @@ bun run dev        # o npm run dev
 # 5. (Opcional) Servicio de colaboración en vivo — puerto 3003
 cd mini-services/collab-service && bun install && bun run dev
 
-# 6. Tests automatizados (vitest — 31 pruebas)
+# 6. Tests automatizados (vitest — 34 pruebas: normativa, evacuación, energía, TOTP + hash, DXF)
 bun run test
 ```
 
@@ -201,7 +204,7 @@ src/
     ├── ifc-export.ts             # IFC4 multi-storey (un nivel = un IfcBuildingStorey)
     └── store.ts                  # Estado global (zustand)
 mini-services/collab-service/     # socket.io :3003 — presencia, sync y chat en vivo
-tests/                            # vitest: normativa, evacuación, energía, TOTP, DXF (31 pruebas)
+tests/                            # vitest: normativa, evacuación, energía, TOTP + hash de claves, DXF (34 pruebas)
 docs/research/                    # Investigación de apps PRO (AutoCAD, BIM, plugins, menús radiales)
 ```
 
@@ -209,13 +212,17 @@ docs/research/                    # Investigación de apps PRO (AutoCAD, BIM, pl
 
 ## 🔒 Notas de seguridad
 
-- Contraseñas con **scrypt** (salt por usuario) y comparación *timing-safe*
+- Contraseñas con **scrypt** (salt por usuario) y comparación *timing-safe* — nunca se almacenan en texto plano
 - Sesiones firmadas con **HMAC-SHA256**, expiración configurable, **jti revocable en BD** (logout real) y **epoch por usuario** (cambio de clave revoca todas las sesiones)
+- Cookie de sesión **httpOnly + SameSite=Lax + Secure en HTTPS**
+- **Protección CSRF**: middleware que rechaza (403) toda escritura cross-site contra `/api/*` con cabecera `Origin` ajena
+- **Cabeceras de seguridad OWASP**: CSP estricta (anti-XSS), `X-Frame-Options: DENY` (anti-clickjacking), `nosniff`, `Referrer-Policy`, `Permissions-Policy`, HSTS
 - **AUTH_SECRET** sin fallback estático: variable de entorno → secreto aleatorio persistido en BD → efímero por proceso (con advertencia) si la BD no responde
-- **Bloqueo de login y rate-limit en BD** (eficaces en serverless multi-instancia); las rutas de IA exigen sesión y 10 req/min por usuario
+- **Bloqueo de login y rate-limit en BD** (eficaces en serverless multi-instancia); las rutas de IA exigen sesión y 10 req/min por usuario; el autenticador en vivo está limitado a 20 req/min
+- **2FA TOTP RFC 6238** compatible con Google Authenticator: QR generado en servidor (sin servicios de terceros), secreto *pendiente* hasta confirmación (evita bloqueos), y **reset de 2FA por el administrador** como válvula de escape
 - **Roles en el servidor**: admin (todo) · editor (crear/editar planos propios) · visor (solo lectura)
 - Enlaces compartidos con **expiración opcional**; `GET /api/settings` público solo expone el diseño
-- El hash de la clave y el secreto TOTP nunca salen del servidor
+- El hash de la clave y el secreto TOTP nunca salen del servidor (el código en vivo se calcula en el backend para la sesión actual)
 - Defina `AUTH_SECRET` como variable de entorno en producción para control total
 
 ---
