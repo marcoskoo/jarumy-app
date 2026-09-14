@@ -9,6 +9,7 @@
 import type { PlanElement } from '@/lib/plan-data'
 import type { RoomGeo, DoorGeo } from '@/lib/plan-data'
 import { PX_PER_M } from '@/lib/plan-data'
+import { MAX_TRAVEL_M, PERSONS_PER_CM, MIN_EXIT_DOOR_M } from '@/lib/rne'
 import type { Mod } from '@/lib/store'
 
 export interface EvacRoom {
@@ -50,10 +51,11 @@ const USAGE_OCCUPANCY: Record<string, number> = {
   estudio: 2, garaje: 2, pasillo: 1, escalera: 1, deposito: 1,
 }
 
-// distancia máxima de recorrido en vivienda (RNE A.130): 25 m
-const MAX_TRAVEL_M = 25
+// distancia máxima de recorrido en vivienda (RNE A.130): 25 m — constante
+// compartida con normativa.ts (src/lib/rne.ts) para que ambos módulos
+// validen SIEMPRE la misma cifra
 // aforo por puerta: 0.8 personas por cm de ancho libre (módulo A.130)
-const PERSONS_PER_CM = 0.8
+const PERSONS_PER_CM_LOCAL = PERSONS_PER_CM
 
 /** Uso inferido de un espacio: mod.usage, o por el nombre. */
 const usageOf = (el: PlanElement, mod?: Mod): string => {
@@ -87,7 +89,7 @@ export function computeEvacuation(elements: PlanElement[], mods: Record<string, 
     const g = d.geo as DoorGeo
     const widthM = g.r / PX_PER_M
     const widthCm = widthM * 100
-    return { name: d.name, widthM, aflowPer: Math.round(widthCm * PERSONS_PER_CM) }
+    return { name: d.name, widthM, aflowPer: Math.round(widthCm * PERSONS_PER_CM_LOCAL) }
   })
 
   // ---- ambientes: área, ocupantes, puerta más cercana ----
@@ -123,7 +125,7 @@ export function computeEvacuation(elements: PlanElement[], mods: Record<string, 
   const totalExitWidthCm = totalExitWidthM * 100
   const maxTravelM = rooms.length ? Math.max(...rooms.map((r) => r.distanceM)) : 0
   // capacidad total de salidas vs. ocupantes
-  const exitCapacity = Math.round(totalExitWidthCm * PERSONS_PER_CM)
+  const exitCapacity = Math.round(totalExitWidthCm * PERSONS_PER_CM_LOCAL)
   const aflowOK = exitCapacity >= totalOccupants
   // densidad neta: área total por ocupante ≥ 1 m²
   const densityOK = totalOccupants === 0 || totalAreaM2 / totalOccupants >= 1
@@ -172,7 +174,7 @@ export function computeEvacuation(elements: PlanElement[], mods: Record<string, 
   })
 
   // 4) puertas angostas (< 0.90 m reducen la capacidad real)
-  const narrow = doorsEls.filter((d) => (d.geo as DoorGeo).r / PX_PER_M < 0.9)
+  const narrow = doorsEls.filter((d) => (d.geo as DoorGeo).r / PX_PER_M < MIN_EXIT_DOOR_M)
   if (doors.length > 0) {
     checks.push({
       label: 'Puertas de evacuación',

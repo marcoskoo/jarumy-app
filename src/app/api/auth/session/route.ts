@@ -8,10 +8,10 @@ export async function GET(req: NextRequest) {
     await ensureSeed()
     const token = req.cookies.get('jarumy_session')?.value
     if (!token) return NextResponse.json({ authenticated: false })
-    const session = verifySessionToken(token)
+    const session = await verifySessionToken(token)
     if (!session) return NextResponse.json({ authenticated: false })
     const user = await db.user.findUnique({ where: { id: session.userId } })
-    if (!user) return NextResponse.json({ authenticated: false })
+    if (!user || user.disabled) return NextResponse.json({ authenticated: false })
     return NextResponse.json({
       authenticated: true,
       user: { username: user.username, displayName: user.displayName, role: user.role },

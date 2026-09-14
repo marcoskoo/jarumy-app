@@ -67,7 +67,9 @@ export async function GET(req: NextRequest) {
     const session = await currentUser(req)
     if (!session) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
     const user = await db.user.findFirst({ where: { username: session.username } })
-    return NextResponse.json({ active: !!user?.totpSecret, secret: user?.totpSecret ? `${user.totpSecret.slice(0, 4)}…${user.totpSecret.slice(-4)}` : null })
+    // sin leak del secreto: solo estado activo (la URI otpauth:// del setup ya
+    // transporta el secreto una única vez, como un QR real)
+    return NextResponse.json({ active: !!user?.totpSecret })
   } catch {
     return NextResponse.json({ error: 'Error interno' }, { status: 500 })
   }

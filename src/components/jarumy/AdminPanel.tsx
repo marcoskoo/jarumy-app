@@ -14,6 +14,24 @@ import type { SecuritySettings, DesignSettings } from '@/lib/settings'
 
 interface AdminUser { username: string; displayName: string | null; role: string }
 
+interface ManagedUser {
+  id: string
+  username: string
+  displayName: string | null
+  role: string
+  disabled: boolean
+  mustChangePassword: boolean
+  twoFactor: boolean
+  planCount: number
+  createdAt: string
+}
+
+const ROLE_OPTIONS: Array<{ id: string; label: string; desc: string }> = [
+  { id: 'admin', label: 'Admin', desc: 'Todo: usuarios, ajustes, planos y auditoría' },
+  { id: 'editor', label: 'Editor', desc: 'Crea y edita planos propios; sin gestión de usuarios' },
+  { id: 'visor', label: 'Visor', desc: 'Solo lectura: consulta planos, sin guardar cambios' },
+]
+
 export const PRIMARY_PRESETS: Record<string, string> = {
   amber: '#f59e0b', orange: '#f97316', emerald: '#10b981', rose: '#f43f5e',
   violet: '#8b5cf6', teal: '#14b8a6', lime: '#84cc16',
@@ -22,6 +40,7 @@ export const PRIMARY_PRESETS: Record<string, string> = {
 const TABS = [
   { id: 'resumen', label: 'Resumen', icon: 'Home' },
   { id: 'seguridad', label: 'Seguridad', icon: 'ShieldCheck' },
+  { id: 'usuarios', label: 'Usuarios', icon: 'UserCog' },
   { id: 'diseno', label: 'Diseño web', icon: 'Palette' },
   { id: 'cuenta', label: 'Cuenta y clave', icon: 'Users' },
   { id: 'herramientas', label: 'Herramientas', icon: 'Wrench' },
@@ -60,6 +79,29 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
 
   // categorías ocultas
   const [hiddenCats, setHiddenCats] = useState<string[]>([])
+
+  // gestión de usuarios (Ola 8)
+  const [managedUsers, setManagedUsers] = useState<ManagedUser[] | null>(null)
+  const [nuName, setNuName] = useState('')
+  const [nuDisplay, setNuDisplay] = useState('')
+  const [nuRole, setNuRole] = useState('editor')
+  const [nuPass, setNuPass] = useState('')
+  const [usersBusy, setUsersBusy] = useState(false)
+  const [resetTarget, setResetTarget] = useState<ManagedUser | null>(null)
+  const [resetPass, setResetPass] = useState('')
+
+  const refreshUsers = useCallback(async () => {
+    try {
+      const r = await fetch('/api/users')
+      if (!r.ok) { setManagedUsers(null); return }
+      const d = await r.json()
+      setManagedUsers(d.users ?? [])
+    } catch { setManagedUsers(null) }
+  }, [])
+
+  useEffect(() => {
+    if (s.adminOpen && user && tab === 'usuarios') refreshUsers()
+  }, [s.adminOpen, user, tab, refreshUsers])
 
   useEffect(() => {
     setHiddenCats(JSON.parse(localStorage.getItem('jarumy_hidden_cats') || '[]'))
@@ -288,7 +330,7 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
               <div className="space-y-4">
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                   {[
-                    { v: '1', l: 'Usuario admin', i: 'Users' },
+                    { v: String(managedUsers?.length ?? (user ? 1 : 0)), l: 'Usuarios', i: 'Users' },
                     { v: String(audit.length), l: 'Eventos de auditoría', i: 'History' },
                     { v: String(security?.twoFactor ? 'Sí' : 'No'), l: '2FA activo', i: 'ShieldCheck' },
                     { v: `${security?.sessionTimeout ?? 30} min`, l: 'Timeout de sesión', i: 'Activity' },
@@ -331,7 +373,7 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
                 <div className="rounded-xl border jy-border jy-bg2 divide-y divide-white/5">
                   <SwitchRow
                     label="Autenticación en dos factores (2FA)"
-                    desc="Código de 6 dígitos simulado en la app autenticadora Jarumy"
+                    desc="Código TOTP real (RFC 6238) generado en la app autenticadora"
                     checked={security.twoFactor}
                     onChange={(v) => setSecurity({ ...security, twoFactor: v })}
                   />
@@ -385,6 +427,211 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
                   </Button>
                   <Button variant="outline" onClick={() => setSecurity(security)}>Descartar</Button>
                 </div>
+              </div>
+            )}
+
+            {/* ---------------- USUARIOS (roles admin/editor/visor) ---------------- */}
+            {user && tab === 'usuarios' && (
+              <div className="space-y-4 max-w-2xl">
+                <SectionTitle icon="UserCog" title="Gestión de usuarios" desc="Cree cuentas con roles y controle el acceso de su estudio" />
+
+                {/* ---- crear usuario ---- */}
+                <div className="rounded-xl border jy-border jy-bg2 p-3 space-y-2.5">
+                  <p className="text-[11px] font-bold jy-text">Nuevo usuario</p>
+                  <div className="grid sm:grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-[10px] jy-muted">Usuario (acceso)</Label>
+                      <Input value={nuName} onChange={(e) => setNuName(e.target.value)} placeholder="jperez" className="h-8 text-[12px]" autoComplete="off" />
+                    </div>
+                    <div>
+                      <Label className="text-[10px] jy-muted">Nombre a mostrar</Label>
+                      <Input value={nuDisplay} onChange={(e) => setNuDisplay(e.target.value)} placeholder="Jorge Pérez" className="h-8 text-[12px]" autoComplete="off" />
+                    </div>
+                  </div>
+                  <div className="grid sm:grid-cols-[1fr_auto] gap-2 items-end">
+                    <div>
+                      <Label className="text-[10px] jy-muted">Contraseña inicial (debe cambiarla al entrar)</Label>
+                      <Input type="password" value={nuPass} onChange={(e) => setNuPass(e.target.value)} placeholder="Mínimo según política" className="h-8 text-[12px]" autoComplete="new-password" />
+                    </div>
+                    <div className="flex gap-1 rounded-lg border jy-border p-0.5">
+                      {ROLE_OPTIONS.map((r) => (
+                        <button key={r.id} onClick={() => setNuRole(r.id)} title={r.desc}
+                          className={`px-2.5 py-1 rounded-md text-[11px] font-bold ${nuRole === r.id ? 'jy-bg-primary text-zinc-950' : 'jy-muted hover:jy-text'}`}>
+                          {r.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <Button
+                    disabled={usersBusy || !nuName.trim() || !nuPass}
+                    onClick={async () => {
+                      setUsersBusy(true)
+                      try {
+                        const r = await fetch('/api/users', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ username: nuName.trim(), password: nuPass, displayName: nuDisplay.trim(), role: nuRole }),
+                        })
+                        const d = await r.json()
+                        if (!r.ok) throw new Error(d.error || 'Error al crear')
+                        toast.success(`Usuario ${d.user.username} creado`, { description: `Rol: ${d.user.role} · debe cambiar su clave al entrar` })
+                        setNuName(''); setNuDisplay(''); setNuPass('')
+                        refreshUsers()
+                      } catch (err) {
+                        toast.error('No se pudo crear el usuario', { description: String(err instanceof Error ? err.message : err) })
+                      } finally { setUsersBusy(false) }
+                    }}
+                  >
+                    {usersBusy ? 'Creando…' : 'Crear usuario'}
+                  </Button>
+                </div>
+
+                {/* ---- tabla de usuarios ---- */}
+                <div className="rounded-xl border jy-border overflow-hidden">
+                  <div className="px-3 py-2 border-b jy-border flex items-center gap-2">
+                    <ToolIcon name="Users" className="text-amber-400" size={14} />
+                    <span className="text-[12px] font-bold jy-text">Usuarios ({managedUsers?.length ?? 0})</span>
+                  </div>
+                  {managedUsers === null && <p className="p-3 text-[11px] jy-muted">Cargando usuarios… (requiere rol admin)</p>}
+                  {managedUsers?.map((u) => (
+                    <div key={u.id} className="flex flex-wrap items-center gap-2 px-3 py-2.5 border-b border-white/4">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[12px] font-bold jy-text leading-tight">
+                          {u.displayName || u.username}
+                          {u.disabled && <span className="ml-1.5 text-[9px] font-bold text-rose-400">DESHABILITADO</span>}
+                          {u.mustChangePassword && !u.disabled && <span className="ml-1.5 text-[9px] text-amber-400">debe cambiar clave</span>}
+                        </p>
+                        <p className="text-[10px] jy-muted leading-tight">
+                          @{u.username} · {u.planCount} plano(s) · {u.twoFactor ? '2FA activo' : 'sin 2FA'} · desde {new Date(u.createdAt).toLocaleDateString('es-PE')}
+                        </p>
+                      </div>
+                      <div className="flex gap-0.5 rounded-lg border jy-border p-0.5">
+                        {ROLE_OPTIONS.map((r) => (
+                          <button
+                            key={r.id}
+                            title={r.desc}
+                            disabled={usersBusy}
+                            onClick={async () => {
+                              if (u.role === r.id) return
+                              setUsersBusy(true)
+                              try {
+                                const res = await fetch(`/api/users/${u.id}`, {
+                                  method: 'PATCH',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ role: r.id }),
+                                })
+                                const d = await res.json()
+                                if (!res.ok) throw new Error(d.error || 'Error')
+                                toast.success(`Rol de ${u.username} → ${r.label}`)
+                                refreshUsers()
+                              } catch (err) {
+                                toast.error('No se pudo cambiar el rol', { description: String(err instanceof Error ? err.message : err) })
+                              } finally { setUsersBusy(false) }
+                            }}
+                            className={`px-2 py-0.5 rounded-md text-[10.5px] font-bold ${u.role === r.id ? 'jy-bg-primary text-zinc-950' : 'jy-muted hover:jy-text'} disabled:opacity-40`}
+                          >
+                            {r.label}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        disabled={usersBusy}
+                        title={u.disabled ? 'Habilitar' : 'Deshabilitar (revoca sus sesiones)'}
+                        onClick={async () => {
+                          setUsersBusy(true)
+                          try {
+                            const res = await fetch(`/api/users/${u.id}`, {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ disabled: !u.disabled }),
+                            })
+                            const d = await res.json()
+                            if (!res.ok) throw new Error(d.error || 'Error')
+                            toast.success(u.disabled ? `${u.username} habilitado` : `${u.username} deshabilitado`)
+                            refreshUsers()
+                          } catch (err) {
+                            toast.error('No se pudo cambiar el estado', { description: String(err instanceof Error ? err.message : err) })
+                          } finally { setUsersBusy(false) }
+                        }}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg border jy-border jy-muted hover:jy-text hover:border-amber-500/40 disabled:opacity-40"
+                      >
+                        <ToolIcon name={u.disabled ? 'ToggleRight' : 'ToggleLeft'} size={14} />
+                      </button>
+                      <button
+                        title="Restablecer contraseña"
+                        onClick={() => { setResetTarget(u); setResetPass('') }}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg border jy-border jy-muted hover:jy-text hover:border-amber-500/40"
+                      >
+                        <ToolIcon name="KeyRound" size={13} />
+                      </button>
+                      <button
+                        disabled={usersBusy || u.username === user.username}
+                        title={u.username === user.username ? 'No puede deshabilitar su propia cuenta' : 'Deshabilitar (blando)'}
+                        onClick={async () => {
+                          setUsersBusy(true)
+                          try {
+                            const res = await fetch(`/api/users/${u.id}`, { method: 'DELETE' })
+                            const d = await res.json()
+                            if (!res.ok) throw new Error(d.error || 'Error')
+                            toast.success(`${u.username} deshabilitado`)
+                            refreshUsers()
+                          } catch (err) {
+                            toast.error('No se pudo deshabilitar', { description: String(err instanceof Error ? err.message : err) })
+                          } finally { setUsersBusy(false) }
+                        }}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg border jy-border text-rose-400/80 hover:text-rose-300 hover:border-rose-500/40 disabled:opacity-30"
+                      >
+                        <ToolIcon name="Trash2" size={13} />
+                      </button>
+                    </div>
+                  ))}
+                  <p className="p-2.5 text-[9.5px] jy-muted">
+                    El borrado es lógico (deshabilitado): conserva planos y auditoría. Los roles se aplican en el servidor:
+                    visor no puede guardar planos ni crear enlaces; editor sí; admin gestiona usuarios y ajustes.
+                  </p>
+                </div>
+
+                {/* ---- diálogo restablecer clave ---- */}
+                {resetTarget && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true">
+                    <div className="w-full max-w-sm rounded-2xl border jy-border jy-bg2 p-4 space-y-3">
+                      <p className="text-[13px] font-bold jy-text">Restablecer clave de {resetTarget.username}</p>
+                      <p className="text-[10.5px] jy-muted">
+                        La nueva clave debe cumplir la política. Se revocan TODAS sus sesiones y deberá cambiarla al volver a entrar.
+                      </p>
+                      <Input
+                        type="password" value={resetPass} onChange={(e) => setResetPass(e.target.value)}
+                        placeholder="Nueva contraseña" className="h-9 text-[12px]" autoComplete="new-password"
+                        onKeyDown={async (e) => { if (e.key === 'Enter' && resetPass) { (document.activeElement as HTMLElement)?.blur(); } }}
+                      />
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" onClick={() => setResetTarget(null)}>Cancelar</Button>
+                        <Button
+                          disabled={usersBusy || !resetPass}
+                          onClick={async () => {
+                            setUsersBusy(true)
+                            try {
+                              const res = await fetch(`/api/users/${resetTarget.id}`, {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ password: resetPass }),
+                              })
+                              const d = await res.json()
+                              if (!res.ok) throw new Error(d.error || 'Error')
+                              toast.success(`Clave de ${resetTarget.username} restablecida`)
+                              setResetTarget(null)
+                              refreshUsers()
+                            } catch (err) {
+                              toast.error('No se pudo restablecer', { description: String(err instanceof Error ? err.message : err) })
+                            } finally { setUsersBusy(false) }
+                          }}
+                        >
+                          Restablecer
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

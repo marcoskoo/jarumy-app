@@ -16,9 +16,9 @@
 // con un contador de #id.
 // ============================================================
 
-import type { PlanElement } from '@/lib/plan-data'
+import type { PlanElement, LevelDef } from '@/lib/plan-data'
 import type { WallGeo, DoorGeo, WindowGeo, RoomGeo, ColGeo, StairGeo } from '@/lib/plan-data'
-import { PX_PER_M } from '@/lib/plan-data'
+import { PX_PER_M, DEFAULT_LEVELS, levelOf } from '@/lib/plan-data'
 import type { Mod } from '@/lib/store'
 
 export interface IfcResult {
@@ -71,10 +71,12 @@ const ifcGuid = (seed: string): string => {
 }
 
 /**
- * Exporta el plano como archivo IFC4 SPF.
+ * Exporta el plano como archivo IFC4 SPF. Multinivel (Ola 8): un
+ * IfcBuildingStorey por nivel, con Elevation real en metros.
  */
-export function exportPlanIfc(elements: PlanElement[], mods: Record<string, Mod>): IfcResult {
+export function exportPlanIfc(elements: PlanElement[], mods: Record<string, Mod>, levels?: LevelDef[]): IfcResult {
   const drawable = elements.filter((el) => !mods[el.id]?.deleted)
+  const lvls: LevelDef[] = levels && levels.length ? levels : DEFAULT_LEVELS
 
   // ---- construcción incremental de entidades ----
   const lines: string[] = []
@@ -115,14 +117,23 @@ export function exportPlanIfc(elements: PlanElement[], mods: Record<string, Mod>
   const bldgPl = E(`IFCLOCALPLACEMENT(${sitePl},${worldCS})`)
   const building = E(`IFCBUILDING('${ifcGuid('jarumy-edificio')}',${owner},'Vivienda unifamiliar','Edificio principal',$,$,${bldgPl},$,$,.ELEMENT.,$,$,$)`)
 
-  const storeyPt = E(`IFCCARTESIANPOINT((0.,0.,0.))`)
-  const storeyAx = E(`IFCAXIS2PLACEMENT3D(${storeyPt},$,$)`)
-  const storeyPl = E(`IFCLOCALPLACEMENT(${bldgPl},${storeyAx})`)
-  const storey = E(`IFCBUILDINGSTOREY('${ifcGuid('jarumy-piso-1')}',${owner},'Piso 1 — NPT +0.00','Nivel de piso terminado',$,$,${storeyPl},$,$,.ELEMENT.,0.)`)
+  // ---- un IfcBuildingStorey por nivel (multinivel) ----
+  interface StoreyCtx { pl: string; ref: string; contained: string[]; spaces: string[] }
+  const storeyByLevel = new Map<number, StoreyCtx>()
+  const storeyRefs: string[] = []
+  for (const lv of lvls) {
+    const pt = E(`IFCCARTESIANPOINT((0.,0.,${F(lv.elev)}))`)
+    const ax = E(`IFCAXIS2PLACEMENT3D(${pt},$,$)`)
+    const pl = E(`IFCLOCALPLACEMENT(${bldgPl},${ax})`)
+    const ref = E(`IFCBUILDINGSTOREY('${ifcGuid(`jarumy-nivel-${lv.id}`)}',${owner},${S(`${lv.name} — NPT +${lv.elev.toFixed(2)}`)},'Nivel de piso terminado',$,$,${pl},$,$,.ELEMENT.,${F(lv.elev)})`)
+    storeyByLevel.set(lv.id, { pl, ref, contained: [], spaces: [] })
+    storeyRefs.push(ref)
+  }
+  const ctxOf = (el: PlanElement): StoreyCtx => storeyByLevel.get(levelOf(el)) ?? storeyByLevel.get(0)!
 
   E(`IFCRELAGGREGATES('${ifcGuid('agg-proyecto-sitio')}',${owner},$,$,${project},(${site}))`)
   E(`IFCRELAGGREGATES('${ifcGuid('agg-sitio-edificio')}',${owner},$,$,${site},(${building}))`)
-  E(`IFCRELAGGREGATES('${ifcGuid('agg-edificio-piso')}',${owner},$,$,${building},(${storey}))`)
+  E(`IFCRELAGGREGATES('${ifcGuid('agg-edificio-pisos')}',${owner},$,$,${building},(${storeyRefs.join(',')}))`)
 
   // ---- estilo gris para muros (opcional, IFC4 permite StyledItem) ----
   const grey = E(`IFCCOLOURRGB($,0.62,0.62,0.62)`)
@@ -131,10 +142,11 @@ export function exportPlanIfc(elements: PlanElement[], mods: Record<string, Mod>
   const styleAssign = E(`IFCPRESENTATIONSTYLEASSIGNMENT((${surfStyle}))`)
 
   // ---- helpers geométricos (extrusión de perfil rectangular) ----
-  const placeAt = (x: number, y: number, z = 0): string => {
+  const placeAt = (x: number, y: number, z = 0, levelId = 0): string => {
     const p = E(`IFCCARTESIANPOINT((${F(x)},${F(y)},${F(z)}))`)
     const ax = E(`IFCAXIS2PLACEMENT3D(${p},$,$)`)
-    return E(`IFCLOCALPLACEMENT(${storeyPl},${ax})`)
+    const parent = storeyByLevel.get(levelId)?.pl ?? storeyByLevel.get(0)!.pl
+    return E(`IFCLOCALPLACEMENT(${parent},${ax})`)
   }
   const rectProfile = (name: string, xdim: number, ydim: number): string => {
     const p = E(`IFCCARTESIANPOINT((0.,0.))`)
@@ -148,9 +160,6 @@ export function exportPlanIfc(elements: PlanElement[], mods: Record<string, Mod>
     const rep = E(`IFCSHAPEREPRESENTATION(${ctx},'Body','SweptSolid',(${solid}))`)
     return E(`IFCPRODUCTDEFINITIONSHAPE($,$,(${rep}))`)
   }
-
-  const contained: string[] = [] // productos colgados del piso (IfcRelContainedInSpatialStructure)
-  const spaces: string[] = []    // espacios agregados al piso (IfcRelAggregates)
 
   // coordenadas de la app (px, Y-abajo) → IFC (m, Y-arriba, Z-arriba)
   const XM = (px: number) => px / PX_PER_M
@@ -174,11 +183,11 @@ export function exportPlanIfc(elements: PlanElement[], mods: Record<string, Mod>
     const xdim = vert ? tM : lenM
     const ydim = vert ? lenM : tM
     const solid = extrude(rectProfile('Muro', xdim, ydim), h)
-    const placement = placeAt(midX, midY, 0)
+    const placement = placeAt(midX, midY, 0, levelOf(el))
     const shape = bodyShape(solid)
     E(`IFCSTYLEDITEM(${solid},(${styleAssign}),$)`) // gris para muros
     const wallRef = E(`IFCWALL('${ifcGuid(el.id)}',${owner},${S(el.name)},$,$,${placement},${shape},${S(el.id)},.SOLIDWALL.)`)
-    contained.push(wallRef)
+    ctxOf(el).contained.push(wallRef)
   }
 
   // ---- puertas: vano + caja de hoja ----
@@ -190,10 +199,10 @@ export function exportPlanIfc(elements: PlanElement[], mods: Record<string, Mod>
     const hM = m?.doorHeight ?? 2.1
     const cx = XM(g.cx), cy = YM(g.cy)
     const openSolid = extrude(rectProfile('Vano puerta', wM, 0.2), hM)
-    E(`IFCOPENINGELEMENT('${ifcGuid(`${el.id}-vano`)}',${owner},${S(el.name)},$,$,${placeAt(cx, cy, 0)},${bodyShape(openSolid)},${S(el.id)})`)
+    E(`IFCOPENINGELEMENT('${ifcGuid(`${el.id}-vano`)}',${owner},${S(el.name)},$,$,${placeAt(cx, cy, 0, levelOf(el))},${bodyShape(openSolid)},${S(el.id)})`)
     const leafSolid = extrude(rectProfile('Hoja puerta', Math.max(wM - 0.04, 0.05), 0.06), Math.max(hM - 0.02, 0.1))
-    const doorRef = E(`IFCDOOR('${ifcGuid(el.id)}',${owner},${S(el.name)},$,$,${placeAt(cx, cy, 0)},${bodyShape(leafSolid)},${S(el.id)},${F(hM)},${F(wM)},.DOOR.,.SINGLE_SWING_LEFT.)`)
-    contained.push(doorRef)
+    const doorRef = E(`IFCDOOR('${ifcGuid(el.id)}',${owner},${S(el.name)},$,$,${placeAt(cx, cy, 0, levelOf(el))},${bodyShape(leafSolid)},${S(el.id)},${F(hM)},${F(wM)},.DOOR.,.SINGLE_SWING_LEFT.)`)
+    ctxOf(el).contained.push(doorRef)
   }
 
   // ---- ventanas: vano + caja de vidrio a la altura del antepecho ----
@@ -207,10 +216,10 @@ export function exportPlanIfc(elements: PlanElement[], mods: Record<string, Mod>
     const cx = XM(g.x + (g.orient === 'h' ? wM / 2 : 0))
     const cy = YM(g.y + (g.orient === 'v' ? wM / 2 : 0))
     const openSolid = extrude(rectProfile('Vano ventana', wM, 0.2), hM)
-    E(`IFCOPENINGELEMENT('${ifcGuid(`${el.id}-vano`)}',${owner},${S(el.name)},$,$,${placeAt(cx, cy, sill)},${bodyShape(openSolid)},${S(el.id)})`)
+    E(`IFCOPENINGELEMENT('${ifcGuid(`${el.id}-vano`)}',${owner},${S(el.name)},$,$,${placeAt(cx, cy, sill, levelOf(el))},${bodyShape(openSolid)},${S(el.id)})`)
     const glassSolid = extrude(rectProfile('Vidrio', Math.max(wM - 0.04, 0.05), 0.05), hM)
-    const winRef = E(`IFCWINDOW('${ifcGuid(el.id)}',${owner},${S(el.name)},$,$,${placeAt(cx, cy, sill)},${bodyShape(glassSolid)},${S(el.id)},${F(hM)},${F(wM)},.WINDOW.,.SINGLE_PANEL.,$)`)
-    contained.push(winRef)
+    const winRef = E(`IFCWINDOW('${ifcGuid(el.id)}',${owner},${S(el.name)},$,$,${placeAt(cx, cy, sill, levelOf(el))},${bodyShape(glassSolid)},${S(el.id)},${F(hM)},${F(wM)},.WINDOW.,.SINGLE_PANEL.,$)`)
+    ctxOf(el).contained.push(winRef)
   }
 
   // ---- columnas ----
@@ -221,8 +230,8 @@ export function exportPlanIfc(elements: PlanElement[], mods: Record<string, Mod>
     const s = (m?.size ?? g.size) / PX_PER_M
     const h = m?.wallHeight ?? 2.5
     const solid = extrude(rectProfile('Columna', s, s), h)
-    const colRef = E(`IFCCOLUMN('${ifcGuid(el.id)}',${owner},${S(el.name)},$,$,${placeAt(XM(g.x), YM(g.y), 0)},${bodyShape(solid)},${S(el.id)},.COLUMN.)`)
-    contained.push(colRef)
+    const colRef = E(`IFCCOLUMN('${ifcGuid(el.id)}',${owner},${S(el.name)},$,$,${placeAt(XM(g.x), YM(g.y), 0, levelOf(el))},${bodyShape(solid)},${S(el.id)},.COLUMN.)`)
+    ctxOf(el).contained.push(colRef)
   }
 
   // ---- espacios (IfcSpace con placa delgada; el área viaja en el nombre) ----
@@ -236,8 +245,8 @@ export function exportPlanIfc(elements: PlanElement[], mods: Record<string, Mod>
     const areaM2 = wM * dM
     const cx = XM(g.x + tx + g.w / 2), cy = YM(g.y + ty + g.h / 2)
     const solid = extrude(rectProfile('Espacio', wM, dM), 0.02)
-    const spaceRef = E(`IFCSPACE('${ifcGuid(el.id)}',${owner},${S(`${el.name} - ${areaM2.toFixed(2)} m2`)},$,$,${placeAt(cx, cy, 0)},${bodyShape(solid)},${S(g.name || el.name)},.ELEMENT.,0.)`)
-    spaces.push(spaceRef)
+    const spaceRef = E(`IFCSPACE('${ifcGuid(el.id)}',${owner},${S(`${el.name} - ${areaM2.toFixed(2)} m2`)},$,$,${placeAt(cx, cy, 0, levelOf(el))},${bodyShape(solid)},${S(g.name || el.name)},.ELEMENT.,0.)`)
+    ctxOf(el).spaces.push(spaceRef)
   }
 
   // ---- escaleras: caja + Pset_StairCommon ----
@@ -251,8 +260,8 @@ export function exportPlanIfc(elements: PlanElement[], mods: Record<string, Mod>
     const hM = g.steps * g.riser
     const cx = XM(g.x + tx + g.w / 2), cy = YM(g.y + ty + g.h / 2)
     const solid = extrude(rectProfile('Escalera', wM, dM), hM)
-    const stairRef = E(`IFCSTAIR('${ifcGuid(el.id)}',${owner},${S(el.name)},$,$,${placeAt(cx, cy, 0)},${bodyShape(solid)},${S(el.id)},.STRAIGHT_RUN_STAIR.)`)
-    contained.push(stairRef)
+    const stairRef = E(`IFCSTAIR('${ifcGuid(el.id)}',${owner},${S(el.name)},$,$,${placeAt(cx, cy, 0, levelOf(el))},${bodyShape(solid)},${S(el.id)},.STRAIGHT_RUN_STAIR.)`)
+    ctxOf(el).contained.push(stairRef)
     // propiedades reales de la escalera (nº de pasos, huella y contrahuella)
     const pRisers = E(`IFCPROPERTYSINGLEVALUE('NumberOfRisers',$,IFCINTEGER(${g.steps}),$)`)
     const pTreads = E(`IFCPROPERTYSINGLEVALUE('NumberOfTreads',$,IFCINTEGER(${Math.max(g.steps - 1, 0)}),$)`)
@@ -262,12 +271,16 @@ export function exportPlanIfc(elements: PlanElement[], mods: Record<string, Mod>
     E(`IFCRELDEFINESBYPROPERTIES('${ifcGuid(`${el.id}-reldef`)}',${owner},$,$,(${stairRef}),${pset})`)
   }
 
-  // ---- relación espacial de productos y espacios ----
-  if (contained.length > 0) {
-    E(`IFCRELCONTAINEDINSPATIALSTRUCTURE('${ifcGuid('rel-contenido-piso')}',${owner},'Contenido del piso',$,(${contained.join(',')}),${storey})`)
-  }
-  if (spaces.length > 0) {
-    E(`IFCRELAGGREGATES('${ifcGuid('rel-espacios-piso')}',${owner},'Espacios del piso',$,${storey},(${spaces.join(',')}))`)
+  // ---- relación espacial de productos y espacios (por nivel) ----
+  for (const lv of lvls) {
+    const c = storeyByLevel.get(lv.id)
+    if (!c) continue
+    if (c.contained.length > 0) {
+      E(`IFCRELCONTAINEDINSPATIALSTRUCTURE('${ifcGuid(`rel-contenido-${lv.id}`)}',${owner},'Contenido del nivel',$,(${c.contained.join(',')}),${c.ref})`)
+    }
+    if (c.spaces.length > 0) {
+      E(`IFCRELAGGREGATES('${ifcGuid(`rel-espacios-${lv.id}`)}',${owner},'Espacios del nivel',$,${c.ref},(${c.spaces.join(',')}))`)
+    }
   }
 
   // ---- ensamblado del archivo SPF ----

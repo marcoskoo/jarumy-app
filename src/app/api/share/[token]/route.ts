@@ -23,6 +23,8 @@ async function findActiveShare(token: string) {
   if (!TOKEN_RE.test(token)) return null
   const share = await db.sharedLink.findUnique({ where: { token } })
   if (!share || share.revoked) return null
+  // expiración del enlace (Ola 8): caducado = no disponible
+  if (share.expiresAt && share.expiresAt.getTime() <= Date.now()) return null
   const plan = await db.plan.findUnique({ where: { id: share.planId } })
   if (!plan || plan.deletedAt) return null
   return { share, plan }

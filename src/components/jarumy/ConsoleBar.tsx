@@ -102,6 +102,9 @@ export function CommandConsole() {
       </button>
       <div
         ref={logRef}
+        role="log"
+        aria-live="polite"
+        aria-label="Salida de la consola de comandos"
         className={`${open ? 'max-h-20' : 'max-h-0 md:max-h-20'} overflow-y-auto jy-scroll px-3 py-1.5 font-mono text-[10.5px] leading-relaxed transition-all`}
       >
         {s.consoleLines.slice(-8).map((l, i) => (

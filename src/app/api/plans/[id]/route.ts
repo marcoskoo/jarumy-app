@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db, ensureSchema } from '@/lib/db'
-import { verifySessionToken } from '@/lib/auth'
+import { verifySessionToken, canEdit } from '@/lib/auth'
 import { logAudit } from '@/lib/settings'
 
 // ---------- Plano individual (Ola 3) ----------
 // GET    /api/plans/:id → plano completo (incluye data) — solo propietario
 // PUT    /api/plans/:id → actualiza name/projectName/data/thumbnail + revision++
+//                        → requiere rol editor o admin
 // DELETE /api/plans/:id → borrado lógico (deletedAt = now)
 
 const MAX_DATA_BYTES = 900 * 1024 // 900 KB
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   try {
     await ensureSchema()
     const token = req.cookies.get('jarumy_session')?.value
-    const session = token ? verifySessionToken(token) : null
+    const session = token ? await verifySessionToken(token) : null
     if (!session) return unauthorized()
 
     const { id } = await params
@@ -50,8 +51,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   try {
     await ensureSchema()
     const token = req.cookies.get('jarumy_session')?.value
-    const session = token ? verifySessionToken(token) : null
+    const session = token ? await verifySessionToken(token) : null
     if (!session) return unauthorized()
+    if (!canEdit(session.role)) {
+      await logAudit(session.username, 'plano_edicion_denegada', 'Rol visor no puede modificar planos')
+      return NextResponse.json({ error: 'Su rol es de solo lectura — no puede modificar planos' }, { status: 403 })
+    }
 
     const { id } = await params
     const plan = await getOwnedPlan(id, session.userId)
@@ -139,8 +144,12 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   try {
     await ensureSchema()
     const token = req.cookies.get('jarumy_session')?.value
-    const session = token ? verifySessionToken(token) : null
+    const session = token ? await verifySessionToken(token) : null
     if (!session) return unauthorized()
+    if (!canEdit(session.role)) {
+      await logAudit(session.username, 'plano_borrado_denegado', 'Rol visor no puede borrar planos')
+      return NextResponse.json({ error: 'Su rol es de solo lectura — no puede borrar planos' }, { status: 403 })
+    }
 
     const { id } = await params
     const plan = await getOwnedPlan(id, session.userId)

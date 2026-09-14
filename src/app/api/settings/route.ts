@@ -1,11 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifySessionToken } from '@/lib/auth'
+import { verifySessionToken, isAdmin } from '@/lib/auth'
 import { ensureSeed, getSettings, saveSettings, logAudit } from '@/lib/settings'
 
-export async function GET() {
+// GET público: solo el subset de DISEÑO (marca/logo/tema) para la pantalla
+// de login y el arranque visual. GET autenticado: política completa.
+// PUT: solo administradores.
+
+export async function GET(req: NextRequest) {
   try {
     await ensureSeed()
     const settings = await getSettings()
+    const token = req.cookies.get('jarumy_session')?.value
+    const session = token ? await verifySessionToken(token) : null
+    if (!session) {
+      return NextResponse.json({ design: settings.design })
+    }
     return NextResponse.json(settings)
   } catch (e) {
     console.error('settings GET error', e)
@@ -17,9 +26,13 @@ export async function PUT(req: NextRequest) {
   try {
     await ensureSeed()
     const token = req.cookies.get('jarumy_session')?.value
-    const session = token ? verifySessionToken(token) : null
+    const session = token ? await verifySessionToken(token) : null
     if (!session) {
       return NextResponse.json({ error: 'No autorizado — inicie sesión como administrador' }, { status: 401 })
+    }
+    if (!isAdmin(session.role)) {
+      await logAudit(session.username, 'configuracion_denegada', 'PUT /api/settings sin rol admin')
+      return NextResponse.json({ error: 'Requiere rol de administrador' }, { status: 403 })
     }
 
     const body = await req.json()

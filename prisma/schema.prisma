@@ -8,15 +8,18 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  username     String   @unique
-  passwordHash String
-  displayName  String?
-  role         String   @default("admin")
-  totpSecret   String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  plans        Plan[]
+  id                 String   @id @default(cuid())
+  username           String   @unique
+  passwordHash       String
+  displayName        String?
+  role               String   @default("admin") // admin | editor | visor
+  disabled           Boolean  @default(false)
+  mustChangePassword Boolean  @default(false)
+  tokenEpoch         Int      @default(0) // invalida sesiones al cambiar la clave
+  totpSecret         String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  plans              Plan[]
 }
 
 // ---------- Planos en la nube (Ola 3) + colaboración (Ola 4) ----------
@@ -54,6 +57,7 @@ model SharedLink {
   permission   String    @default("view") // view | edit
   createdBy    String
   createdAt    DateTime  @default(now())
+  expiresAt    DateTime? // expiración opcional del enlace
   lastAccessAt DateTime?
   revoked      Boolean   @default(false)
 }
@@ -63,6 +67,28 @@ model Setting {
   key       String   @unique
   value     String
   updatedAt DateTime @updatedAt
+}
+
+// Sesión revocada (logout puntual) — el jti sigue válido por firma pero se
+// rechaza hasta su expiración natural.
+model SessionDenylist {
+  jti       String   @id
+  expiresAt DateTime
+}
+
+// Bloqueo de login persistido en BD (eficaz en serverless multi-instancia).
+model LoginAttempt {
+  username    String    @id
+  count       Int       @default(0)
+  lockedUntil DateTime?
+  updatedAt   DateTime  @default(now()) @updatedAt
+}
+
+// Ventana de rate-limit persistida en BD (rutas de IA, etc.).
+model RateLimit {
+  key         String   @id
+  count       Int      @default(0)
+  windowStart DateTime @default(now()) @updatedAt
 }
 
 model AuditLog {

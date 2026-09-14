@@ -195,7 +195,24 @@ export interface PlanElement {
   name: string
   geo: WallGeo | DoorGeo | WindowGeo | RoomGeo | FurnGeo | DimGeo | TextGeo | ColGeo | OpenGeo | DrawGeo
     | StairGeo | RoofGeo | InstGeo | SymGeo | TerrainGeo | PinGeo | ImageGeo
+  /** Nivel/piso al que pertenece (Ola 8 — multinivel). Ausente = 0 (planta base). */
+  level?: number
 }
+
+// ---------- multinivel (Ola 8): niveles del edificio ----------
+export interface LevelDef {
+  id: number
+  name: string        // "PB", "P1", "P2"...
+  elev: number        // cota de piso terminado (m, relativa a nivel 0)
+  height: number      // altura libre de piso a techo (m)
+}
+
+export const DEFAULT_LEVELS: LevelDef[] = [
+  { id: 0, name: 'PB', elev: 0, height: 2.5 },
+]
+
+/** Nivel de un elemento con tolerancia a planos antiguos (sin campo level). */
+export const levelOf = (el: PlanElement): number => el.level ?? 0
 
 export interface LayerDef {
   id: string

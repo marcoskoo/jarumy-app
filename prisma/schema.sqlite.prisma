@@ -1,0 +1,107 @@
+// Espejo SQLite del schema canónico para desarrollo local/sandbox
+// (DATABASE_URL=file:...). La app desplegada (Vercel + Neon) usa
+// prisma/schema.prisma (PostgreSQL); cada entorno genera su propio
+// cliente en la ubicación por defecto de @prisma/client.
+//
+//   local:    bun run db:local   (generate + push con ESTE schema)
+//   producción: bun run db:generate / vercel.json (schema.prisma)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String   @id @default(cuid())
+  username           String   @unique
+  passwordHash       String
+  displayName        String?
+  role               String   @default("admin") // admin | editor | visor
+  disabled           Boolean  @default(false)
+  mustChangePassword Boolean  @default(false)
+  tokenEpoch         Int      @default(0) // invalida sesiones al cambiar la clave
+  totpSecret         String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  plans              Plan[]
+}
+
+model Plan {
+  id          String        @id @default(cuid())
+  ownerId     String
+  owner       User          @relation(fields: [ownerId], references: [id])
+  name        String
+  projectName String        @default("Proyecto sin nombre")
+  data        String // JSON { elements, mods, layers, gridSpacing, savedAt }
+  thumbnail   String? // dataURL PNG
+  revision    Int           @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  deletedAt   DateTime?
+  versions    PlanVersion[]
+  shares      SharedLink[]
+}
+
+model PlanVersion {
+  id        String   @id @default(cuid())
+  planId    String
+  plan      Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  name      String
+  data      String
+  createdAt DateTime @default(now())
+}
+
+model SharedLink {
+  id           String    @id @default(cuid())
+  token        String    @unique
+  planId       String
+  plan         Plan      @relation(fields: [planId], references: [id], onDelete: Cascade)
+  permission   String    @default("view") // view | edit
+  createdBy    String
+  createdAt    DateTime  @default(now())
+  expiresAt    DateTime? // expiración opcional del enlace
+  lastAccessAt DateTime?
+  revoked      Boolean   @default(false)
+}
+
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+// Sesión revocada (logout puntual) — el jti sigue válido por firma pero se
+// rechaza hasta su expiración natural.
+model SessionDenylist {
+  jti       String   @id
+  expiresAt DateTime
+}
+
+// Bloqueo de login persistido en BD (eficaz en multi-instancia).
+model LoginAttempt {
+  username    String    @id
+  count       Int       @default(0)
+  lockedUntil DateTime?
+  updatedAt   DateTime  @default(now()) @updatedAt
+}
+
+// Ventana de rate-limit persistida en BD (rutas de IA, etc.).
+model RateLimit {
+  key         String   @id
+  count       Int      @default(0)
+  windowStart DateTime @default(now()) @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  username  String
+  action    String
+  detail    String?
+  ip        String?
+  createdAt DateTime @default(now())
+}

@@ -11,7 +11,7 @@
 // ============================================================
 
 import type { jsPDF } from 'jspdf'
-import type { PlanElement, LayerDef } from './plan-data'
+import type { PlanElement, LayerDef, LevelDef } from './plan-data'
 import type {
   WallGeo, DoorGeo, WindowGeo, RoomGeo, FurnGeo, DimGeo, ColGeo, OpenGeo, DrawGeo,
   StairGeo, RoofGeo, InstGeo, SymGeo, TerrainGeo, PinGeo,
@@ -19,6 +19,7 @@ import type {
 import { PX_PER_M, roomAreaM2, polygonAreaM2, sampleArc3, sampleCatmullRom, scallopPts } from './plan-data'
 import type { Mod } from './store'
 import { autoDimensions } from './auto-dims'
+import { buildElevation, ELEV_LABELS, type Elevation, type ElevDir } from './elevation'
 
 // ---------------- tipos y constantes ----------------
 
@@ -58,6 +59,10 @@ export interface PdfExportOptions {
   cartela?: PdfCartela
   /** pruebas/Node: devolver el PDF como base64 en el resultado (no descargar) */
   returnData?: boolean
+  /** lote (batch plot): añade la lámina a un doc compartido en vez de crear/descargar */
+  docAppend?: jsPDF
+  /** lote: número de lámina que pisa el de la cartela (A-01, A-02…) */
+  lamina?: string
 }
 
 export interface PdfExportResult {
@@ -296,11 +301,15 @@ export async function exportPlanPdf(
   const { jsPDF } = await import('jspdf')
   const area = drawArea(opts.paper, opts.landscape)
   const parea = planDrawArea(opts.paper, opts.landscape) // zona real del plano (reserva barra de escala)
-  const doc = new jsPDF({
+  // lote: añade una página al doc compartido; suelto: crea el propio
+  const doc = opts.docAppend ?? new jsPDF({
     unit: 'mm',
     format: [area.W, area.H],
     orientation: area.W >= area.H ? 'landscape' : 'portrait',
   })
+  if (opts.docAppend) {
+    doc.addPage([area.W, area.H], area.W >= area.H ? 'landscape' : 'portrait')
+  }
 
   const visible = new Set(layers.filter((l) => l.visible).map((l) => l.id))
   const b = planBboxPx(elements, mods, layers, opts.includeFurniture)
@@ -1058,7 +1067,8 @@ export async function exportPlanPdf(
       planH: (b.maxY - b.minY) / PX_PER_M,
     }
   }
-  if (typeof document !== 'undefined') doc.save(filename)
+  // en lote, el doc compartido lo guarda el orquestador al final
+  if (!opts.docAppend && typeof document !== 'undefined') doc.save(filename)
   return {
     filename,
     bytes,
@@ -1094,7 +1104,7 @@ async function fetchLogoDataUrl(): Promise<string | null> {
 }
 
 function drawCartela(doc: jsPDF, area: ReturnType<typeof drawArea>, opts: PdfExportOptions, logoData: string | null) {
-  const c = { ...DEFAULT_CARTELA, ...(opts.cartela || {}) }
+  const c = { ...DEFAULT_CARTELA, ...(opts.cartela || {}), ...(opts.lamina ? { lamina: opts.lamina } : {}) }
   const y0 = area.H - MARGIN - CART_H
   const x1 = MARGIN, x2 = area.W - MARGIN
   const h = CART_H
@@ -1205,3 +1215,253 @@ function hexToRgb(hex: string): readonly number[] {
 
 const VIEW_FALLBACK_W = 900
 const VIEW_FALLBACK_H = 600
+
+// ---------------- trazado por lotes REAL (multi-lámina) ----------------
+// Un solo PDF con: índice (A-00) + una lámina de planta por nivel +
+// las 4 elevaciones cardinales + la sección transversal, cada una con
+// cartela, marco y barra de escala, numeradas correlativamente.
+
+export interface BatchSheet {
+  lamina: string
+  title: string
+}
+
+export interface BatchPlotResult {
+  filename: string
+  bytes: number
+  sheets: BatchSheet[]
+  pageW: number
+  pageH: number
+}
+
+/** Área techada de un nivel (m²) a partir de sus espacios. */
+function levelAreaM2(elements: PlanElement[], mods: Record<string, Mod>, levelId: number): number {
+  return elements
+    .filter((el) => (el.level ?? 0) === levelId && !mods[el.id]?.deleted && el.type === 'espacio')
+    .reduce((n, el) => n + roomAreaM2(el.geo as RoomGeo), 0)
+}
+
+function drawBatchIndex(
+  doc: jsPDF,
+  area: ReturnType<typeof drawArea>,
+  opts: PdfExportOptions,
+  sheets: BatchSheet[],
+  levels: LevelDef[],
+  elements: PlanElement[],
+  mods: Record<string, Mod>,
+) {
+  // fondo + marco (mismo estilo que las láminas de planta)
+  doc.setFillColor(255, 255, 255)
+  doc.rect(0, 0, area.W, area.H, 'F')
+  doc.setDrawColor(C.ink[0], C.ink[1], C.ink[2])
+  doc.setLineWidth(0.5)
+  doc.rect(FRAME, FRAME, area.W - 2 * FRAME, area.H - 2 * FRAME)
+  doc.setLineWidth(0.2)
+  doc.rect(MARGIN, MARGIN, area.W - 2 * MARGIN, area.H - 2 * MARGIN)
+
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(C.ink[0], C.ink[1], C.ink[2])
+  doc.setFontSize(16)
+  const proj = (opts.cartela?.proyecto || opts.title || 'PROYECTO SIN NOMBRE').toUpperCase()
+  doc.text(proj.slice(0, 48), area.W / 2, 34, { align: 'center' })
+  doc.setFontSize(9)
+  doc.setTextColor(C.muted[0], C.muted[1], C.muted[2])
+  doc.text('ÍNDICE DE LÁMINAS · TRAZADO POR LOTES', area.W / 2, 41, { align: 'center' })
+
+  // tabla de láminas
+  const y0 = 56
+  const rowH = 9
+  const x1 = MARGIN + 6, x2 = area.W - MARGIN - 6
+  doc.setFontSize(6.5)
+  doc.setTextColor(C.muted[0], C.muted[1], C.muted[2])
+  doc.text('LÁMINA', x1 + 2, y0 - 2)
+  doc.text('CONTENIDO', x1 + 26, y0 - 2)
+  doc.text('ESCALA', x2 - 20, y0 - 2)
+  doc.setDrawColor(C.ink[0], C.ink[1], C.ink[2])
+  doc.setLineWidth(0.18)
+  doc.line(x1, y0, x2, y0)
+
+  let i = 0
+  for (const sh of sheets) {
+    const y = y0 + 6 + i * rowH
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8)
+    doc.setTextColor(C.ink[0], C.ink[1], C.ink[2])
+    doc.text(sh.lamina, x1 + 2, y)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7.6)
+    doc.text(sh.title.slice(0, 60), x1 + 26, y)
+    doc.text(`1:${opts.scale}`, x2 - 20, y)
+    doc.setDrawColor(210, 210, 214)
+    doc.setLineWidth(0.1)
+    doc.line(x1, y + 2.4, x2, y + 2.4)
+    i++
+  }
+
+  // resumen de niveles
+  const ySum = y0 + 10 + sheets.length * rowH + 8
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8)
+  doc.setTextColor(C.ink[0], C.ink[1], C.ink[2])
+  doc.text(`NIVELES (${levels.length})`, x1 + 2, ySum)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(7)
+  doc.setTextColor(C.muted[0], C.muted[1], C.muted[2])
+  let j = 0
+  for (const lv of levels) {
+    const areaM2 = levelAreaM2(elements, mods, lv.id)
+    doc.text(
+      `${lv.name} · NPT +${lv.elev.toFixed(2)} m · altura ${lv.height.toFixed(2)} m · área techada ${areaM2.toFixed(1)} m2`,
+      x1 + 2, ySum + 5 + j * 4.6,
+    )
+    j++
+  }
+}
+
+function drawElevationSheet(
+  doc: jsPDF,
+  area: ReturnType<typeof drawArea>,
+  elev: Elevation,
+  opts: PdfExportOptions,
+  sheet: BatchSheet,
+  logoData: string | null,
+) {
+  doc.addPage([area.W, area.H], area.W >= area.H ? 'landscape' : 'portrait')
+
+  // fondo + marco
+  doc.setFillColor(255, 255, 255)
+  doc.rect(0, 0, area.W, area.H, 'F')
+  doc.setDrawColor(C.ink[0], C.ink[1], C.ink[2])
+  doc.setLineWidth(0.5)
+  doc.rect(FRAME, FRAME, area.W - 2 * FRAME, area.H - 2 * FRAME)
+  doc.setLineWidth(0.2)
+  doc.rect(MARGIN, MARGIN, area.W - 2 * MARGIN, area.H - 2 * MARGIN)
+
+  // encaje: la elevación (m) se centra en el área útil respetando la escala
+  const mmPerM = 1000 / opts.scale
+  const zx1 = MARGIN + PAD, zy1 = MARGIN + PAD
+  const zx2 = area.x2 - PAD, zy2 = area.y2 - SB // reserva banda de escala
+  const zw = zx2 - zx1, zh = zy2 - zy1
+  const wMm = elev.width * mmPerM
+  const hMm = elev.height * mmPerM
+  // si no cabe a la escala pedida, se reduce el factor (siempre a escala máxima posible ≤ pedida)
+  const kFit = Math.min(1, zw / Math.max(wMm, 1), zh / Math.max(hMm, 1))
+  const k = mmPerM * kFit
+  const ox = zx1 + (zw - elev.width * k) / 2
+  const oy = zy1 + (zh - elev.height * k) / 2 + (elev.height - 0) * k * 0.18 // baja la vista (suelo cerca de 2/3)
+  const X = (x: number) => ox + x * k
+  const Y = (y: number) => oy + (elev.height - y) * k // Y-arriba → Y-página
+
+  // líneas (grosor en m → mm, mínimo 0.12 mm)
+  doc.setDrawColor(C.ink[0], C.ink[1], C.ink[2])
+  for (const ln of elev.lines) {
+    doc.setLineWidth(Math.max(0.12, ln.w * k))
+    if (ln.dash) doc.setLineDashPattern([1.2, 0.9], 0)
+    else doc.setLineDashPattern([], 0)
+    doc.line(X(ln.x1), Y(ln.y1), X(ln.x2), Y(ln.y2))
+  }
+  doc.setLineDashPattern([], 0)
+
+  // vanos: puertas (marco + hoja diagonal) y ventanas (marco + vidrio)
+  for (const op of elev.opens) {
+    const x = X(op.x), y = Y(op.y0 + op.h)
+    const w = op.w * k, h = op.h * k
+    doc.setLineWidth(0.22)
+    doc.setDrawColor(C.ink[0], C.ink[1], C.ink[2])
+    doc.rect(x, y, w, h)
+    if (op.kind === 'door') {
+      // hoja girando: arco insinuado + diagonal
+      doc.setLineWidth(0.14)
+      doc.line(x, y + h, x + w, y)          // diagonal de hoja abierta
+      doc.setDrawColor(C.dim[0], C.dim[1], C.dim[2])
+      doc.setLineDashPattern([0.8, 0.8], 0)
+      doc.line(x, y, x, y + h)              // bisagra
+      doc.setLineDashPattern([], 0)
+    } else {
+      // ventana: vidrio = doble línea interior + trama horizontal
+      doc.setLineWidth(0.1)
+      doc.setDrawColor(C.glass[0], C.glass[1], C.glass[2])
+      const midY = y + h / 2
+      doc.line(x + 0.4, midY, x + w - 0.4, midY)
+      doc.setFillColor(245, 247, 249)
+      doc.rect(x + 0.3, y + 0.3, w - 0.6, h - 0.6, 'FD')
+      doc.setDrawColor(C.ink[0], C.ink[1], C.ink[2])
+      doc.setLineWidth(0.22)
+      doc.rect(x, y, w, h)
+    }
+  }
+
+  // título de la vista
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(10)
+  doc.setTextColor(C.ink[0], C.ink[1], C.ink[2])
+  doc.text(`${ELEV_LABELS[elev.dir]} · ESC 1:${opts.scale}${kFit < 1 ? ' (reducida al encaje)' : ''}`, area.W / 2, MARGIN + 8, { align: 'center' })
+
+  // cartela + barra de escala con la lámina del lote
+  drawCartela(doc, area, { ...opts, lamina: sheet.lamina }, logoData)
+  drawScaleBar(doc, area, mmPerM * kFit, opts.scale)
+}
+
+/**
+ * Trazado por lotes REAL: un único PDF con índice + planta por nivel +
+ * 4 elevaciones + sección. `cutX` (px del plano) posiciona el corte.
+ */
+export async function exportBatchPdf(
+  elements: PlanElement[],
+  mods: Record<string, Mod>,
+  layers: LayerDef[],
+  levels: LevelDef[],
+  opts: PdfExportOptions,
+  cutXPx = 600,
+): Promise<BatchPlotResult> {
+  const { jsPDF } = await import('jspdf')
+  const area = drawArea(opts.paper, opts.landscape)
+  const doc = new jsPDF({
+    unit: 'mm',
+    format: [area.W, area.H],
+    orientation: area.W >= area.H ? 'landscape' : 'portrait',
+  })
+
+  // ---- lista de láminas ----
+  const sheets: BatchSheet[] = []
+  levels.forEach((lv, i) => {
+    sheets.push({ lamina: `A-${String(i + 1).padStart(2, '0')}`, title: `PLANTA ${lv.name} — NPT +${lv.elev.toFixed(2)} m · altura ${lv.height.toFixed(2)} m` })
+  })
+  const dirs: ElevDir[] = ['norte', 'sur', 'este', 'oeste']
+  dirs.forEach((d, i) => {
+    sheets.push({ lamina: `A-${String(levels.length + i + 1).padStart(2, '0')}`, title: ELEV_LABELS[d] })
+  })
+  sheets.push({ lamina: `A-${String(levels.length + dirs.length + 1).padStart(2, '0')}`, title: 'SECCIÓN TRANSVERSAL' })
+
+  // ---- lámina A-00: índice ----
+  drawBatchIndex(doc, area, opts, sheets, levels, elements, mods)
+  const logoData = opts.cartela?.includeLogo ? await fetchLogoDataUrl() : null
+  drawCartela(doc, area, { ...opts, lamina: 'A-00' }, logoData)
+
+  // ---- láminas de planta (una por nivel, sobre el doc compartido) ----
+  for (let i = 0; i < levels.length; i++) {
+    const lv = levels[i]
+    const els = elements.filter((el) => (el.level ?? 0) === lv.id)
+    await exportPlanPdf(els, mods, layers, {
+      ...opts,
+      docAppend: doc,
+      lamina: sheets[i].lamina,
+      title: sheets[i].title,
+    })
+  }
+
+  // ---- elevaciones + sección ----
+  for (let j = 0; j < dirs.length + 1; j++) {
+    const dir: ElevDir = j < dirs.length ? dirs[j] : 'seccion'
+    const elev = buildElevation(elements, mods, dir, {
+      wallH: levels[levels.length - 1]?.height ?? 2.5,
+      cutX: cutXPx,
+    })
+    drawElevationSheet(doc, area, elev, opts, sheets[levels.length + j], logoData)
+  }
+
+  const filename = `jarumy-lote-${levels.length}-niveles-esc-1-${opts.scale}-${PAPERS[opts.paper].label}${opts.landscape ? 'h' : 'v'}.pdf`
+  const buf = doc.output('arraybuffer') as ArrayBuffer
+  if (typeof document !== 'undefined') doc.save(filename)
+  return { filename, bytes: buf.byteLength, sheets, pageW: area.W, pageH: area.H }
+}

@@ -6,7 +6,8 @@
 // sobrevivir a versiones antiguas o datos corruptos.
 // ============================================================
 
-import type { PlanElement, LayerDef, Phase } from './plan-data'
+import type { PlanElement, LayerDef, Phase, LevelDef } from './plan-data'
+import { DEFAULT_LEVELS } from './plan-data'
 import type { Mod, SunSettings } from './store'
 import { DEFAULT_OSNAP_MODES, type OsnapModes } from './osnap'
 
@@ -21,6 +22,8 @@ export interface AutosaveData {
   elements: PlanElement[]
   mods: Record<string, Mod>
   layers: LayerDef[]
+  levels: LevelDef[]
+  activeLevel: number
   gridSpacing: number
   nextId: number
   // ajustes del documento
@@ -76,12 +79,25 @@ export function loadAutosave(): AutosaveData | null {
     if (!x || !Array.isArray(x.elements) || !Array.isArray(x.layers)
       || typeof x.mods !== 'object' || x.mods === null) return null
     const sun = (x.sun || {}) as Partial<SunSettings>
+    const levelsRaw = Array.isArray(x.levels) ? x.levels : null
+    const levels: LevelDef[] = (levelsRaw ?? DEFAULT_LEVELS)
+      .filter((l) => l && typeof l.id === 'number')
+      .map((l) => ({
+        id: l.id,
+        name: String(l.name || `P${l.id}`),
+        elev: num(l.elev, 0),
+        height: Math.max(1.8, num(l.height, 2.5)),
+      }))
+    if (!levels.some((l) => l.id === 0)) levels.unshift({ id: 0, name: 'PB', elev: 0, height: 2.5 })
+    const activeLevel = levels.some((l) => l.id === num(x.activeLevel, 0)) ? num(x.activeLevel, 0) : 0
     return {
       v: SCHEMA,
       savedAt: num(x.savedAt, Date.now()),
       elements: x.elements,
       mods: x.mods as Record<string, Mod>,
       layers: x.layers,
+      levels,
+      activeLevel,
       gridSpacing: num(x.gridSpacing, 60),
       nextId: Math.max(1, Math.round(num(x.nextId, 1))),
       renderQuality: x.renderQuality === 'ultra' ? 'ultra' : 'borrador',

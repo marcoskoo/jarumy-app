@@ -13,7 +13,8 @@ import { checkNormativa } from '@/lib/normativa'
 import { computeMetrados, downloadS10Workbook } from '@/lib/metrados'
 import { buildElevation, ELEV_LABELS, type ElevDir } from '@/lib/elevation'
 import { getRegisteredSvg, exportPlanSvg } from '@/lib/raster-export'
-import { buildIsoScene } from '@/lib/iso3d'
+import { buildIsoScene, type Vec3 } from '@/lib/iso3d'
+import { solarPosition } from '@/lib/solar'
 import { listVersions } from '@/lib/plan-files'
 import { ToolIcon } from './ToolIcon'
 
@@ -222,9 +223,14 @@ export function RoofDialog() {
 export function NormativaDialog() {
   const s = useJarumy()
   const open = s.dialog === 'normativa'
+  // la verificación normativa es por planta: solo el nivel activo
+  const levelEls = useMemo(
+    () => s.elements.filter((e) => (e.level ?? 0) === s.activeLevel),
+    [s.elements, s.activeLevel],
+  )
   const report = useMemo(
-    () => (open ? checkNormativa(s.elements, s.mods) : null),
-    [open, s.elements, s.mods],
+    () => (open ? checkNormativa(levelEls, s.mods) : null),
+    [open, levelEls, s.mods],
   )
   if (!open || !report) return null
   const badge = (st: string) =>
@@ -529,9 +535,30 @@ export function Iso3DDialog() {
   const [zoomF, setZoomF] = useState(1)
   const [furniture, setFurniture] = useState(false)
 
+  // sol REAL del heliodón: dirección de luz para el sombreado por cara
+  const sunInfo = useMemo(() => {
+    if (!s.sun.active) return null
+    const pos = solarPosition(s.sun.lat, s.sun.day, s.sun.hour)
+    if (!pos) return null
+    const az = (pos.azimuth * Math.PI) / 180
+    const el = (pos.elevation * Math.PI) / 180
+    // azimut 0=N · 90=E; en el plano x=este, y=sur → dirección AL sol
+    return {
+      dir: { x: Math.sin(az), y: -Math.cos(az), z: Math.sin(el) } as Vec3,
+      azimuth: pos.azimuth,
+      elevation: pos.elevation,
+    }
+  }, [s.sun.active, s.sun.lat, s.sun.day, s.sun.hour])
+
   const scene = useMemo(
-    () => (open ? buildIsoScene(s.elements, s.mods, { yaw, pitch }, { includeFurniture: furniture }) : null),
-    [open, s.elements, s.mods, yaw, pitch, furniture],
+    () => (open ? buildIsoScene(s.elements, s.mods, { yaw, pitch }, {
+      includeFurniture: furniture,
+      sunDir: sunInfo?.dir,
+      sunAzimuth: sunInfo?.azimuth,
+      sunElevation: sunInfo?.elevation,
+      ultra: s.renderQuality === 'ultra',
+    }) : null),
+    [open, s.elements, s.mods, yaw, pitch, furniture, sunInfo, s.renderQuality],
   )
 
   if (!open || !scene) return null
@@ -582,14 +609,28 @@ export function Iso3DDialog() {
             Vista 3D interactiva — órbita con extrusión del modelo
           </DialogTitle>
         </DialogHeader>
-        <div className="rounded-xl border jy-border overflow-hidden" style={{ background: 'linear-gradient(180deg, #17171c 0%, #101014 100%)' }}>
+        <div className="rounded-xl border jy-border overflow-hidden" style={{
+          background: s.renderQuality === 'ultra'
+            ? 'linear-gradient(180deg, #2b3a4a 0%, #1a222c 55%, #10151b 100%)'
+            : 'linear-gradient(180deg, #17171c 0%, #101014 100%)',
+        }}>
           <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
+            {s.renderQuality === 'ultra' && (
+              <defs>
+                <radialGradient id="jy-sky-sun" cx="70%" cy="18%" r="65%">
+                  <stop offset="0%" stopColor="rgba(255,214,150,0.28)" />
+                  <stop offset="55%" stopColor="rgba(150,180,210,0.08)" />
+                  <stop offset="100%" stopColor="rgba(0,0,0,0)" />
+                </radialGradient>
+              </defs>
+            )}
+            {s.renderQuality === 'ultra' && <rect width={W} height={H} fill="url(#jy-sky-sun)" />}
             {scene.quads.map((q, i) => {
               const pts = q.pts.map((p) => `${X(p).toFixed(1)},${Y(p).toFixed(1)}`).join(' ')
               return <polygon key={i} points={pts} fill={q.fill} stroke={q.stroke} strokeWidth="0.5" />
             })}
             <text x="12" y="18" fontSize="10" fill="#a1a1aa" fontFamily="Helvetica">
-              AXONOMETRÍA · yaw {yaw}° · pitch {pitch}° · {scene.quads.length} caras · muros h={(s.sun.wallH).toFixed(2)} m
+              AXONOMETRÍA · yaw {yaw}° · pitch {pitch}° · {scene.quads.length} caras · {s.renderQuality === 'ultra' ? 'RENDER ULTRA' : 'borrador'}{scene.sun ? ` · SOL az ${scene.sun.azimuth.toFixed(0)}° el ${scene.sun.elevation.toFixed(0)}° (heliodón)` : ' · luz fija (active el heliodón para sombras reales)'}
             </text>
           </svg>
         </div>

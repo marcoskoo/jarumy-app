@@ -21,9 +21,14 @@ export function ThermalDialog() {
   const s = useJarumy()
   const open = s.dialog === 'thermal'
   const [zone, setZone] = useState('3')
+  // elementos del nivel activo (los análisis son por planta)
+  const levelEls = useMemo(
+    () => s.elements.filter((e) => (e.level ?? 0) === s.activeLevel),
+    [s.elements, s.activeLevel],
+  )
   const report = useMemo(
-    () => (open ? computeThermalReport(s.elements, s.mods, zone) : null),
-    [open, s.elements, s.mods, zone],
+    () => (open ? computeThermalReport(levelEls, s.mods, zone) : null),
+    [open, levelEls, s.mods, zone],
   )
   if (!open || !report) return null
   const z: ThermalZone | undefined = report.zones.find((x) => x.zone === zone)
@@ -110,7 +115,12 @@ export function ThermalDialog() {
 export function AccessibilityDialog() {
   const s = useJarumy()
   const open = s.dialog === 'accesibilidad'
-  const checks = useMemo(() => (open ? computeAccessibility(s.elements, s.mods) : []), [open, s.elements, s.mods])
+  // elementos del nivel activo (los análisis son por planta)
+  const levelEls = useMemo(
+    () => s.elements.filter((e) => (e.level ?? 0) === s.activeLevel),
+    [s.elements, s.activeLevel],
+  )
+  const checks = useMemo(() => (open ? computeAccessibility(levelEls, s.mods) : []), [open, levelEls, s.mods])
   if (!open) return null
   const okN = checks.filter((c) => c.status === 'ok').length
 
@@ -151,7 +161,12 @@ export function AccessibilityDialog() {
 export function EvacuationDialog() {
   const s = useJarumy()
   const open = s.dialog === 'evacuacion'
-  const rep = useMemo(() => (open ? computeEvacuation(s.elements, s.mods) : null), [open, s.elements, s.mods])
+  // elementos del nivel activo (los análisis son por planta)
+  const levelEls = useMemo(
+    () => s.elements.filter((e) => (e.level ?? 0) === s.activeLevel),
+    [s.elements, s.activeLevel],
+  )
+  const rep = useMemo(() => (open ? computeEvacuation(levelEls, s.mods) : null), [open, levelEls, s.mods])
   if (!open || !rep) return null
 
   return (

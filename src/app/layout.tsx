@@ -43,13 +43,12 @@ export const metadata: Metadata = {
   },
 };
 
-// viewport tipo aplicación: el lienzo CAD gestiona su propio zoom (pellizco)
-// y no debe competir con el zoom nativo del navegador
+// viewport de aplicación: el lienzo CAD gestiona su propio zoom (pellizco),
+// pero NO bloqueamos el zoom nativo — accesibilidad (WCAG 1.4.4): usuarios
+// con baja visión deben poder ampliar el navegador.
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
   viewportFit: "cover",
   themeColor: "#18181b",
 };

@@ -14,7 +14,7 @@ import { PX_PER_M } from '@/lib/plan-data'
 
 export interface DxfImportResult {
   elements: PlanElement[]
-  stats: { lines: number; circles: number; arcs: number; polylines: number; texts: number; others: number }
+  stats: { lines: number; circles: number; arcs: number; polylines: number; texts: number; others: number; inserts: number; blocks: number }
   bounds: { minX: number; minY: number; maxX: number; maxY: number } | null
   unitGuess: 'm' | 'mm' | 'in'
 }
@@ -57,16 +57,18 @@ const cleanMtext = (s: string): string =>
  * detectada (heurística por extensión del dibujo).
  */
 export function parseDxf(text: string): DxfImportResult {
-  const stats = { lines: 0, circles: 0, arcs: 0, polylines: 0, texts: 0, others: 0 }
+  const stats = { lines: 0, circles: 0, arcs: 0, polylines: 0, texts: 0, others: 0, inserts: 0, blocks: 0 }
   const raw: string = (text ?? '').replace(/^\uFEFF/, '') // BOM
   const rows = raw.split(/\r\n|\r|\n/)
 
   // ---------- 1) lectura de pares código/valor y entidades ----------
-  const ents: RawEnt[] = []
+  const ents: RawEnt[] = []            // sección ENTITIES
+  const blocksRaw: RawEnt[] = []       // sección BLOCKS (definiciones de bloques)
   let section = ''              // sección actual (ENTITIES, HEADER, ...)
   let expectSectionName = false // tras (0,'SECTION') llega (2,'NOMBRE')
   let cur: RawEnt | null = null
   let poly: RawEnt | null = null // POLYLINE esperando sus VERTEX hasta SEQEND
+  let polySection = ''         // sección donde se abrió la POLYLINE (ENTITIES/BLOCKS)
 
   const newEnt = (type: string): RawEnt => ({ type, layer: '', pairs: [], verts: [], closed: false })
 
@@ -80,11 +82,17 @@ export function parseDxf(text: string): DxfImportResult {
   // cierra la POLYLINE en curso (al llegar SEQEND u otra entidad); también
   // desactiva cur si apuntaba a la misma POLYLINE para no duplicarla
   const finishPoly = () => {
-    if (poly) { ents.push(poly); if (cur === poly) cur = null; poly = null }
+    if (poly) {
+      ;(polySection === 'BLOCKS' ? blocksRaw : ents).push(poly)
+      if (cur === poly) cur = null
+      poly = null
+    }
   }
   // emite la entidad normal en curso (no VERTEX ni POLYLINE)
   const flushEntity = () => {
-    if (cur && cur !== poly && cur.type !== 'VERTEX') ents.push(cur)
+    if (cur && cur !== poly && cur.type !== 'VERTEX') {
+      ;(section === 'BLOCKS' ? blocksRaw : ents).push(cur)
+    }
     cur = null
   }
 
@@ -114,13 +122,15 @@ export function parseDxf(text: string): DxfImportResult {
         continue
       }
       if (isSeqEnd) { finishPoly(); continue }
-      cur = section === 'ENTITIES' ? newEnt(t) : null
-      if (cur && t === 'POLYLINE') poly = cur
+      // dentro de BLOCKS también capturamos entidades (definiciones de bloques)
+      cur = (section === 'ENTITIES' || section === 'BLOCKS') ? newEnt(t) : null
+      if (cur && t === 'POLYLINE') { poly = cur; polySection = section }
       continue
     }
 
     if (expectSectionName && code === 2) { section = value.toUpperCase(); expectSectionName = false; continue }
-    if (section !== 'ENTITIES' || !cur) continue
+    if (section !== 'ENTITIES' && section !== 'BLOCKS') continue
+    if (!cur) continue
 
     cur.pairs.push([code, value])
     if (code === 8) cur.layer = value
@@ -129,6 +139,144 @@ export function parseDxf(text: string): DxfImportResult {
   finishPoly()
   flushEntity()
 
+  // ---------- 1b) mapa de definiciones de bloques (BLOCKS) ----------
+  // Estructura: (0,BLOCK)(2,nombre)…entidades…(0,ENDBLK). Las entidades
+  // intermedias pertenecen al bloque abierto por el último BLOCK.
+  const blocksMap = new Map<string, RawEnt[]>()
+  {
+    let currentBlockName: string | null = null
+    for (const be of blocksRaw) {
+      if (be.type === 'BLOCK') { currentBlockName = pairStr(be, 2) || null; continue }
+      if (be.type === 'ENDBLK') { currentBlockName = null; continue }
+      if (!currentBlockName) continue
+      if (!blocksMap.has(currentBlockName)) blocksMap.set(currentBlockName, [])
+      blocksMap.get(currentBlockName)!.push(be)
+    }
+    stats.blocks = blocksMap.size
+  }
+
+  // ---------- 1c) expansión REAL de INSERT (bloques con transformación) ----------
+  // Cada INSERT resuelve la geometría de su bloque con: punto de inserción
+  // (10/20), escala X/Y (41/42) y rotación CCW (50). Los bloques anidados se
+  // expanden hasta 2 niveles. Los INSERT sin definición caen en el punto.
+  const transformPoint = (
+    x: number, y: number,
+    ix: number, iy: number, sx: number, sy: number, cos: number, sin: number
+  ): [number, number] => [
+    ix + x * sx * cos - y * sy * sin,
+    iy + x * sx * sin + y * sy * cos,
+  ]
+
+  const transformSub = (
+    sub: RawEnt, layer: string,
+    ix: number, iy: number, sx: number, sy: number, rotDeg: number
+  ): RawEnt => {
+    const RAD = Math.PI / 180
+    const cos = Math.cos(rotDeg * RAD), sin = Math.sin(rotDeg * RAD)
+    const T = (x: number, y: number) => transformPoint(x, y, ix, iy, sx, sy, cos, sin)
+    const rScale = Math.max(Math.abs(sx), Math.abs(sy))
+    const out: RawEnt = { type: sub.type, layer: sub.layer || layer, pairs: [], verts: [], closed: sub.closed }
+    const setNum = (code: number, v: number) => out.pairs.push([code, String(v)])
+    const setStr = (code: number, v: string) => out.pairs.push([code, v])
+    switch (sub.type) {
+      case 'LINE': {
+        const x1 = pairNum(sub, 10), y1 = pairNum(sub, 20), x2 = pairNum(sub, 11), y2 = pairNum(sub, 21)
+        const a = T(x1, y1), b = T(x2, y2)
+        setNum(10, a[0]); setNum(20, a[1]); setNum(11, b[0]); setNum(21, b[1])
+        break
+      }
+      case 'CIRCLE': case 'ARC': {
+        const cx = pairNum(sub, 10), cy = pairNum(sub, 20), r = pairNum(sub, 40)
+        const c = T(cx, cy)
+        setNum(10, c[0]); setNum(20, c[1]); setNum(40, r * rScale)
+        if (sub.type === 'ARC') {
+          const a0 = pairNum(sub, 50), a1 = pairNum(sub, 51)
+          // espejo si la escala invierte la orientación; si no, solo rotación
+          const mirror = (sx * sy) < 0
+          const na0 = mirror ? -(a0 + rotDeg) : a0 + rotDeg
+          const na1 = mirror ? -(a1 + rotDeg) : a1 + rotDeg
+          setNum(50, na0); setNum(51, na1)
+        }
+        break
+      }
+      case 'TEXT': case 'MTEXT': {
+        const x = pairNum(sub, 10), y = pairNum(sub, 20), h = pairNum(sub, 40)
+        const c = T(x, y)
+        setNum(10, c[0]); setNum(20, c[1])
+        if (Number.isFinite(h) && h > 0) setNum(40, h * Math.abs(sy))
+        for (const [code, v] of sub.pairs) if (code === 1 || code === 3) setStr(code, v)
+        break
+      }
+      case 'LWPOLYLINE': {
+        let px: number | null = null
+        for (const [code, v] of sub.pairs) {
+          if (code === 10) px = Number.parseFloat(v)
+          else if (code === 20 && px !== null && Number.isFinite(px)) {
+            const q = T(px, Number.parseFloat(v))
+            setNum(10, q[0]); setNum(20, q[1])
+            px = null
+          } else if (code === 70) setNum(70, v)
+        }
+        break
+      }
+      case 'POLYLINE': {
+        out.verts = sub.verts.map(([x, y]) => T(x, y))
+        for (const [code, v] of sub.pairs) if (code === 70) setNum(70, v)
+        break
+      }
+      case 'POINT': {
+        const x = pairNum(sub, 10), y = pairNum(sub, 20)
+        const c = T(x, y)
+        setNum(10, c[0]); setNum(20, c[1])
+        break
+      }
+      default:
+        // otros tipos: copiar tal cual (raro en bloques de dibujo)
+        out.pairs = [...sub.pairs]
+        break
+    }
+    return out
+  }
+
+  const expandInsert = (e: RawEnt, depth: number): RawEnt[] => {
+    if (e.type !== 'INSERT') return [e]
+    const block = pairStr(e, 2)
+    const ix = pairNum(e, 10), iy = pairNum(e, 20)
+    const sxRaw = pairNum(e, 41), syRaw = pairNum(e, 42)
+    const rotRaw = pairNum(e, 50)
+    if (!block || !blocksMap.has(block) || ![ix, iy].every(Number.isFinite) || depth > 2) return [e]
+    const sx = Number.isFinite(sxRaw) && sxRaw !== 0 ? sxRaw : 1
+    const sy = Number.isFinite(syRaw) && syRaw !== 0 ? syRaw : 1
+    const rot = Number.isFinite(rotRaw) ? rotRaw : 0
+    const subs = blocksMap.get(block)!
+    const out: RawEnt[] = []
+    for (const sub of subs) {
+      if (sub.type === 'INSERT') {
+        // inserto anidado: transforma su punto/rotación y expande recursivamente
+        const RAD = Math.PI / 180
+        const cos = Math.cos(rot * RAD), sin = Math.sin(rot * RAD)
+        const nx = pairNum(sub, 10), ny = pairNum(sub, 20)
+        const t = transformPoint(nx, ny, ix, iy, sx, sy, cos, sin)
+        const nested: RawEnt = { type: 'INSERT', layer: sub.layer || e.layer, pairs: [], verts: [], closed: false }
+        nested.pairs.push([2, pairStr(sub, 2)])
+        nested.pairs.push([10, String(t[0])], [20, String(t[1])])
+        const nsx = pairNum(sub, 41), nsy = pairNum(sub, 42), nrot = pairNum(sub, 50)
+        if (Number.isFinite(nsx) && nsx !== 0) nested.pairs.push([41, String(nsx * sx)])
+        if (Number.isFinite(nsy) && nsy !== 0) nested.pairs.push([42, String(nsy * sy)])
+        nested.pairs.push([50, String((Number.isFinite(nrot) ? nrot : 0) + rot)])
+        out.push(...expandInsert(nested, depth + 1))
+        continue
+      }
+      if (sub.type === 'BLOCK' || sub.type === 'ENDBLK') continue
+      out.push(transformSub(sub, e.layer, ix, iy, sx, sy, rot))
+    }
+    stats.inserts += out.length
+    return out
+  }
+
+  const expanded: RawEnt[] = []
+  for (const e of ents) expanded.push(...expandInsert(e, 0))
+
   // ---------- 2) bounds en unidades del archivo (incluye radios de círculos) ----------
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
   const ext = (x: number, y: number) => {
@@ -136,7 +284,7 @@ export function parseDxf(text: string): DxfImportResult {
     if (x < minX) minX = x; if (x > maxX) maxX = x
     if (y < minY) minY = y; if (y > maxY) maxY = y
   }
-  for (const e of ents) {
+  for (const e of expanded) {
     switch (e.type) {
       case 'LINE': ext(pairNum(e, 10), pairNum(e, 20)); ext(pairNum(e, 11), pairNum(e, 21)); break
       case 'CIRCLE': case 'ARC': {
@@ -216,7 +364,7 @@ export function parseDxf(text: string): DxfImportResult {
     elements.push({ id: nextId(), type: 'dibujo', layer: mapLayer(layer), name, geo })
   }
 
-  for (const e of ents) {
+  for (const e of expanded) {
     switch (e.type) {
       case 'LINE': {
         const x1 = pairNum(e, 10), y1 = pairNum(e, 20), x2 = pairNum(e, 11), y2 = pairNum(e, 21)

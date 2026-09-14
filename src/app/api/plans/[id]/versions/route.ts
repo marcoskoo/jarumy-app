@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db, ensureSchema } from '@/lib/db'
-import { verifySessionToken } from '@/lib/auth'
+import { verifySessionToken, canEdit } from '@/lib/auth'
 import { logAudit } from '@/lib/settings'
 
 // ---------- Versiones de plano (Ola 3) ----------
@@ -28,7 +28,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   try {
     await ensureSchema()
     const token = req.cookies.get('jarumy_session')?.value
-    const session = token ? verifySessionToken(token) : null
+    const session = token ? await verifySessionToken(token) : null
     if (!session) return unauthorized()
 
     const { id } = await params
@@ -51,8 +51,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   try {
     await ensureSchema()
     const token = req.cookies.get('jarumy_session')?.value
-    const session = token ? verifySessionToken(token) : null
+    const session = token ? await verifySessionToken(token) : null
     if (!session) return unauthorized()
+    if (!canEdit(session.role)) {
+      return NextResponse.json({ error: 'Su rol es de solo lectura — no puede crear versiones' }, { status: 403 })
+    }
 
     const { id } = await params
     const plan = await getOwnedPlan(id, session.userId)

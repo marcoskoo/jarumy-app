@@ -9,6 +9,7 @@ import type { DesignSettings } from '@/lib/settings'
 import { Toaster } from '@/components/ui/sonner'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import PlanCanvas from '@/components/jarumy/PlanCanvas'
+import LevelSelector from '@/components/jarumy/LevelSelector'
 import RibbonToolbar from '@/components/jarumy/RibbonToolbar'
 import { LayersPanel, PropertiesPanel } from '@/components/jarumy/SidePanels'
 import { CommandConsole, StatusBar } from '@/components/jarumy/ConsoleBar'
@@ -285,7 +286,10 @@ export default function JarumyApp() {
           <LayersPanel />
         </div>
 
-        <PlanCanvas />
+        <div className="relative flex flex-1 min-w-0">
+          <PlanCanvas />
+          <LevelSelector />
+        </div>
 
         <div className="hidden xl:flex">
           <PropertiesPanel />

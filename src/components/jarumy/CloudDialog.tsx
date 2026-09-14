@@ -7,7 +7,7 @@ import { ToolIcon } from './ToolIcon'
 import { startCollabSession, stopCollabSession, sendCollabChat, collabConnected } from '@/lib/collab-client'
 
 interface PlanRow { id: string; name: string; projectName: string; updatedAt: string; revision: number; thumbnail?: string | null }
-interface ShareRow { id: string; token: string; permission: string; createdAt: string; lastAccessAt?: string | null; url: string }
+interface ShareRow { id: string; token: string; permission: string; createdAt: string; expiresAt?: string | null; lastAccessAt?: string | null; url: string }
 interface VersionRow { id: string; name: string; createdAt: string }
 
 type Tab = 'planos' | 'versiones' | 'compartir' | 'vivo'
@@ -33,6 +33,7 @@ export function CloudDialog() {
   const [authError, setAuthError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [chatText, setChatText] = useState('')
+  const [shareExpiry, setShareExpiry] = useState(30) // días de vida del próximo enlace (0 = sin expiración)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -139,7 +140,7 @@ export function CloudDialog() {
     }
   }
 
-  const createShare = async (permission: 'view' | 'edit') => {
+  const createShare = async (permission: 'view' | 'edit', expiresInDays = shareExpiry) => {
     if (!s.cloud.planId) {
       s.pushConsole({ text: 'COMPARTIR: primero guarde el plano en la nube (pestaña Mis planos)', kind: 'err' })
       return
@@ -148,14 +149,17 @@ export function CloudDialog() {
     try {
       const r = await fetch(`/api/plans/${s.cloud.planId}/share`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ permission }),
+        body: JSON.stringify({ permission, expiresInDays }),
       })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       const { share } = await r.json()
       void refreshShares()
       const url = `${window.location.origin}/?plano=${share.token}`
       try { await navigator.clipboard.writeText(url) } catch { /* sin portapapeles */ }
-      s.pushConsole({ text: `ENLACE CREADO (${permission === 'edit' ? 'EDICIÓN' : 'VISTA'}): ${url} — copiado al portapapeles`, kind: 'out' })
+      const expiryTxt = share.expiresAt
+        ? ` · expira ${new Date(share.expiresAt).toLocaleDateString('es-PE')}`
+        : ' · sin expiración'
+      s.pushConsole({ text: `ENLACE CREADO (${permission === 'edit' ? 'EDICIÓN' : 'VISTA'}): ${url}${expiryTxt} — copiado al portapapeles`, kind: 'out' })
     } catch {
       s.pushConsole({ text: 'COMPARTIR: no se pudo crear el enlace', kind: 'err' })
     } finally {
@@ -404,6 +408,17 @@ export function CloudDialog() {
               </p>
             ) : (
               <>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[10px] font-bold jy-muted">Expira en:</span>
+                  {[7, 30, 90, 365, 0].map((d) => (
+                    <button key={d} onClick={() => setShareExpiry(d)}
+                      className={`rounded-lg px-2 py-0.5 text-[10.5px] font-bold transition-colors ${
+                        shareExpiry === d ? 'bg-amber-500 text-zinc-950' : 'border jy-border jy-muted hover:jy-text'}`}
+                      title={d === 0 ? 'El enlace no caduca nunca' : `El enlace deja de funcionar tras ${d} días`}>
+                      {d === 0 ? 'nunca' : `${d} d`}
+                    </button>
+                  ))}
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   <button onClick={() => void createShare('view')}
                     className="rounded-xl border jy-border px-4 py-2.5 text-[11.5px] font-bold jy-text hover:border-amber-500/50 transition-colors">
@@ -425,6 +440,9 @@ export function CloudDialog() {
                         <p className="text-[9.5px] jy-muted truncate">
                           {window.location.origin}/?plano={sh.token}
                           {sh.lastAccessAt ? ` · visto ${new Date(sh.lastAccessAt).toLocaleDateString('es-PE')}` : ' · sin visitas'}
+                          {sh.expiresAt
+                            ? ` · expira ${new Date(sh.expiresAt).toLocaleDateString('es-PE')}${new Date(sh.expiresAt) < new Date() ? ' (VENCIDO — no aparecerá más)' : ''}`
+                            : ' · sin expiración'}
                         </p>
                       </div>
                       <button onClick={() => {

@@ -142,8 +142,8 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
         options: [{ label: 'Mostrar panel', action: G('toggleProperties') }],
       },
       {
-        id: 'catalogo', label: 'Catálogo', icon: 'Library', desc: 'Catálogo completo de las 92 herramientas recopiladas de AutoCAD, Revit, ArchiCAD, SketchUp, Rhino, Lumion, V-Ray y más', source: 'Jarumy',
-        options: [{ label: 'Ver catálogo completo', detail: '92 herramientas · 10 aplicaciones analizadas', action: G('showCatalog') }],
+        id: 'catalogo', label: 'Catálogo', icon: 'Library', desc: 'Catálogo completo de las 97 herramientas recopiladas de AutoCAD, Revit, ArchiCAD, SketchUp, Rhino, Lumion, V-Ray y más', source: 'Jarumy',
+        options: [{ label: 'Ver catálogo completo', detail: '97 herramientas · 11 aplicaciones analizadas', action: G('showCatalog') }],
       },
     ],
   },
@@ -679,6 +679,15 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
           { label: 'Madera', action: A('material', 'madera') },
           { label: 'Mármol', action: A('material', 'marmol') },
           { label: 'Metal', action: A('material', 'metal') },
+        ],
+      },
+      {
+        id: 'niveles', label: 'Niveles', icon: 'Layers', desc: 'Multinivel: plantas PB/P1/P2… con cota y altura reales — el IFC exporta un IfcBuildingStorey por nivel (Revit)', source: 'Revit',
+        options: [
+          { label: 'Cambiar de nivel', detail: 'Selector flotante sobre el lienzo', action: I('Use el selector de niveles bajo el plano, o el comando NIVEL por consola') },
+          { label: 'Nuevo nivel', detail: 'Crea una planta alta y activa su dibujo', action: I('Ejecute NIVELNUEVO en la consola, o el botón + del selector de niveles') },
+          { label: 'Duplicar nivel activo', detail: 'Copia muros, vanos y espacios al nuevo piso', action: G('nivelDup') },
+          { label: 'Eliminar nivel activo', detail: 'Los objetos pasan a PB', action: G('nivelElim') },
         ],
       },
     ],

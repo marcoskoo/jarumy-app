@@ -9,6 +9,7 @@
 import type { PlanElement } from './plan-data'
 import type { RoomGeo, DoorGeo, WindowGeo } from './plan-data'
 import { PX_PER_M, roomAreaM2 } from './plan-data'
+import { MAX_TRAVEL_M, MIN_ACCESS_DOOR_M, MIN_INTERIOR_DOOR_M } from './rne'
 import type { Mod } from './store'
 
 export interface NormCheck {
@@ -47,8 +48,8 @@ export function checkNormativa(
       code: 'A.010-120',
       norm: norm('A.010'),
       title: 'Puerta de acceso accesible ≥ 0.90 m',
-      status: w >= 0.90 ? 'ok' : 'fail',
-      detail: w >= 0.90
+      status: w >= MIN_ACCESS_DOOR_M ? 'ok' : 'fail',
+      detail: w >= MIN_ACCESS_DOOR_M
         ? `Puerta de ${w.toFixed(2)} m (${mainDoor.el.name}): cumple el ancho mínimo de accesibilidad.`
         : `Puerta de ${w.toFixed(2)} m (${mainDoor.el.name}): NO cumple el mínimo de 0.90 m libre para accesibilidad (A.010 art. 12).`,
       elId: mainDoor.el.id,
@@ -61,7 +62,7 @@ export function checkNormativa(
   }
 
   // ---------- A.010: puertas interiores ≥ 0.70 m ----------
-  const narrowDoors = doors.filter((d) => d.g.r / PX_PER_M < 0.70)
+  const narrowDoors = doors.filter((d) => d.g.r / PX_PER_M < MIN_INTERIOR_DOOR_M)
   checks.push({
     code: 'A.010-120b', norm: norm('A.010'), title: 'Puertas interiores ≥ 0.70 m',
     status: narrowDoors.length === 0 ? 'ok' : 'warn',
@@ -155,7 +156,7 @@ export function checkNormativa(
     }
   }
 
-  // ---------- A.130: distancia a la salida ≤ 30 m ----------
+  // ---------- A.130: distancia a la salida ≤ 25 m (constante compartida con evacuation.ts) ----------
   if (mainDoor) {
     const exit = { x: mainDoor.g.cx, y: mainDoor.g.cy }
     let worst: { name: string; d: number; elId: string } | null = null
@@ -167,11 +168,11 @@ export function checkNormativa(
     }
     if (worst) {
       checks.push({
-        code: 'A.130-25', norm: norm('A.130'), title: 'Distancia máx. a la salida ≤ 30 m',
-        status: worst.d <= 30 ? 'ok' : 'fail',
-        detail: worst.d <= 30
-          ? `El punto más alejado (${worst.name}) está a ${worst.d.toFixed(1)} m de la puerta principal: dentro del límite de 30 m.`
-          : `El punto más alejado (${worst.name}) está a ${worst.d.toFixed(1)} m: EXCEDE el máximo de 30 m — requiere una salida adicional.`,
+        code: 'A.130-25', norm: norm('A.130'), title: 'Distancia máx. a la salida ≤ 25 m',
+        status: worst.d <= MAX_TRAVEL_M ? 'ok' : 'fail',
+        detail: worst.d <= MAX_TRAVEL_M
+          ? `El punto más alejado (${worst.name}) está a ${worst.d.toFixed(1)} m de la puerta principal: dentro del límite A.130 de ${MAX_TRAVEL_M} m.`
+          : `El punto más alejado (${worst.name}) está a ${worst.d.toFixed(1)} m: EXCEDE el máximo A.130 de ${MAX_TRAVEL_M} m — requiere una salida adicional.`,
         elId: worst.elId,
       })
     }

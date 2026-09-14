@@ -4,6 +4,7 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
   schemaReady: boolean | undefined
   plansSchemaReady: boolean | undefined
+  authSchemaReady: boolean | undefined
 }
 
 // ---------- Base de datos (PostgreSQL) ----------
@@ -16,7 +17,10 @@ const globalForPrisma = globalThis as unknown as {
 
 export function resolveRuntimeUrl(): string | undefined {
   let url = process.env.DATABASE_URL
-  if (url && url.includes('-pooler') && !url.includes('pgbouncer=')) {
+  if (!url) return undefined
+  // SQLite local (sandbox/desarrollo): se usa tal cual
+  if (url.startsWith('file:')) return url
+  if (url.includes('-pooler') && !url.includes('pgbouncer=')) {
     url += (url.includes('?') ? '&' : '?') + 'pgbouncer=true&connection_limit=1'
   }
   return url
@@ -113,21 +117,64 @@ const PLANS_DDL = [
   `CREATE UNIQUE INDEX IF NOT EXISTS "SharedLink_token_key" ON "SharedLink"("token")`,
 ]
 
+// ---------- Seguridad (Ola 8) ----------
+// DDL idempotente para: revocación de sesiones (denylist por jti),
+// bloqueo de login persistido en BD (multi-instancia), rate-limit en BD
+// (rutas de IA), expiry de enlaces compartidos, roles y deshabilitado de
+// usuarios, y epoch de tokens (invalida sesiones al cambiar la clave).
+
+const AUTH_DDL = [
+  `CREATE TABLE IF NOT EXISTS "SessionDenylist" (
+    "jti" TEXT NOT NULL PRIMARY KEY,
+    "expiresAt" TIMESTAMP(3) NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS "LoginAttempt" (
+    "username" TEXT NOT NULL PRIMARY KEY,
+    "count" INTEGER NOT NULL DEFAULT 0,
+    "lockedUntil" TIMESTAMP(3),
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE TABLE IF NOT EXISTS "RateLimit" (
+    "key" TEXT NOT NULL PRIMARY KEY,
+    "count" INTEGER NOT NULL DEFAULT 0,
+    "windowStart" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  // Evolución de columnas (BD pre-existentes)
+  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "tokenEpoch" INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "disabled" BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "mustChangePassword" BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE "SharedLink" ADD COLUMN IF NOT EXISTS "expiresAt" TIMESTAMP(3)`,
+]
+
 export async function ensureSchema(): Promise<void> {
   if (globalForPrisma.schemaReady) return
+  const isSqlite = (process.env.DATABASE_URL || '').startsWith('file:')
   try {
-    const res = (await db.$queryRawUnsafe(
-      `SELECT to_regclass('public."User"')::text AS t`
-    )) as Array<{ t: string | null }>
-    const exists = res.length > 0 && res[0].t !== null
-    if (!exists) {
-      for (const ddl of SCHEMA_DDL) await db.$executeRawUnsafe(ddl)
-      console.log('[jarumy] ensureSchema: esquema creado')
+    if (!isSqlite) {
+      const res = (await db.$queryRawUnsafe(
+        `SELECT to_regclass('public."User"')::text AS t`
+      )) as Array<{ t: string | null }>
+      const exists = res.length > 0 && res[0].t !== null
+      if (!exists) {
+        for (const ddl of SCHEMA_DDL) await db.$executeRawUnsafe(ddl)
+        console.log('[jarumy] ensureSchema: esquema creado')
+      }
     }
+    // cada sentencia es best-effort: en SQLite los ALTER IF NOT EXISTS no
+    // existen (y no hacen falta: db:push ya creó las columnas)
     if (!globalForPrisma.plansSchemaReady) {
-      for (const ddl of PLANS_DDL) await db.$executeRawUnsafe(ddl)
+      for (const ddl of PLANS_DDL) {
+        try { await db.$executeRawUnsafe(ddl) } catch { /* ya existe o no aplica */ }
+      }
       globalForPrisma.plansSchemaReady = true
       console.log('[jarumy] ensureSchema: esquema de planos verificado (Plan/PlanVersion/SharedLink)')
+    }
+    if (!globalForPrisma.authSchemaReady) {
+      for (const ddl of AUTH_DDL) {
+        try { await db.$executeRawUnsafe(ddl) } catch { /* ya existe o no aplica */ }
+      }
+      globalForPrisma.authSchemaReady = true
+      console.log('[jarumy] ensureSchema: esquema de seguridad verificado (SessionDenylist/LoginAttempt/RateLimit)')
     }
   } catch (err) {
     console.error('[jarumy] ensureSchema:', err)

@@ -1,47 +1,67 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, ensureSchema } from '@/lib/db'
 import { verifyPassword, createSessionToken } from '@/lib/auth'
 import { verifyTotp } from '@/lib/totp'
 import { ensureSeed, getSettings, logAudit } from '@/lib/settings'
-
-// Control de intentos fallidos (en memoria por proceso)
-const failedAttempts = new Map<string, { count: number; lockedUntil: number }>()
+import { getLoginLock, recordLoginFailure, clearLoginAttempts, rateLimit } from '@/lib/rate-limit'
 
 export async function POST(req: NextRequest) {
   try {
     await ensureSeed()
+    await ensureSchema()
     const { username, password, otp } = await req.json()
     const { security } = await getSettings()
 
-    const key = String(username || '').trim()
-    if (!key || !password) {
+    const raw = String(username || '').trim()
+    const key = raw.toLowerCase()
+    if (!raw || !password) {
       return NextResponse.json({ error: 'Usuario y contraseña requeridos' }, { status: 400 })
     }
 
-    const attempt = failedAttempts.get(key)
-    if (attempt && attempt.lockedUntil > Date.now()) {
-      const secs = Math.ceil((attempt.lockedUntil - Date.now()) / 1000)
+    // rate-limit por IP + usuario (protege contra fuerza bruta distribuida)
+    const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'local'
+    const rl = await rateLimit(`login:${ip}`, 30, 60_000)
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: `Demasiados intentos desde esta conexión. Espere ${rl.retryAfterS} s.` },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterS) } }
+      )
+    }
+
+    // bloqueo persistido en BD (visible para TODAS las instancias)
+    const lock = await getLoginLock(key)
+    if (lock.lockedUntil && lock.lockedUntil.getTime() > Date.now()) {
+      const secs = Math.ceil((lock.lockedUntil.getTime() - Date.now()) / 1000)
       return NextResponse.json(
         { error: `Cuenta bloqueada temporalmente. Intente en ${secs} segundos.` },
         { status: 429 }
       )
     }
 
-    const user = await db.user.findFirst({ where: { username: key } })
-    const ok = user ? verifyPassword(String(password), user.passwordHash) : false
+    // usuario tolerante a mayúsculas (los seed históricos usan "J. Burga")
+    const user = await db.user.findFirst({
+      where: { OR: [{ username: key }, { username: raw }] },
+    })
+    const ok = user && !user.disabled ? verifyPassword(String(password), user.passwordHash) : false
 
     if (!ok || !user) {
-      const prev = failedAttempts.get(key)?.count ?? 0
-      const count = prev + 1
-      const lockedUntil = count >= security.maxAttempts ? Date.now() + security.lockMinutes * 60_000 : 0
-      failedAttempts.set(key, { count, lockedUntil })
+      const { count } = await recordLoginFailure(key, security.maxAttempts, security.lockMinutes)
+      const lockNow = count >= security.maxAttempts
       if (security.auditEnabled) {
-        await logAudit(key, 'login_fallido', `Intento ${count}/${security.maxAttempts}`)
+        await logAudit(key, 'login_fallido', `Intento ${count}/${security.maxAttempts}${lockNow ? ' — bloqueado' : ''}`)
       }
       return NextResponse.json(
-        { error: lockedUntil ? 'Demasiados intentos. Cuenta bloqueada.' : 'Credenciales incorrectas' },
+        {
+          error: lockNow
+            ? `Demasiados intentos. Cuenta bloqueada ${security.lockMinutes} minutos.`
+            : 'Credenciales incorrectas',
+        },
         { status: 401 }
       )
+    }
+    if (user.disabled) {
+      if (security.auditEnabled) await logAudit(key, 'login_bloqueado', 'Usuario deshabilitado')
+      return NextResponse.json({ error: 'Usuario deshabilitado — contacte al administrador' }, { status: 403 })
     }
 
     // ---------- 2FA REAL (TOTP RFC 6238 — app autenticadora) ----------
@@ -53,20 +73,33 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ requires2FA: true, method: 'totp' }, { status: 401 })
       }
       if (!verifyTotp(user.totpSecret, String(otp))) {
-        if (security.auditEnabled) await logAudit(key, '2fa_fallido', 'Código TOTP incorrecto')
-        return NextResponse.json({ error: 'Código de autenticador incorrecto (6 dígitos, vence cada 30 s)', requires2FA: true, method: 'totp' }, { status: 401 })
+        const { count } = await recordLoginFailure(key, security.maxAttempts, security.lockMinutes)
+        if (security.auditEnabled) await logAudit(key, '2fa_fallido', `Código TOTP incorrecto (intento ${count})`)
+        return NextResponse.json(
+          { error: 'Código de autenticador incorrecto (6 dígitos, vence cada 30 s)', requires2FA: true, method: 'totp' },
+          { status: 401 }
+        )
       }
     }
 
-    failedAttempts.delete(key)
-    const token = createSessionToken(user.id, user.username, security.sessionTimeout)
+    await clearLoginAttempts(key)
+    const token = await createSessionToken(
+      { id: user.id, username: user.username, role: user.role },
+      security.sessionTimeout
+    )
     if (security.auditEnabled) {
       await logAudit(user.username, 'login_exitoso', user.totpSecret ? 'Panel de administración · 2FA TOTP' : 'Panel de administración')
     }
 
     const res = NextResponse.json({
       ok: true,
-      user: { username: user.username, displayName: user.displayName, role: user.role, twoFactor: !!user.totpSecret },
+      user: {
+        username: user.username,
+        displayName: user.displayName,
+        role: user.role,
+        twoFactor: !!user.totpSecret,
+        mustChangePassword: user.mustChangePassword,
+      },
     })
     res.cookies.set('jarumy_session', token, {
       httpOnly: true,

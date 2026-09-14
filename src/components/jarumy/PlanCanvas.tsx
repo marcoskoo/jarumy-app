@@ -52,8 +52,12 @@ export default function PlanCanvas() {
   const gripRef = useRef<{ elId: string; kind: 'muro-end' | 'dibujo-vtx' | 'ventana-end'; idx: number } | null>(null)
   const [osnapHit, setOsnapHit] = useState<OsnapCandidate | null>(null)
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; elId: string | null } | null>(null)
-  // índice de imanes OSnap (se recalcula solo cuando cambia el plano)
-  const osnapIndex = useMemo(() => buildOsnapIndex(s.elements, s.mods), [s.elements, s.mods])
+  // índice de imanes OSnap (se recalcula solo cuando cambia el plano) — solo del nivel activo
+  const activeLevelElements = useMemo(
+    () => s.elements.filter((e) => (e.level ?? 0) === s.activeLevel),
+    [s.elements, s.activeLevel],
+  )
+  const osnapIndex = useMemo(() => buildOsnapIndex(activeLevelElements, s.mods), [activeLevelElements, s.mods])
 
   useEffect(() => {
     const el = containerRef.current
@@ -311,7 +315,7 @@ export default function PlanCanvas() {
         undoStack: [...prev.undoStack.slice(-29), { elements: JSON.parse(JSON.stringify(prev.elements)), mods: JSON.parse(JSON.stringify(prev.mods)), gridSpacing: prev.gridSpacing }],
         elements: [...prev.elements, {
           id: uid(), type: 'simbolo', layer: 'instalaciones',
-          name: names[kind] || kind, geo: { kind, x: p[0], y: p[1] },
+          name: names[kind] || kind, level: prev.activeLevel, geo: { kind, x: p[0], y: p[1] },
         }],
       }))
       st.pushConsole({ text: `SÍMBOLO colocado: ${names[kind] || kind} (capa Instalaciones)`, kind: 'out' })
@@ -336,8 +340,8 @@ export default function PlanCanvas() {
         if (pts.length === 2) {
           const [a, b] = [pts[0], orthoPt(pts[1] as [number, number], pts[0] as [number, number])]
           const newEl: PlanElement = st.drawTool === 'cota'
-            ? { id: uid(), type: 'dibujo', layer: 'dibujo', name: 'Cota', geo: { kind: 'cota', pts: [a, b] } }
-            : { id: uid(), type: 'dibujo', layer: 'dibujo', name: st.drawTool === 'linea' ? 'Línea' : 'Rectángulo', geo: { kind: st.drawTool, pts: [a, b] } }
+            ? { id: uid(), type: 'dibujo', layer: 'dibujo', name: 'Cota', level: st.activeLevel, geo: { kind: 'cota', pts: [a, b] } }
+            : { id: uid(), type: 'dibujo', layer: 'dibujo', name: st.drawTool === 'linea' ? 'Línea' : 'Rectángulo', level: st.activeLevel, geo: { kind: st.drawTool, pts: [a, b] } }
           useJarumy.setState((prev) => ({
             undoStack: [...prev.undoStack.slice(-29), { elements: JSON.parse(JSON.stringify(prev.elements)), mods: JSON.parse(JSON.stringify(prev.mods)), gridSpacing: prev.gridSpacing }],
             elements: [...prev.elements, newEl],
@@ -354,7 +358,7 @@ export default function PlanCanvas() {
         } else {
           const [cx, cy] = st.drawPts[0]
           const r = Math.max(6, Math.hypot(p[0] - cx, p[1] - cy))
-          const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'dibujo', name: 'Círculo', geo: { kind: 'circulo', pts: [[cx, cy]], r } }
+          const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'dibujo', name: 'Círculo', level: st.activeLevel, geo: { kind: 'circulo', pts: [[cx, cy]], r } }
           useJarumy.setState((prev) => ({
             undoStack: [...prev.undoStack.slice(-29), { elements: JSON.parse(JSON.stringify(prev.elements)), mods: JSON.parse(JSON.stringify(prev.mods)), gridSpacing: prev.gridSpacing }],
             elements: [...prev.elements, newEl],
@@ -377,7 +381,7 @@ export default function PlanCanvas() {
       case 'texto': {
         void st.requestPrompt('Texto a insertar:', '').then((t) => {
           if (t && t.trim()) {
-            const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'textos', name: `Texto: ${t}`, geo: { kind: 'texto', pts: [[p[0], p[1]]], text: t } }
+            const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'textos', name: `Texto: ${t}`, level: st.activeLevel, geo: { kind: 'texto', pts: [[p[0], p[1]]], text: t } }
             useJarumy.setState((prev) => ({ elements: [...prev.elements, newEl] }))
           }
           st.armDraw(null)
@@ -385,7 +389,7 @@ export default function PlanCanvas() {
         break
       }
       case 'punto': {
-        const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'dibujo', name: 'Punto', geo: { kind: 'punto', pts: [[p[0], p[1]]] } }
+        const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'dibujo', name: 'Punto', level: st.activeLevel, geo: { kind: 'punto', pts: [[p[0], p[1]]] } }
         useJarumy.setState((prev) => ({
           undoStack: [...prev.undoStack.slice(-29), { elements: JSON.parse(JSON.stringify(prev.elements)), mods: JSON.parse(JSON.stringify(prev.mods)), gridSpacing: prev.gridSpacing }],
           elements: [...prev.elements, newEl],
@@ -398,7 +402,7 @@ export default function PlanCanvas() {
         // 3 clics: inicio · punto por donde pasa el arco · fin
         const pts = [...st.drawPts, p]
         if (pts.length === 3) {
-          const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'dibujo', name: 'Arco', geo: { kind: 'arco', pts: [[pts[0][0], pts[0][1]], [pts[1][0], pts[1][1]], [pts[2][0], pts[2][1]]] } }
+          const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'dibujo', name: 'Arco', level: st.activeLevel, geo: { kind: 'arco', pts: [[pts[0][0], pts[0][1]], [pts[1][0], pts[1][1]], [pts[2][0], pts[2][1]]] } }
           useJarumy.setState((prev) => ({
             undoStack: [...prev.undoStack.slice(-29), { elements: JSON.parse(JSON.stringify(prev.elements)), mods: JSON.parse(JSON.stringify(prev.mods)), gridSpacing: prev.gridSpacing }],
             elements: [...prev.elements, newEl],
@@ -418,7 +422,7 @@ export default function PlanCanvas() {
           const [cx, cy] = st.drawPts[0]
           const rx = Math.max(6, Math.abs(p[0] - cx))
           const ry = Math.max(6, Math.abs(p[1] - cy))
-          const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'dibujo', name: 'Elipse', geo: { kind: 'elipse', pts: [[cx, cy]], rx, ry } }
+          const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'dibujo', name: 'Elipse', level: st.activeLevel, geo: { kind: 'elipse', pts: [[cx, cy]], rx, ry } }
           useJarumy.setState((prev) => ({
             undoStack: [...prev.undoStack.slice(-29), { elements: JSON.parse(JSON.stringify(prev.elements)), mods: JSON.parse(JSON.stringify(prev.mods)), gridSpacing: prev.gridSpacing }],
             elements: [...prev.elements, newEl],
@@ -436,7 +440,7 @@ export default function PlanCanvas() {
           const a = st.drawPts[0] as [number, number]
           void st.requestPrompt('Texto de la directriz:', 'UMBRAL GRANITO NEGRO PULIDO e=0.02').then((t) => {
             if (t) {
-              const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'textos', name: `Directriz: ${t.slice(0, 28)}`, geo: { kind: 'directriz', pts: [[a[0], a[1]], [p[0], p[1]]], text: t } }
+              const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'textos', name: `Directriz: ${t.slice(0, 28)}`, level: st.activeLevel, geo: { kind: 'directriz', pts: [[a[0], a[1]], [p[0], p[1]]], text: t } }
               useJarumy.setState((prev) => ({
                 undoStack: [...prev.undoStack.slice(-29), { elements: JSON.parse(JSON.stringify(prev.elements)), mods: JSON.parse(JSON.stringify(prev.mods)), gridSpacing: prev.gridSpacing }],
                 elements: [...prev.elements, newEl],
@@ -456,7 +460,7 @@ export default function PlanCanvas() {
         } else {
           const [cx, cy] = st.drawPts[0]
           const r = Math.max(6, Math.hypot(p[0] - cx, p[1] - cy))
-          const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'dibujo', name: 'Cota de radio', geo: { kind: 'cota-rad', pts: [[cx, cy], [p[0], p[1]]], r } }
+          const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'dibujo', name: 'Cota de radio', level: st.activeLevel, geo: { kind: 'cota-rad', pts: [[cx, cy], [p[0], p[1]]], r } }
           useJarumy.setState((prev) => ({
             undoStack: [...prev.undoStack.slice(-29), { elements: JSON.parse(JSON.stringify(prev.elements)), mods: JSON.parse(JSON.stringify(prev.mods)), gridSpacing: prev.gridSpacing }],
             elements: [...prev.elements, newEl],
@@ -470,7 +474,7 @@ export default function PlanCanvas() {
         // 3 clics: vértice · punto en el 1er lado · punto en el 2do lado
         const pts = [...st.drawPts, p]
         if (pts.length === 3) {
-          const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'dibujo', name: 'Cota angular', geo: { kind: 'cota-ang', pts: [[pts[0][0], pts[0][1]], [pts[1][0], pts[1][1]], [pts[2][0], pts[2][1]]] } }
+          const newEl: PlanElement = { id: uid(), type: 'dibujo', layer: 'dibujo', name: 'Cota angular', level: st.activeLevel, geo: { kind: 'cota-ang', pts: [[pts[0][0], pts[0][1]], [pts[1][0], pts[1][1]], [pts[2][0], pts[2][1]]] } }
           useJarumy.setState((prev) => ({
             undoStack: [...prev.undoStack.slice(-29), { elements: JSON.parse(JSON.stringify(prev.elements)), mods: JSON.parse(JSON.stringify(prev.mods)), gridSpacing: prev.gridSpacing }],
             elements: [...prev.elements, newEl],
@@ -516,6 +520,7 @@ export default function PlanCanvas() {
     let elId: string | null = null
     for (const el of st.elements) {
       if (st.mods[el.id]?.deleted) continue
+      if ((el.level ?? 0) !== st.activeLevel) continue
       const [[bx0, by0], [bx1, by1]] = elementBBox(el)
       const tx = st.mods[el.id]?.translate?.[0] ?? 0
       const ty = st.mods[el.id]?.translate?.[1] ?? 0
@@ -643,6 +648,7 @@ export default function PlanCanvas() {
           const ry0 = Math.min(m.y0, m.y1), ry1 = Math.max(m.y0, m.y1)
           const hits = stNow.elements.filter((el) => {
             if (stNow.mods[el.id]?.deleted) return false
+            if ((el.level ?? 0) !== stNow.activeLevel) return false
             const [[bx0, by0], [bx1, by1]] = elementBBox(el)
             const tx = stNow.mods[el.id]?.translate?.[0] ?? 0
             const ty = stNow.mods[el.id]?.translate?.[1] ?? 0
@@ -839,7 +845,10 @@ export default function PlanCanvas() {
     espacio: 0, muro: 1, columna: 2, apertura: 3, puerta: 4, ventana: 5,
     mobiliario: 6, sanitario: 6, cota: 7, texto: 8, dibujo: 9,
   }
-  const sorted = [...s.elements].sort((a, b) => (zOrder[a.type] ?? 5) - (zOrder[b.type] ?? 5))
+  // multinivel: solo se dibuja la planta del nivel activo
+  const sorted = s.elements
+    .filter((e) => (e.level ?? 0) === s.activeLevel)
+    .sort((a, b) => (zOrder[a.type] ?? 5) - (zOrder[b.type] ?? 5))
 
   const hoverEl = s.hovered ? s.elements.find((e) => e.id === s.hovered!.id) : null
 
@@ -901,7 +910,7 @@ export default function PlanCanvas() {
 
             {/* sombras del heliodón (debajo de los elementos) */}
             {s.sun.active && (
-              <HeliodonLayer elements={s.elements} mods={s.mods} sun={s.sun} phase="under" />
+              <HeliodonLayer elements={activeLevelElements} mods={s.mods} sun={s.sun} phase="under" />
             )}
 
             {/* elementos por capas (el filtro de fases atenúa lo que no corresponde) */}
@@ -1008,12 +1017,12 @@ export default function PlanCanvas() {
 
             {/* acotación automática por ambiente (respeta la capa Cotas) */}
             {s.autoDims && visibleLayers.has('cotas') && (
-              <AutoDimsLayer elements={s.elements} mods={s.mods} />
+              <AutoDimsLayer elements={activeLevelElements} mods={s.mods} />
             )}
 
             {/* diagrama solar del heliodón (encima de los elementos, sin captura) */}
             {s.sun.active && (
-              <HeliodonLayer elements={s.elements} mods={s.mods} sun={s.sun} phase="over" />
+              <HeliodonLayer elements={activeLevelElements} mods={s.mods} sun={s.sun} phase="over" />
             )}
 
             {/* vista previa de ESTIRA: ventana de cruces + vector de estiramiento */}

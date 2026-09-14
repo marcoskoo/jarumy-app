@@ -20,7 +20,7 @@ export async function GET(
   try {
     await ensureSchema()
     const token = req.cookies.get('jarumy_session')?.value
-    const session = token ? verifySessionToken(token) : null
+    const session = token ? await verifySessionToken(token) : null
     if (!session) return unauthorized()
 
     const { id, versionId } = await params

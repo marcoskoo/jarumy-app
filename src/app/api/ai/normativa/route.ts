@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { verifySessionToken } from '@/lib/auth'
+import { rateLimit } from '@/lib/rate-limit'
 
 // ============================================================
 // Ola 7 — IA · Revisor de normativa RNE: recibe los checks
 // REALES calculados sobre el plano y devuelve interpretación
 // con correcciones de diseño concretas.
+// Requiere sesión iniciada + rate-limit por usuario (10/min).
 // ============================================================
 
 export const runtime = 'nodejs'
@@ -22,6 +25,20 @@ Formato de salida: texto plano en español con viñetas "·" y subtítulos en MA
 
 export async function POST(req: NextRequest) {
   try {
+    // ---- autenticación + rate-limit (protege el consumo del SDK) ----
+    const token = req.cookies.get('jarumy_session')?.value
+    const session = token ? await verifySessionToken(token) : null
+    if (!session) {
+      return NextResponse.json({ error: 'Inicie sesión para usar el revisor IA' }, { status: 401 })
+    }
+    const rl = await rateLimit(`ai:${session.userId}`, 10, 60_000)
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: `Límite de solicitudes IA alcanzado — espere ${rl.retryAfterS} s` },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterS) } }
+      )
+    }
+
     const { checks, summary, stats } = await req.json()
     if (!Array.isArray(checks)) {
       return NextResponse.json({ error: 'Faltan los checks del plano' }, { status: 400 })

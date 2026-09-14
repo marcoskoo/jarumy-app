@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db, ensureSchema } from '@/lib/db'
-import { verifySessionToken } from '@/lib/auth'
+import { verifySessionToken, canEdit } from '@/lib/auth'
 import { logAudit } from '@/lib/settings'
 
 // ---------- Planos en la nube (Ola 3) ----------
 // GET  /api/plans        → lista de planos del usuario (sin data, ligera)
 // POST /api/plans        → crea un plano { name, projectName?, data, thumbnail? }
+//                        → requiere rol editor o admin (visor = solo lectura)
 
 const MAX_DATA_BYTES = 900 * 1024 // 900 KB
 
@@ -21,7 +22,7 @@ export async function GET(req: NextRequest) {
   try {
     await ensureSchema()
     const token = req.cookies.get('jarumy_session')?.value
-    const session = token ? verifySessionToken(token) : null
+    const session = token ? await verifySessionToken(token) : null
     if (!session) return unauthorized()
 
     const plans = await db.plan.findMany({
@@ -47,8 +48,12 @@ export async function POST(req: NextRequest) {
   try {
     await ensureSchema()
     const token = req.cookies.get('jarumy_session')?.value
-    const session = token ? verifySessionToken(token) : null
+    const session = token ? await verifySessionToken(token) : null
     if (!session) return unauthorized()
+    if (!canEdit(session.role)) {
+      await logAudit(session.username, 'plano_creacion_denegada', 'Rol visor no puede crear planos')
+      return NextResponse.json({ error: 'Su rol es de solo lectura — un editor debe guardar el plano' }, { status: 403 })
+    }
 
     const body = await req.json().catch(() => null)
     if (!body || typeof body !== 'object') {

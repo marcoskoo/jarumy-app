@@ -4,9 +4,9 @@ import { db, ensureSchema } from '@/lib/db'
 import { verifySessionToken } from '@/lib/auth'
 import { logAudit } from '@/lib/settings'
 
-// ---------- Enlaces compartidos (Ola 4) ----------
+// ---------- Enlaces compartidos (Ola 4 + expiración Ola 8) ----------
 // GET    /api/plans/:id/share            → lista de enlaces activos
-// POST   /api/plans/:id/share            → crea enlace { permission: 'view' | 'edit' }
+// POST   /api/plans/:id/share            → crea enlace { permission, expiresInDays? }
 //                                         → { token, url: '/api/share/:token' }
 // DELETE /api/plans/:id/share?shareId=…  → revoca el enlace (body {shareId} también válido)
 
@@ -28,7 +28,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   try {
     await ensureSchema()
     const token = req.cookies.get('jarumy_session')?.value
-    const session = token ? verifySessionToken(token) : null
+    const session = token ? await verifySessionToken(token) : null
     if (!session) return unauthorized()
 
     const { id } = await params
@@ -43,11 +43,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         token: true,
         permission: true,
         createdAt: true,
+        expiresAt: true,
         lastAccessAt: true,
       },
     })
+    const now = Date.now()
     return NextResponse.json({
-      shares: shares.map((s) => ({ ...s, url: `/api/share/${s.token}` })),
+      shares: shares
+        .filter((s) => !s.expiresAt || s.expiresAt.getTime() > now)
+        .map((s) => ({ ...s, url: `/api/share/${s.token}` })),
     })
   } catch (e) {
     console.error('share GET error', e)
@@ -59,7 +63,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   try {
     await ensureSchema()
     const token = req.cookies.get('jarumy_session')?.value
-    const session = token ? verifySessionToken(token) : null
+    const session = token ? await verifySessionToken(token) : null
     if (!session) return unauthorized()
 
     const { id } = await params
@@ -75,6 +79,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: 'Permiso inválido (view | edit)' }, { status: 400 })
     }
 
+    // expiración opcional del enlace (días): 0/ausente = sin expiración
+    const expiresInDaysRaw = body && typeof body === 'object' ? (body as { expiresInDays?: unknown }).expiresInDays : undefined
+    const days = Number(expiresInDaysRaw)
+    const expiresAt = Number.isFinite(days) && days > 0 && days <= 365
+      ? new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+      : null
+
     const shareToken = crypto.randomBytes(12).toString('hex') // 24 caracteres hex
     const share = await db.sharedLink.create({
       data: {
@@ -82,14 +93,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         planId: plan.id,
         permission,
         createdBy: session.username,
+        ...(expiresAt ? { expiresAt } : {}),
       },
-      select: { id: true, token: true, permission: true, createdAt: true },
+      select: { id: true, token: true, permission: true, createdAt: true, expiresAt: true },
     })
 
     await logAudit(
       session.username,
       'plano_enlace_creado',
-      `Plano: ${plan.name} — permiso ${permission}`
+      `Plano: ${plan.name} — permiso ${permission}${expiresAt ? ` · expira ${expiresAt.toISOString()}` : ' · sin expiración'}`
     )
     return NextResponse.json(
       { share, token: share.token, url: `/api/share/${share.token}` },
@@ -105,7 +117,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   try {
     await ensureSchema()
     const token = req.cookies.get('jarumy_session')?.value
-    const session = token ? verifySessionToken(token) : null
+    const session = token ? await verifySessionToken(token) : null
     if (!session) return unauthorized()
 
     const { id } = await params

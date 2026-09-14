@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useJarumy } from '@/lib/store'
@@ -8,6 +8,8 @@ import { TOOL_CATEGORIES, TOTAL_TOOLS } from '@/lib/tools-data'
 import { roomAreaM2, PX_PER_M, type RoomGeo, type WallGeo, type DoorGeo, type WindowGeo, type FurnGeo, type InstGeo, type ColGeo } from '@/lib/plan-data'
 import { USAGE_LABELS } from '@/lib/store'
 import { computeBimSchedules, downloadBimWorkbook } from '@/lib/bim-schedules'
+import { computeEnergy, ZONE_CDD } from '@/lib/energy'
+import { computePvReport } from '@/lib/photovoltaic'
 import { ToolIcon } from './ToolIcon'
 
 // ---------------- CUADROS BIM POR CATEGORÍA (datos en vivo) ----------------
@@ -312,46 +314,47 @@ export function CatalogDialog() {
 
 export function EnergyDialog() {
   const s = useJarumy()
-  const alive = s.elements.filter((e) => !s.mods[e.id]?.deleted)
-  const rooms = alive.filter((e) => e.type === 'espacio')
-  const total = rooms.reduce((n, e) => n + roomAreaM2(e.geo as RoomGeo), 0)
-
-  // insumos REALES del modelo: área de vidrio y espesor medio de muros
-  const glassArea = alive.filter((e) => e.type === 'ventana').reduce((n, e) => {
-    const g = e.geo as WindowGeo
-    return n + (g.len / PX_PER_M) * 1.2 * 0.85
-  }, 0)
-  const wallAvgT = (() => {
-    const walls = alive.filter((e) => e.type === 'muro')
-    if (!walls.length) return 0.15
-    const sum = walls.reduce((n, e) => {
-      const g = e.geo as WallGeo
-      return n + (s.mods[e.id]?.thickness ?? g.t) / PX_PER_M
-    }, 0)
-    return sum / walls.length
-  })()
-  const wfr = total > 0 ? (glassArea / total) * 100 : 0 // % vidrio/piso real
-  const uWall = (0.55 / Math.max(0.1, wallAvgT)).toFixed(2) // estimación ladrillo ~0.55 W/mK
+  const [zone, setZone] = useState('2')
+  const open = s.dialog === 'energy'
+  const report = useMemo(() => {
+    if (!open) return null
+    const pv = computePvReport(s.elements, s.mods, s.sun.lat)
+    return computeEnergy(s.elements, s.mods, zone, pv.annualKwh)
+  }, [open, s.elements, s.mods, zone, s.sun.lat])
+  if (!open || !report) return null
 
   const items = [
-    { k: 'Demanda de calefacción', v: `${Math.max(15, 38.2 - wallAvgT * 22).toFixed(1)} kWh/m²·año`, ok: true },
-    { k: 'Demanda de refrigeración', v: '21.7 kWh/m²·año', ok: true },
-    { k: 'Consumo energético estimado', v: `${(total * 0.062).toFixed(1)} kWh/m²·año`, ok: true },
-    { k: `U-value muros (${(wallAvgT * 100).toFixed(0)} cm reales)`, v: `${uWall} W/m²K`, ok: false },
-    { k: 'U-value ventanas (laminado 6+6)', v: '2.86 W/m²K', ok: false },
-    { k: 'Hermeticidad (n50)', v: '3.4 1/h', ok: true },
-    { k: 'Iluminación natural (vidrio/piso real)', v: `${wfr.toFixed(1)} % — ${glassArea.toFixed(1)} m² vidrio`, ok: wfr >= 8 && wfr <= 25 },
-    { k: 'Certificación LEED potencial', v: '64 pts — Gold', ok: true },
+    { k: 'Demanda de calefacción (HDD18 real)', v: `${report.heatingKwhM2a} kWh/m²·año`, ok: report.heatingKwhM2a <= 30 },
+    { k: 'Demanda de refrigeración (CDD+gains)', v: `${report.coolingKwhM2a} kWh/m²·año`, ok: report.coolingKwhM2a <= 35 },
+    { k: 'EUI — uso energético total', v: `${report.euiKwhM2a} kWh/m²·año`, ok: report.euiKwhM2a <= 90 },
+    { k: `U-value muros (${report.wallAreaM2} m² de fachada)`, v: `${report.uWall} W/m²K`, ok: report.uWall <= 1.4 },
+    { k: 'U-value ventanas (mix de vidrios real)', v: `${report.uWindow} W/m²K`, ok: report.uWindow <= 3.3 },
+    { k: `Hermeticidad n50 (fugas reales: ${report.volumeM3} m³)`, v: `${report.n50} 1/h`, ok: report.n50 <= 3 },
+    { k: 'Iluminación natural (vidrio/piso real)', v: `${report.wfrPct} % — ${report.glassAreaM2} m² vidrio`, ok: report.wfrPct >= 8 && report.wfrPct <= 25 },
+    { k: 'Mejora vs línea base E.020', v: `${report.improvementPct >= 0 ? '+' : ''}${report.improvementPct.toFixed(1)} %`, ok: report.improvementPct >= 10 },
+    { k: `LEED v4.1 potencial — ${report.leedMedal}`, v: `${report.leedPoints} pts`, ok: report.leedPoints >= 50 },
   ]
   return (
-    <Dialog open={s.dialog === 'energy'} onOpenChange={(v) => !v && s.setDialog(null)}>
-      <DialogContent className="jy-bg2 jy-text border jy-border max-w-md">
+    <Dialog open={open} onOpenChange={(v) => !v && s.setDialog(null)}>
+      <DialogContent className="jy-bg2 jy-text border jy-border max-w-lg max-h-[85vh] overflow-y-auto jy-scroll">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <ToolIcon name="Zap" className="text-amber-400" size={18} />
-            Análisis energético — Insight / Ladybug
+            Análisis energético — cálculo real del modelo
           </DialogTitle>
         </DialogHeader>
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] font-semibold jy-muted">Zona E.020:</span>
+          {Object.keys(ZONE_CDD).map((z) => (
+            <button key={z} onClick={() => setZone(z)}
+              className={`rounded-lg px-2 py-0.5 text-[11px] font-bold transition-colors ${zone === z ? 'bg-amber-500 text-zinc-950' : 'border jy-border jy-muted hover:jy-text'}`}>
+              Z{z}
+            </button>
+          ))}
+          <span className="text-[10px] jy-muted ml-1">HDD18 {report.hdd18} · CDD18 {report.cdd18} °C·día</span>
+        </div>
+
         <div className="space-y-1.5">
           {items.map((i) => (
             <div key={i.k} className="flex items-center justify-between gap-3 text-[12px] border-b border-white/5 pb-1.5">
@@ -360,10 +363,24 @@ export function EnergyDialog() {
             </div>
           ))}
         </div>
+
+        <div className="rounded-lg border jy-border p-2 space-y-1">
+          <p className="text-[10.5px] font-bold jy-text">Scorecard LEED v4.1 (créditos calculables)</p>
+          {report.leedCredits.map((c) => (
+            <div key={c.name} className="flex items-start justify-between gap-2 text-[10.5px]">
+              <div className="min-w-0">
+                <p className="jy-text leading-tight">{c.name} <span className="jy-muted">· máx {c.max}</span></p>
+                <p className="jy-muted leading-snug">{c.detail}</p>
+              </div>
+              <span className="font-mono font-bold text-amber-300 shrink-0">{c.points} pts</span>
+            </div>
+          ))}
+        </div>
+
         <p className="text-[10px] jy-muted">
-          Simulación sobre {total.toFixed(1)} m² techados · {alive.filter((e) => e.type === 'ventana').length} ventanas
-          ({glassArea.toFixed(1)} m² de vidrio real) · muros de espesor medio {(wallAvgT * 100).toFixed(0)} cm.
-          Se recomienda mejorar U-value de muros con aislante de 25 mm para certificación Gold+.
+          Simulación sobre {report.floorAreaM2} m² techados · {report.volumeM3} m³ · U muros {report.uWall} · U techo {report.uRoof} W/m²K ·
+          refrigeración = transmisión (CDD18 {report.cdd18}) + ganancia solar (SHGC × irradiación vertical de la zona) + cargas internas.
+          {report.notes.map((n, i) => <span key={i} className="block mt-1">{n}</span>)}
         </p>
       </DialogContent>
     </Dialog>

@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { verifySessionToken } from '@/lib/auth'
+import { rateLimit } from '@/lib/rate-limit'
 
 // ============================================================
 // Ola 7 — IA · Generador de plantas esquemáticas desde texto.
 // El modelo devuelve un JSON normado (metros) que se convierte a
 // la geometría real del plano (px, capa correcta, usos RNE).
+// Requiere sesión iniciada + rate-limit por usuario (10/min).
 // ============================================================
 
 export const runtime = 'nodejs'
@@ -55,6 +58,20 @@ const uid = (p: string) => `ia-${p}-${Math.random().toString(36).slice(2, 8)}`
 
 export async function POST(req: NextRequest) {
   try {
+    // ---- autenticación + rate-limit (protege el consumo del SDK) ----
+    const token = req.cookies.get('jarumy_session')?.value
+    const session = token ? await verifySessionToken(token) : null
+    if (!session) {
+      return NextResponse.json({ error: 'Inicie sesión para usar el generador IA' }, { status: 401 })
+    }
+    const rl = await rateLimit(`ai:${session.userId}`, 10, 60_000)
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: `Límite de solicitudes IA alcanzado — espere ${rl.retryAfterS} s` },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterS) } }
+      )
+    }
+
     const { prompt } = await req.json()
     if (!prompt || typeof prompt !== 'string' || prompt.trim().length < 5) {
       return NextResponse.json({ error: 'Describa el proyecto (mínimo 5 caracteres)' }, { status: 400 })

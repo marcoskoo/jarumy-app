@@ -136,8 +136,10 @@ export function AiNormaDialog() {
     setError(null)
     setAnalysis(null)
     try {
-      const rep = checkNormativa(s.elements, s.mods)
-      const rooms = s.elements.filter((e) => e.type === 'espacio' && !s.mods[e.id]?.deleted)
+      // revisión por planta (nivel activo), consistente con el verificador local
+      const levelEls = s.elements.filter((e) => (e.level ?? 0) === s.activeLevel)
+      const rep = checkNormativa(levelEls, s.mods)
+      const rooms = levelEls.filter((e) => e.type === 'espacio' && !s.mods[e.id]?.deleted)
       const stats = {
         ambientes: rooms.map((r) => {
           const g = r.geo as { name: string; w: number; h: number }

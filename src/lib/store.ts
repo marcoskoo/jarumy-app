@@ -1,10 +1,10 @@
 'use client'
 
 import { create } from 'zustand'
-import type { PlanElement, LayerDef, StairGeo, RoofGeo, Phase, DrawGeo, HatchPattern, WallGeo, DoorGeo, WindowGeo, RoomGeo, ColGeo, OpenGeo, TextGeo, FurnGeo, InstGeo } from '@/lib/plan-data'
+import type { PlanElement, LayerDef, StairGeo, RoofGeo, Phase, DrawGeo, HatchPattern, WallGeo, DoorGeo, WindowGeo, RoomGeo, ColGeo, OpenGeo, TextGeo, FurnGeo, InstGeo, LevelDef } from '@/lib/plan-data'
 import {
   BASE_ELEMENTS, LAYERS, BLOCK_LIBRARY, VIEW_W, VIEW_H, WALL_TYPES, PX_PER_M,
-  HATCH_PATTERNS, offsetPolyline, segIntersect, sampleCatmullRom,
+  HATCH_PATTERNS, offsetPolyline, segIntersect, sampleCatmullRom, DEFAULT_LEVELS, levelOf,
 } from '@/lib/plan-data'
 import type { ToolAction } from '@/lib/tools-data'
 import { MATERIAL_COLORS, ROOM_FILLS, LINE_COLORS } from '@/lib/tools-data'
@@ -77,6 +77,7 @@ interface Snapshot {
   elements: PlanElement[]
   mods: Record<string, Mod>
   gridSpacing: number
+  levels?: LevelDef[]
 }
 
 interface JarumyState {
@@ -86,6 +87,9 @@ interface JarumyState {
   layers: LayerDef[]
   gridSpacing: number
   nextId: number
+  // multinivel (Ola 8)
+  levels: LevelDef[]
+  activeLevel: number
   // vista
   zoom: number
   panX: number
@@ -230,6 +234,13 @@ interface JarumyState {
   walkthrough: () => void
   toggleAutosave: () => void
   restoreAutosave: () => boolean
+  // multinivel (Ola 8)
+  setActiveLevel: (id: number) => void
+  addLevel: (name?: string, elev?: number, height?: number) => void
+  updateLevel: (id: number, patch: Partial<Omit<LevelDef, 'id'>>) => void
+  deleteLevel: (id: number) => void
+  duplicateLevel: (id: number) => void
+  moveSelectionToLevel: (levelId: number) => void
 }
 
 // ---------------- utilidades ----------------
@@ -322,6 +333,7 @@ const snapshot = (s: JarumyState): Snapshot => ({
   elements: JSON.parse(JSON.stringify(s.elements)),
   mods: JSON.parse(JSON.stringify(s.mods)),
   gridSpacing: s.gridSpacing,
+  levels: JSON.parse(JSON.stringify(s.levels)),
 })
 
 const clone = (x: unknown) => JSON.parse(JSON.stringify(x))
@@ -362,6 +374,8 @@ export const useJarumy = create<JarumyState>((set, get) => ({
   layers: clone(LAYERS),
   gridSpacing: 60,
   nextId: 1,
+  levels: clone(DEFAULT_LEVELS),
+  activeLevel: 0,
   zoom: 1,
   panX: 0,
   panY: 0,
@@ -571,6 +585,7 @@ export const useJarumy = create<JarumyState>((set, get) => ({
       elements: [...st.elements, {
         id, type: 'imagen', layer: 'referencias',
         name: kind === 'pdf' ? `Underlay PDF: ${name}` : `Underlay imagen: ${name}`,
+        level: st.activeLevel,
         geo,
       }],
       dialog: null,
@@ -651,6 +666,7 @@ export const useJarumy = create<JarumyState>((set, get) => ({
             undoStack: [...st.undoStack.slice(-29), snapshot(st)], redoStack: [],
             elements: [...st.elements, {
               id: uid(), type: 'dibujo', layer: 'dibujo', name: `Hachurado ${pattern.toUpperCase()}`,
+              level: st.activeLevel,
               geo: { kind: 'hatch', pts: [...pts, pts[0]], pattern },
             }],
             drawPts: [],
@@ -679,6 +695,7 @@ export const useJarumy = create<JarumyState>((set, get) => ({
         set((st) => ({
           elements: [...st.elements, {
             id: uid(), type: 'dibujo', layer: 'dibujo', name: `Spline ${pts.length} pts`,
+            level: st.activeLevel,
             geo: { kind: 'spline', pts },
           }],
           drawPts: [],
@@ -688,6 +705,7 @@ export const useJarumy = create<JarumyState>((set, get) => ({
         set((st) => ({
           elements: [...st.elements, {
             id: uid(), type: 'dibujo', layer: 'dibujo', name: 'Nube de control',
+            level: st.activeLevel,
             geo: { kind: 'nube', pts: [...pts, pts[0]] },
           }],
           drawPts: [],
@@ -697,6 +715,7 @@ export const useJarumy = create<JarumyState>((set, get) => ({
         set((st) => ({
           elements: [...st.elements, {
             id: uid(), type: 'dibujo', layer: 'dibujo', name: 'Polilínea',
+            level: st.activeLevel,
             geo: { kind: 'polilinea', pts },
           }],
           drawPts: [],
@@ -706,6 +725,7 @@ export const useJarumy = create<JarumyState>((set, get) => ({
         set((st) => ({
           elements: [...st.elements, {
             id: uid(), type: 'terreno', layer: 'terreno', name: 'Lote',
+            level: st.activeLevel,
             geo: { kind: 'lote', pts },
           }],
           drawPts: [],
@@ -717,6 +737,7 @@ export const useJarumy = create<JarumyState>((set, get) => ({
           elements: [...st.elements, {
             id: uid(), type: 'instalacion', layer: 'instalaciones',
             name: kind === 'agua' ? 'Tubería de agua' : kind === 'desague' ? 'Colector de desagüe' : 'Circuito eléctrico',
+            level: st.activeLevel,
             geo: { kind, pts, diameter: kind === 'electrico' ? 6 : 10 },
           }],
           drawPts: [],
@@ -1581,6 +1602,13 @@ export const useJarumy = create<JarumyState>((set, get) => ({
       case 'showPdfExport':
         set({ dialog: 'pdf' })
         break
+      // ---------- multinivel (Ola 8): acciones directas del ribbon ----------
+      case 'nivelDup':
+        s.duplicateLevel(s.activeLevel)
+        break
+      case 'nivelElim':
+        s.deleteLevel(s.activeLevel)
+        break
       case 'showElevations':
         set({ dialog: 'elevations' })
         break
@@ -1880,13 +1908,13 @@ export const useJarumy = create<JarumyState>((set, get) => ({
         set({ dialog: null })
         import('@/lib/ifc-export').then(({ exportPlanIfc }) => {
           try {
-            const r = exportPlanIfc(s.elements, s.mods)
+            const r = exportPlanIfc(s.elements, s.mods, s.levels)
             const url = URL.createObjectURL(new Blob([r.content], { type: 'application/x-step' }))
             const a = document.createElement('a')
             a.href = url; a.download = r.filename
             document.body.appendChild(a); a.click(); a.remove()
             setTimeout(() => URL.revokeObjectURL(url), 4000)
-            s.pushConsole({ text: `IFC EXPORTADO: ${r.filename} · ${(r.bytes / 1024).toFixed(1)} KB · ${nIfc} objetos como IfcWall/IfcDoor/IfcWindow/IfcColumn/IfcSpace/IfcStair — ábralo en Revit, ArchiCAD, BIMcollab o Solibri (esquema IFC4)`, kind: 'out' })
+            s.pushConsole({ text: `IFC EXPORTADO: ${r.filename} · ${(r.bytes / 1024).toFixed(1)} KB · ${nIfc} objetos en ${s.levels.length} IfcBuildingStorey — ábralo en Revit, ArchiCAD, BIMcollab o Solibri (esquema IFC4)`, kind: 'out' })
           } catch {
             s.pushConsole({ text: 'IFC: error al generar el archivo', kind: 'err' })
           }
@@ -1980,16 +2008,11 @@ export const useJarumy = create<JarumyState>((set, get) => ({
         }
         break
       }
-      // ---------- trazado por lotes real ----------
+      // ---------- trazado por lotes REAL (multi-lámina) ----------
       case 'batchPlot': {
-        const sheets = [
-          'A-01 Planta arquitectónica',
-          'A-02 Elevaciones N/S/E/O (derivadas del modelo)',
-          'A-03 Cortes y detalles',
-        ]
-        s.pushConsole({ text: `TRAZADO POR LOTES: ${sheets.length} láminas en cola — "Plotter A1 Jarumy"`, kind: 'out' })
-        sheets.forEach((sh) => s.pushConsole({ text: `  · ${sh}`, kind: 'out' }))
-        s.pushConsole({ text: 'TRAZADO: use "Exportar PDF a escala" para generar el archivo vectorial con cartela', kind: 'out' })
+        const nSheets = s.levels.length + 6 // índice + plantas + 4 elevaciones + sección
+        s.pushConsole({ text: `TRAZADO POR LOTES: ${nSheets} láminas — índice (A-00) + ${s.levels.length} planta(s) por nivel + 4 elevaciones + sección transversal`, kind: 'out' })
+        s.pushConsole({ text: 'TRAZADO: pulse «Trazar lote completo» en el diálogo para generar el PDF multi-lámina con cartela numerada', kind: 'out' })
         set({ dialog: 'pdf' })
         break
       }
@@ -2044,6 +2067,7 @@ export const useJarumy = create<JarumyState>((set, get) => ({
         type: block.sanitary ? 'sanitario' : 'mobiliario',
         layer: block.sanitary ? 'sanitarios' : 'mobiliario',
         name: block.label,
+        level: st.activeLevel,
         geo: { kind: block.kind, x: x - block.w / 2, y: y - block.h / 2, w: block.w, h: block.h },
       }],
       // rotación acumulada con R durante la inserción
@@ -2058,6 +2082,7 @@ export const useJarumy = create<JarumyState>((set, get) => ({
       elements: [...st.elements, {
         id: uid(), type: 'escalera', layer: 'muros',
         name: `Escalera ${geo.steps} pasos`,
+        level: st.activeLevel,
         geo: { ...geo, x: VIEW_W / 2 - geo.w / 2, y: VIEW_H / 2 - geo.h / 2 },
       }],
       dialog: null,
@@ -2071,6 +2096,7 @@ export const useJarumy = create<JarumyState>((set, get) => ({
       elements: [...st.elements, {
         id: uid(), type: 'techo', layer: 'muros',
         name: geo.kind === 'dos-aguas' ? 'Techo a dos aguas' : geo.kind === 'cuatro-aguas' ? 'Techo a cuatro aguas' : 'Techo plano',
+        level: st.activeLevel,
         geo: { ...geo, x: VIEW_W / 2 - geo.w / 2, y: VIEW_H / 2 - geo.h / 2 },
       }],
       dialog: null,
@@ -2085,6 +2111,7 @@ export const useJarumy = create<JarumyState>((set, get) => ({
       elements: [...st.elements, {
         id: uid(), type: 'pin', layer: 'comentarios',
         name: `Comentario ${n}`,
+        level: st.activeLevel,
         geo: { x, y, text, author: 'J. Burga' },
       }],
     }))
@@ -2197,6 +2224,8 @@ export const useJarumy = create<JarumyState>((set, get) => ({
       elements: data.elements,
       mods: data.mods,
       layers: data.layers,
+      levels: data.levels,
+      activeLevel: data.activeLevel,
       gridSpacing: data.gridSpacing,
       nextId: data.nextId,
       renderQuality: data.renderQuality,
@@ -2227,7 +2256,7 @@ export const useJarumy = create<JarumyState>((set, get) => ({
     const { zoom, panX, panY } = data
     setTimeout(() => useJarumy.setState({ zoom, panX, panY }), 300)
     get().pushConsole({
-      text: `PLANO RESTAURADO del auto-guardado: ${data.elements.length} elementos · ${data.layers.length} capas · guardado ${new Date(data.savedAt).toLocaleString('es-PE')}`,
+      text: `PLANO RESTAURADO del auto-guardado: ${data.elements.length} elementos · ${data.layers.length} capas · ${data.levels.length} nivel(es) · guardado ${new Date(data.savedAt).toLocaleString('es-PE')}`,
       kind: 'out',
     })
     return true
@@ -2354,6 +2383,30 @@ export const useJarumy = create<JarumyState>((set, get) => ({
         if (v) s.runGlobal(String(v).trim() === '50' ? 'scale50' : String(v).trim() === '100' ? 'scale100' : 'scale75')
       },
       'BATCHPLOT': () => s.runGlobal('batchPlot'),
+      // --- multinivel (Ola 8) ---
+      'NIVELES': () => {
+        s.pushConsole({ text: `NIVELES DEL EDIFICIO (${s.levels.length}):`, kind: 'out' })
+        for (const lv of s.levels) {
+          const n = s.elements.filter((e) => !s.mods[e.id]?.deleted && (e.level ?? 0) === lv.id).length
+          const mark = lv.id === s.activeLevel ? ' ← ACTIVO' : ''
+          s.pushConsole({ text: `  · ${lv.name} — cota +${lv.elev.toFixed(2)} m · altura ${lv.height.toFixed(2)} m · ${n} objetos${mark}`, kind: 'out' })
+        }
+        s.pushConsole({ text: 'NIVEL <nombre> para cambiar · NIVELNUEVO <nombre> para crear · NIVELDUP para duplicar el activo', kind: 'out' })
+      },
+      'NIVEL': async () => {
+        const v = await ask('NOMBRE DEL NIVEL ACTIVO (PB · P1 · AZOTEA…):', s.levels.find((l) => l.id === s.activeLevel)?.name || 'PB')
+        if (!v) return
+        const target = s.levels.find((l) => l.name.toUpperCase() === v.trim().toUpperCase())
+        if (target) s.setActiveLevel(target.id)
+        else s.pushConsole({ text: `NIVEL: no existe "${v.trim()}" — use NIVELNUEVO para crearlo`, kind: 'err' })
+      },
+      'NIVELNUEVO': async () => {
+        const v = await ask('NOMBRE DEL NIVEL NUEVO:', `P${s.levels.length}`)
+        if (v === null) return
+        s.addLevel(v.trim() || undefined)
+      },
+      'NIVELDUP': () => s.duplicateLevel(s.activeLevel),
+      'NIVELELIM': () => s.deleteLevel(s.activeLevel),
       'MUROS': () => s.runGlobal('showScheduleMuros'),
       'PUERTAS': () => s.runGlobal('showSchedulePuertas'),
       'VENTANAS': () => s.runGlobal('showScheduleVentanas'),
@@ -2414,6 +2467,7 @@ export const useJarumy = create<JarumyState>((set, get) => ({
     const prev = s.undoStack[s.undoStack.length - 1]
     set({
       elements: prev.elements, mods: prev.mods, gridSpacing: prev.gridSpacing,
+      levels: prev.levels ?? s.levels,
       undoStack: s.undoStack.slice(0, -1),
       redoStack: [...s.redoStack, snapshot(s)],
     })
@@ -2429,6 +2483,7 @@ export const useJarumy = create<JarumyState>((set, get) => ({
     const nxt = s.redoStack[s.redoStack.length - 1]
     set({
       elements: nxt.elements, mods: nxt.mods, gridSpacing: nxt.gridSpacing,
+      levels: nxt.levels ?? s.levels,
       redoStack: s.redoStack.slice(0, -1),
       undoStack: [...s.undoStack, snapshot(s)],
     })
@@ -2438,6 +2493,7 @@ export const useJarumy = create<JarumyState>((set, get) => ({
   newPlan: () => {
     set({
       elements: clone(BASE_ELEMENTS), mods: {}, gridSpacing: 60,
+      levels: clone(DEFAULT_LEVELS), activeLevel: 0,
       undoStack: [], redoStack: [],
     })
     get().pushConsole({ text: 'Plano restablecido a la versión base', kind: 'out' })
@@ -2459,7 +2515,96 @@ export const useJarumy = create<JarumyState>((set, get) => ({
     s.pushConsole({ text: 'RECORRIDO: simulación de walkthrough iniciada…', kind: 'out' })
     step()
   },
+
+  // ---------- multinivel (Ola 8) ----------
+  setActiveLevel: (id) => {
+    const s = get()
+    if (!s.levels.some((l) => l.id === id)) return
+    const lv = s.levels.find((l) => l.id === id)!
+    const count = s.elements.filter((e) => !s.mods[e.id]?.deleted && levelOf(e) === id).length
+    set({ activeLevel: id, selectedIds: [], selectedId: null })
+    s.pushConsole({ text: `NIVEL ACTIVO: ${lv.name} (cota +${lv.elev.toFixed(2)} m · altura ${lv.height.toFixed(2)} m) — ${count} objetos en planta`, kind: 'out' })
+  },
+
+  addLevel: (name, elev, height) => {
+    const s = get()
+    set((st) => ({ undoStack: [...st.undoStack.slice(-29), snapshot(st)], redoStack: [] }))
+    const ids = s.levels.map((l) => l.id)
+    const newId = (ids.length ? Math.max(...ids) : 0) + 1
+    const last = s.levels[s.levels.length - 1]
+    const lv: LevelDef = {
+      id: newId,
+      name: name?.trim() || `P${newId}`,
+      elev: Number.isFinite(elev) ? elev! : (last ? last.elev + last.height : 0) + 0.3,
+      height: Number.isFinite(height) && height! > 1.8 ? height! : 2.5,
+    }
+    set((st) => ({ levels: [...st.levels, lv], activeLevel: lv.id }))
+    s.pushConsole({ text: `NIVEL CREADO: ${lv.name} — cota +${lv.elev.toFixed(2)} m · dibuje la planta de este piso (los objetos existentes permanecen en su nivel)`, kind: 'out' })
+  },
+
+  updateLevel: (id, patch) => {
+    const s = get()
+    if (!s.levels.some((l) => l.id === id)) return
+    set((st) => ({ undoStack: [...st.undoStack.slice(-29), snapshot(st)], redoStack: [] }))
+    set((st) => ({ levels: st.levels.map((l) => (l.id === id ? { ...l, ...patch } : l)) }))
+    const lv = get().levels.find((l) => l.id === id)!
+    s.pushConsole({ text: `NIVEL ACTUALIZADO: ${lv.name} — cota +${lv.elev.toFixed(2)} m · altura ${lv.height.toFixed(2)} m`, kind: 'out' })
+  },
+
+  deleteLevel: (id) => {
+    const s = get()
+    if (id === 0 || !s.levels.some((l) => l.id === id)) {
+      s.pushConsole({ text: 'NIVEL: la planta base (PB) no se puede eliminar', kind: 'err' }); return
+    }
+    const moving = s.elements.filter((e) => levelOf(e) === id)
+    set((st) => ({ undoStack: [...st.undoStack.slice(-29), snapshot(st)], redoStack: [] }))
+    set((st) => ({
+      levels: st.levels.filter((l) => l.id !== id),
+      // los objetos del nivel eliminado se reasignan a PB (0) para no perderlos
+      elements: moving.length ? st.elements.map((e) => (levelOf(e) === id ? { ...e, level: 0 } : e)) : st.elements,
+      activeLevel: st.activeLevel === id ? 0 : st.activeLevel,
+    }))
+    s.pushConsole({ text: `NIVEL ELIMINADO: ${moving.length} objeto(s) reasignado(s) a PB — use Ctrl+Z para revertir`, kind: 'out' })
+  },
+
+  duplicateLevel: (id) => {
+    const s = get()
+    const src = s.levels.find((l) => l.id === id)
+    if (!src) return
+    set((st) => ({ undoStack: [...st.undoStack.slice(-29), snapshot(st)], redoStack: [] }))
+    const ids = s.levels.map((l) => l.id)
+    const newId = (ids.length ? Math.max(...ids) : 0) + 1
+    const lv: LevelDef = {
+      id: newId,
+      name: `${src.name} (copia)`,
+      elev: src.elev + src.height + 0.3,
+      height: src.height,
+    }
+    // duplica muros/puertas/ventanas/espacios/escaleras del nivel fuente
+    const srcEls = s.elements.filter((e) => levelOf(e) === id && !s.mods[e.id]?.deleted
+      && ['muro', 'puerta', 'ventana', 'espacio', 'escalera', 'columna', 'apertura'].includes(e.type))
+    const copies: PlanElement[] = srcEls.map((e) => ({ ...clone(e), id: uid(), level: newId }))
+    set((st) => ({ levels: [...st.levels, lv], elements: [...st.elements, ...copies], activeLevel: newId }))
+    s.pushConsole({ text: `NIVEL DUPLICADO: ${lv.name} — ${copies.length} objetos copiados de ${src.name} (muros, vanos, espacios y estructura)`, kind: 'out' })
+  },
+
+  moveSelectionToLevel: (levelId) => {
+    const s = get()
+    if (!s.levels.some((l) => l.id === levelId)) return
+    const ids = s.selectedIds.length ? s.selectedIds : (s.selectedId ? [s.selectedId] : [])
+    if (!ids.length) { s.pushConsole({ text: 'MOVER A NIVEL: no hay selección activa', kind: 'err' }); return }
+    const lv = s.levels.find((l) => l.id === levelId)!
+    set((st) => ({ undoStack: [...st.undoStack.slice(-29), snapshot(st)], redoStack: [] }))
+    set((st) => ({ elements: st.elements.map((e) => (ids.includes(e.id) ? { ...e, level: levelId } : e)) }))
+    s.pushConsole({ text: `MOVER A NIVEL: ${ids.length} objeto(s) → ${lv.name}`, kind: 'out' })
+  },
 }))
+
+// ---------------- selectores multinivel ----------------
+
+/** Elementos visibles de un nivel (los que se dibujan/anotan en planta). */
+export const elementsOfLevel = (s: { elements: PlanElement[] }, levelId: number): PlanElement[] =>
+  s.elements.filter((e) => levelOf(e) === levelId)
 
 // ---------------- auto-guardado total (suscripción con debounce) ----------------
 // Persiste TODO el plano (documento + ajustes + vista + modos) 0.9 s después
@@ -2472,6 +2617,8 @@ function autosavePayload() {
     elements: st.elements,
     mods: st.mods,
     layers: st.layers,
+    levels: st.levels,
+    activeLevel: st.activeLevel,
     gridSpacing: st.gridSpacing,
     nextId: st.nextId,
     renderQuality: st.renderQuality,
@@ -2526,6 +2673,7 @@ if (typeof window !== 'undefined') {
     if (!st.autosaveOn) return
     // solo reacciona a cambios de datos persistibles (ignora hover/selección/consola)
     const unchanged = st.elements === prev.elements && st.mods === prev.mods && st.layers === prev.layers
+      && st.levels === prev.levels && st.activeLevel === prev.activeLevel
       && st.gridSpacing === prev.gridSpacing && st.nextId === prev.nextId && st.sun === prev.sun
       && st.zoom === prev.zoom && st.panX === prev.panX && st.panY === prev.panY
       && st.renderQuality === prev.renderQuality && st.planScale === prev.planScale && st.units === prev.units

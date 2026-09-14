@@ -11,7 +11,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useJarumy } from '@/lib/store'
-import { PAPERS, PDF_SCALES, fitInfo, exportPlanPdf, DEFAULT_CARTELA, type PaperId, type PdfCartela } from '@/lib/pdf-export'
+import { PAPERS, PDF_SCALES, fitInfo, exportPlanPdf, exportBatchPdf, DEFAULT_CARTELA, type PaperId, type PdfCartela } from '@/lib/pdf-export'
 import { getRegisteredSvg, exportPlanPng, exportPlanSvg } from '@/lib/raster-export'
 import { ToolIcon } from './ToolIcon'
 import { toast } from 'sonner'
@@ -95,6 +95,28 @@ export function ExportPdfDialog() {
     } catch (err) {
       console.error(err)
       toast.error('No se pudo generar el PDF', { description: String(err) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // ---- TRAZADO POR LOTES REAL: índice + planta por nivel + 4 elevaciones + sección ----
+  const doBatchPlot = async () => {
+    setBusy(true)
+    try {
+      const res = await exportBatchPdf(s.elements, s.mods, s.layers, s.levels, {
+        scale: effScale, paper, landscape, includeAutoDims, includeAreas, includeFurniture,
+        includeInstalaciones, title, cartela,
+      })
+      s.pushConsole({ text: `TRAZADO POR LOTES COMPLETO: ${res.filename} — ${res.sheets.length + 1} láminas (índice + ${res.sheets.length}) · ${(res.bytes / 1024).toFixed(1)} KB`, kind: 'out' })
+      res.sheets.forEach((sh) => s.pushConsole({ text: `  · ${sh.lamina} — ${sh.title}`, kind: 'out' }))
+      toast.success(`Lote generado: ${res.sheets.length + 1} láminas`, {
+        description: `${res.filename} · índice + ${s.levels.length} planta(s) + 4 elevaciones + sección · ${(res.bytes / 1024).toFixed(0)} KB`,
+      })
+      s.setDialog(null)
+    } catch (err) {
+      console.error(err)
+      toast.error('No se pudo generar el lote', { description: String(err) })
     } finally {
       setBusy(false)
     }
@@ -235,6 +257,17 @@ export function ExportPdfDialog() {
             >
               <ToolIcon name="FileDown" size={15} />
               {busy ? 'Generando PDF…' : `Exportar PDF a escala 1:${effScale}`}
+            </button>
+
+            {/* trazado por lotes: un PDF con todas las láminas del proyecto */}
+            <button
+              onClick={doBatchPlot}
+              disabled={busy}
+              className="w-full rounded-lg border border-amber-400/50 bg-amber-500/10 px-4 py-2 text-[12px] font-bold text-amber-300 hover:bg-amber-500/15 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              title="Genera UN solo PDF con: índice (A-00) + una lámina de planta por nivel + 4 elevaciones + sección"
+            >
+              <ToolIcon name="Layers" size={14} />
+              {busy ? 'Trazando lote…' : `Trazar lote completo — ${s.levels.length + 6} láminas (BATCHPLOT)`}
             </button>
 
             {/* exportación rápida PNG / SVG del lienzo */}

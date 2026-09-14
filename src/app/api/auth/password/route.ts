@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { verifyPassword, hashPassword, verifySessionToken, validatePasswordPolicy } from '@/lib/auth'
+import { verifyPassword, hashPassword, verifySessionToken, denyAllUserSessions, validatePasswordPolicy } from '@/lib/auth'
 import { getSettings, logAudit } from '@/lib/settings'
 
 export async function POST(req: NextRequest) {
   try {
     const token = req.cookies.get('jarumy_session')?.value
-    const session = token ? verifySessionToken(token) : null
+    const session = token ? await verifySessionToken(token) : null
     if (!session) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
 
     const { currentPassword, newPassword, confirmPassword } = await req.json()
@@ -40,10 +40,12 @@ export async function POST(req: NextRequest) {
 
     await db.user.update({
       where: { id: user.id },
-      data: { passwordHash: hashPassword(String(newPassword)) },
+      data: { passwordHash: hashPassword(String(newPassword)), mustChangePassword: false },
     })
-    await logAudit(user.username, 'cambio_clave_exitoso', 'Contraseña actualizada desde el panel')
-    return NextResponse.json({ ok: true, message: 'Contraseña actualizada correctamente' })
+    // invalida TODAS las sesiones activas de este usuario (tokenEpoch + 1)
+    await denyAllUserSessions(user.id)
+    await logAudit(user.username, 'cambio_clave_exitoso', 'Contraseña actualizada — sesiones previas revocadas')
+    return NextResponse.json({ ok: true, message: 'Contraseña actualizada — inicie sesión nuevamente' })
   } catch (e) {
     console.error('password error', e)
     return NextResponse.json({ error: 'Error interno' }, { status: 500 })
