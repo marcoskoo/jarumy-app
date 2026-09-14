@@ -77,6 +77,8 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
   const [totpDisableCode, setTotpDisableCode] = useState('')
   const [needs2FA, setNeeds2FA] = useState(false)
   const [loginError, setLoginError] = useState('')
+  // pista: la "contraseña" enviada parece un código TOTP de 6 dígitos
+  const [pwLooksOtp, setPwLooksOtp] = useState(false)
   const [logging, setLogging] = useState(false)
   // bloqueo con cuenta regresiva (429 del servidor con retryAfter)
   const [lockMsg, setLockMsg] = useState('')
@@ -237,6 +239,7 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
     e?.preventDefault()
     setLogging(true)
     setLoginError('')
+    setPwLooksOtp(false)
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
@@ -261,12 +264,17 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
         }
       } else if (!res.ok) {
         setLoginError(data.error || 'Error de autenticación')
+        // ¿puso el código del autenticador en el campo Contraseña?
+        // (error típico en el primer login con 2FA: el código se pide
+        // DESPUÉS, en el paso siguiente a usuario y contraseña)
+        setPwLooksOtp(res.status === 401 && /^\d{6}$/.test(String(password || '').trim()))
       } else {
         setUser(data.user)
         setLockMsg('')
         setLockUntil(0)
         setLockLeft(0)
         setLockTotal(0)
+        setPwLooksOtp(false)
         toast.success(`Bienvenido, ${data.user.displayName || data.user.username}`)
         refresh()
       }
@@ -288,6 +296,7 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
     setLockUntil(0)
     setLockLeft(0)
     setLockTotal(0)
+    setPwLooksOtp(false)
     toast.success('Sesión cerrada')
   }
 
@@ -424,6 +433,11 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
                           onClick={() => doLogin(undefined, otp)} disabled={logging}>
                           Verificar código
                         </Button>
+                        <p className="text-[9.5px] jy-muted leading-relaxed">
+                          Escriba el código <b className="jy-text">actual</b> de Google Authenticator (se
+                          renueva cada 30 s). El código se solicita <b className="jy-text">después</b> de
+                          usuario y contraseña.
+                        </p>
                       </div>
                     )}
                     {lockLeft > 0 ? (
@@ -458,7 +472,17 @@ export default function AdminPanel({ onDesignChange }: { onDesignChange: (d: Des
                         </div>
                       </div>
                     ) : loginError ? (
-                      <p className="text-[11px] text-rose-400">{loginError}</p>
+                      <div className="space-y-1">
+                        <p className="text-[11px] text-rose-400">{loginError}</p>
+                        {pwLooksOtp && (
+                          <p className="text-[10px] text-amber-300 leading-relaxed">
+                            Pista: el código de 6 dígitos del autenticador se solicita en el paso
+                            siguiente — verifique que el campo Contraseña contenga su contraseña
+                            (no el código) y que el usuario esté escrito exactamente como siempre
+                            (mayúsculas indiferentes; punto y espacio sí cuentan).
+                          </p>
+                        )}
+                      </div>
                     ) : null}
                     <Button type="submit" className="w-full" disabled={logging || !username || !password}>
                       {logging ? 'Verificando…' : 'Iniciar sesión'}

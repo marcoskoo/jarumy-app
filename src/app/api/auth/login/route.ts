@@ -63,7 +63,9 @@ export async function POST(req: NextRequest) {
           { status: 429, headers: { 'Retry-After': String(lockS) } }
         )
       }
-      return NextResponse.json({ error: 'Credenciales incorrectas' }, { status: 401 })
+      // mensaje explícito: nombra los campos implicados para que no se
+      // confunda con un fallo del código TOTP (que se valida después)
+      return NextResponse.json({ error: 'Usuario o contraseña incorrectos' }, { status: 401 })
     }
 
     // ---------- 2FA REAL (TOTP RFC 6238 — app autenticadora) ----------
