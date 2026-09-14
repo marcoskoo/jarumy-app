@@ -2,9 +2,12 @@
 # ============================================================
 # JARUMY — Despliegue directo a Vercel vía API (sin Git)
 # Sube todos los archivos rastreados por git como despliegue
-# de producción inline (útil si la App de GitHub se desconectó).
+# de producción. Método de dos fases (el del CLI de Vercel):
+#   1) cada archivo → POST /v2/files (bytes + digest SHA-1)
+#   2) despliegue con referencias {file, sha1} (payload mínimo)
+# Así se evita el límite de 10 MB del despliegue inline.
 # ============================================================
-import base64
+import hashlib
 import json
 import os
 import subprocess
@@ -49,25 +52,49 @@ def main() -> int:
         return 1
     print(f'Archivos a subir: {len(paths)}', flush=True)
 
-    # 2) contenido: texto plano; binarios en base64 CON encoding="base64"
-    #    (sin ese campo la API guarda el string literal y corrompe el archivo)
+    # 2) subir cada archivo a /v2/files (bytes crudos + digest SHA-1 en
+    #    cabecera x-vercel-digest; el servidor deduplica por digest)
     files = []
     total = 0
-    n_plain = n_b64 = 0
-    for p in paths:
+    for i, p in enumerate(paths, 1):
         full = f'{ROOT}/{p}'
         with open(full, 'rb') as f:
             raw = f.read()
         total += len(raw)
-        try:
-            files.append({'file': p, 'data': raw.decode('utf-8')})
-            n_plain += 1
-        except UnicodeDecodeError:
-            files.append({'file': p, 'data': base64.b64encode(raw).decode(), 'encoding': 'base64'})
-            n_b64 += 1
-    print(f'Tamaño total: {total / 1024:.1f} KB · texto plano: {n_plain} · base64: {n_b64}', flush=True)
+        digest = hashlib.sha1(raw).hexdigest()
+        ok = False
+        for attempt in (1, 2, 3):
+            req = urllib.request.Request(
+                f'https://api.vercel.com/v2/files?teamSlug={TEAM}',
+                method='POST', data=raw, headers={
+                    'Authorization': f'Bearer {TOKEN}',
+                    'Content-Type': 'application/octet-stream',
+                    'x-vercel-digest': digest,
+                })
+            try:
+                with urllib.request.urlopen(req, timeout=180) as r:
+                    r.read()
+                ok = True
+                break
+            except urllib.error.HTTPError as e:
+                body = e.read()[:200]
+                # 409 = contenido ya subido (dedup) → también válido
+                if e.code == 409:
+                    ok = True
+                    break
+                print(f'  aviso {p}: HTTP {e.code} {body}', flush=True)
+                time.sleep(2 * attempt)
+            except Exception as e:
+                print(f'  aviso {p}: {e}', flush=True)
+                time.sleep(2 * attempt)
+        if not ok:
+            print(f'FALLO subiendo {p} tras 3 intentos', flush=True)
+            return 1
+        files.append({'file': p, 'sha': digest})
+        if i % 25 == 0 or i == len(paths):
+            print(f'  subidos {i}/{len(paths)} · {total / 1024:.0f} KB', flush=True)
 
-    # 3) crear despliegue de producción
+    # 3) crear despliegue de producción (solo referencias — payload mínimo)
     st, d = api('POST', f'/v13/deployments?teamSlug={TEAM}', {
         'name': PROJECT,
         'target': 'production',
