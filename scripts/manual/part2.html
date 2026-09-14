@@ -1,0 +1,391 @@
+<!-- ================= CUERPO ================= -->
+<div class="main-content">
+
+  <!-- ============ CAPÍTULO 1 ============ -->
+  <div class="chapter-header">
+    <div class="ch-tag">Capítulo 01</div>
+    <div class="ch-title">Bienvenida y primeros pasos</div>
+    <div class="ch-divider"></div>
+  </div>
+
+  <p class="body-text lead">
+    <b>Jarumy</b> es una suite de diseño arquitectónico que funciona directamente en el navegador:
+    no hay nada que instalar y su plano viaja con usted entre la oficina, el campo y casa. La
+    aplicación reúne <b>98 herramientas profesionales</b> recopiladas de los mejores programas de
+    arquitectura (AutoCAD, Revit, ArchiCAD, SketchUp, Rhino, Lumion y más) y las unifica en una
+    sola interfaz web moderna, con dibujo asistido, multinivel por plantas, análisis con
+    <b>normativa peruana RNE</b>, visualización 3D, planos en la nube, colaboración en vivo e
+    inteligencia artificial.
+  </p>
+  <p class="body-text">
+    Su característica distintiva es el <b>menú radial contextual</b>: al hacer clic sobre cualquier
+    elemento del plano (muro, puerta, ventana, espacio, mobiliario, cota…) se despliega un círculo
+    de herramientas específicas para ese elemento, cada una con sus propias opciones&nbsp;— rotar,
+    cambiar espesor, voltear el giro de una puerta, ajustar el sombreado, entre muchas otras.
+    Trabajar en Jarumy se parece a trabajar en un CAD de escritorio, pero sin licencias,
+    sin instaladores y con el plano siempre disponible en la nube.
+  </p>
+
+  <h3 class="sub"><span class="n">1.1</span>Requisitos para usar la aplicación</h3>
+  <ul class="def">
+    <li><b>Navegador moderno:</b> Chrome, Edge, Firefox o Safari actualizados. Para los comandos de voz se recomienda Chrome o Edge.</li>
+    <li><b>Conexión a internet:</b> necesaria para iniciar sesión y guardar en la nube. El plano activo se auto-guarda localmente, por lo que puede seguir dibujando sin conexión durante la sesión.</li>
+    <li><b>Cuenta de usuario:</b> el administrador del estudio crea las cuentas con su rol (admin, editor o visor). La aplicación de demostración está disponible en <span class="cmd">jarumy-arq.vercel.app</span>.</li>
+    <li><b>App autenticadora (opcional):</b> Google Authenticator, Authy o similar, solo si el estudio activa el doble factor de seguridad&nbsp;— se explica en el capítulo 2.</li>
+  </ul>
+
+  <h3 class="sub"><span class="n">1.2</span>Abrir la aplicación</h3>
+  <p class="body-text">
+    Ingrese a la dirección de la aplicación en su navegador y espere unos segundos: el plano de
+    demostración (una vivienda de 15 × 10 m con muros, puertas, ventanas y ambientes rotulados)
+    se carga automáticamente junto con toda la interfaz. La primera vez, el navegador descarga
+    los recursos de la aplicación; las visitas siguientes son casi instantáneas porque quedan
+    en caché. Si algún día nota que la interfaz no refleja la última versión, haga una recarga
+    forzosa con <span class="kbd">Ctrl</span> + <span class="kbd">F5</span> (en Mac:
+    <span class="kbd">Cmd</span> + <span class="kbd">Shift</span> + <span class="kbd">R</span>).
+  </p>
+  <p class="body-text">
+    Jarumy también puede instalarse como <b>aplicación de escritorio</b> (PWA): en Chrome o Edge,
+    abra el menú del navegador junto a la barra de direcciones y elija «Instalar Jarumy» o
+    «Crear acceso directo». Tendrá su propio icono, ventana independiente y arranque inmediato,
+    como cualquier programa instalado.
+  </p>
+
+  <div class="callout tip">
+    <span class="ct">Primeros 5 minutos recomendados</span>
+    1) Recorra las pestañas de la cinta superior para conocer las herramientas. 2) Haga clic sobre
+    un muro del plano de demostración y explore el menú radial que aparece. 3) Pruebe la rueda del
+    ratón para acercar y arrastre con el botón central para desplazarse. 4) Escriba
+    <span class="cmd">AYUDA</span> en la consola inferior para ver todos los comandos disponibles.
+  </div>
+
+  <!-- ============ CAPÍTULO 2 ============ -->
+  <div class="chapter-header">
+    <div class="ch-tag">Capítulo 02</div>
+    <div class="ch-title">Acceso y seguridad</div>
+    <div class="ch-divider"></div>
+  </div>
+
+  <p class="body-text">
+    El acceso al área de gestión se realiza desde el botón <b>Panel Admin</b> de la barra superior.
+    Allí inicia sesión con su usuario y contraseña; si su cuenta tiene el doble factor (2FA)
+    activado, el sistema le pedirá además el código de 6 dígitos de su app autenticadora. En este
+    capítulo se explica el flujo completo, incluida la configuración inicial del 2FA con Google
+    Authenticator y el comportamiento del bloqueo temporal de cuenta.
+  </p>
+
+  <h3 class="sub"><span class="n">2.1</span>Iniciar sesión paso a paso</h3>
+  <div class="step-card"><div class="step-num">1</div><div class="step-body">
+    <div class="step-title">Abra el Panel Admin</div>
+    <p class="step-text">Pulse el botón «Panel Admin» en la barra superior derecha de la aplicación. Se abrirá la ventana de acceso con el formulario de credenciales.</p>
+  </div></div>
+  <div class="step-card"><div class="step-num">2</div><div class="step-body">
+    <div class="step-title">Escriba usuario y contraseña</div>
+    <p class="step-text">El usuario debe escribirse exactamente como fue creado&nbsp;— mayúsculas y minúsculas no importan, pero los puntos y espacios sí cuentan (por ejemplo, «J. Burga» lleva punto y espacio). Pulse «Iniciar sesión».</p>
+  </div></div>
+  <div class="step-card"><div class="step-num">3</div><div class="step-body">
+    <div class="step-title">Escriba el código del autenticador (si tiene 2FA)</div>
+    <p class="step-text">Con el 2FA activo, aparece una caja ámbar solicitando el código de 6 dígitos. Ábralo en Google Authenticator y transcriba el código <b>vigente</b> (se renueva cada 30 s). El código se pide <b>después</b> de usuario y contraseña, nunca en su lugar.</p>
+  </div></div>
+  <div class="step-card"><div class="step-num">4</div><div class="step-body">
+    <div class="step-title">Listo: Panel de Administración</div>
+    <p class="step-text">Verá el saludo de bienvenida con su nombre a mostrar y las pestañas de gestión. Su sesión permanece activa según el tiempo configurado por el administrador (por defecto, 30 minutos).</p>
+  </div></div>
+
+  <figure class="figure">
+    <div class="img-wrap"><img src="images/cap-admin-login.png" alt="Ventana de acceso del Panel Admin"></div>
+    <figcaption><b>Figura 1</b>&nbsp;— Ventana de acceso del Panel de Administración: usuario, contraseña y (con 2FA activo) código del autenticador.</figcaption>
+  </figure>
+
+  <div class="flow">
+    <div class="flow-step"><span class="fs-t">Usuario y contraseña</span><span class="fs-d">Se validan contra el servidor</span></div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step"><span class="fs-t">Código 2FA</span><span class="fs-d">6 dígitos, vence cada 30 s</span></div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step"><span class="fs-t">Panel de Administración</span><span class="fs-d">Sesión con expiración automática</span></div>
+  </div>
+
+  <div class="callout warn">
+    <span class="ct">Si ve «Usuario o contraseña incorrectos»</span>
+    Ese mensaje indica que el usuario o la clave no coinciden&nbsp;— <b>no</b> que su código de
+    autenticador falle (ese paso viene después y tiene su propio mensaje). Revide: (a) que el
+    usuario esté escrito exactamente (punto y espacio incluidos), (b) que el campo Contraseña
+    contenga su contraseña y no el código de 6 dígitos. Tras 5 intentos fallidos la cuenta se
+    bloquea temporalmente y se muestra una cuenta regresiva.
+  </div>
+
+  <h3 class="sub"><span class="n">2.2</span>Activar el doble factor (2FA) con Google Authenticator</h3>
+  <p class="body-text">
+    El 2FA protege su cuenta con un segundo factor: además de la contraseña, un código que solo
+    genera su teléfono. Jarumy implementa el estándar <b>TOTP (RFC 6238)</b>, el mismo que usan
+    Google Authenticator, Authy, 1Password y Microsoft Authenticator&nbsp;— cualquier de ellas sirve.
+    La activación se hace una sola vez y toma menos de dos minutos.
+  </p>
+  <div class="step-card"><div class="step-num">1</div><div class="step-body">
+    <div class="step-title">Entre al Panel Admin y abra «Seguridad»</div>
+    <p class="step-text">Tras iniciar sesión, vaya a la pestaña Seguridad (o a «Cuenta y clave»). Localice la casilla «Autenticación en dos factores (2FA)»&nbsp;— al activarla se genera el secreto y aparece el código QR.</p>
+  </div></div>
+  <div class="step-card"><div class="step-num">2</div><div class="step-body">
+    <div class="step-title">Escanee el QR con su autenticadora</div>
+    <p class="step-text">En Google Authenticator: botón «+» → «Escanear un código QR» → apunte al QR mostrado por Jarumy. Aparecerá una entrada «Jarumy» con un código de 6 dígitos que se renueva cada 30 segundos.</p>
+  </div></div>
+  <div class="step-card"><div class="step-num">3</div><div class="step-body">
+    <div class="step-title">Compruebe que los códigos coinciden</div>
+    <p class="step-text">Junto al QR, Jarumy muestra el «Autenticador Jarumy» con el código en vivo que genera el servidor. Debe ser <b>idéntico</b> al de Google Authenticator&nbsp;— ambos cuentan con el mismo algoritmo. Si difieren, verifique el reloj de su teléfono.</p>
+  </div></div>
+  <div class="step-card"><div class="step-num">4</div><div class="step-body">
+    <div class="step-title">Confirme con el código vigente</div>
+    <p class="step-text">Escriba el código actual de 6 dígitos y pulse Confirmar. El 2FA queda activo: desde ahora el login exigirá el código. Como respaldo, la pantalla también muestra la clave manual por si necesitara re-configurar sin QR.</p>
+  </div></div>
+
+  <figure class="figure">
+    <div class="img-wrap"><img src="images/cap-2fa-qr.png" alt="Configuración 2FA con código QR"></div>
+    <figcaption><b>Figura 2</b>&nbsp;— Activación del 2FA: QR escaneable para Google Authenticator, clave manual, código en vivo para comprobar el match y botón de confirmación.</figcaption>
+  </figure>
+
+  <div class="callout tip">
+    <span class="ct">¿Perdió el teléfono con el autenticador?</span>
+    No pierde el acceso al estudio: el administrador puede restablecer el 2FA de cualquier
+    usuario desde la pestaña Usuarios del Panel Admin (botón «Restablecer 2FA»). El usuario
+    vuelve a entrar solo con su contraseña y puede re-emparejar un teléfono nuevo escaneando
+    un QR reciente.
+  </div>
+
+  <h3 class="sub"><span class="n">2.3</span>Bloqueo temporal de cuenta</h3>
+  <p class="body-text">
+    Como protección contra intentos de fuerza bruta, tras cinco intentos fallidos de inicio de
+    sesión la cuenta se bloquea durante cinco minutos (valores configurables por el administrador).
+    Durante ese lapso, la ventana de acceso muestra un anillo de progreso con la <b>cuenta
+    regresiva exacta</b>&nbsp;— por ejemplo <span class="cmd">4:37</span>&nbsp;— que disminuye segundo a
+    segundo y se recalibra con el reloj del servidor si se reintenta antes de tiempo. Al llegar a
+    cero, un aviso le indica que ya puede volver a intentar. El bloqueo se aplica igual por
+    contraseña o por códigos de autenticador incorrectos.
+  </p>
+
+  <h3 class="sub"><span class="n">2.4</span>Roles de usuario</h3>
+  <p class="body-text">
+    Cada cuenta tiene un rol que define sus permisos, aplicado por el servidor en cada operación.
+    Esta separación permite repartir responsabilidades dentro del estudio con garantías reales:
+    un visor no puede guardar planos aunque manipule la interfaz, porque la API lo rechaza.
+  </p>
+  <div class="card-grid">
+    <div class="card"><div class="card-h">Admin</div><p>Control total: gestiona usuarios y roles, ajustes de seguridad y diseño, auditoría, y además dibuja y analiza como un editor.</p></div>
+    <div class="card"><div class="card-h">Editor</div><p>Crea y edita sus propios planos, ejecuta análisis y exportaciones. No gestiona usuarios ni configuración del estudio.</p></div>
+    <div class="card"><div class="card-h">Visor</div><p>Solo lectura: consulta planos, análisis y exportaciones que otros compartan. No puede guardar cambios ni crear enlaces.</p></div>
+  </div>
+
+  <!-- ============ CAPÍTULO 3 ============ -->
+  <div class="chapter-header">
+    <div class="ch-tag">Capítulo 03</div>
+    <div class="ch-title">El espacio de trabajo</div>
+    <div class="ch-divider"></div>
+  </div>
+
+  <p class="body-text">
+    La interfaz de Jarumy sigue la lógica de un CAD profesional, organizada en siete zonas.
+    El siguiente esquema muestra su disposición; la Figura 4 presenta la aplicación real con
+    el plano de demostración cargado, donde podrá identificar cada una.
+  </p>
+
+  <div class="zone-map">
+    <div class="zm-bar">
+      <div class="zm-tab on">Inicio</div><div class="zm-tab">Dibujo</div><div class="zm-tab">Modificación</div>
+      <div class="zm-tab">Anotación</div><div class="zm-tab">Arquitectura</div><div class="zm-tab">Bloques</div>
+      <div class="zm-tab">Instalaciones</div><div class="zm-tab">BIM</div><div class="zm-tab">Visualización</div>
+      <div class="zm-tab">Análisis</div><div class="zm-tab">Productividad</div>
+    </div>
+    <div class="zm-mid">
+      <div class="zm-side"></div>
+      <div class="zm-canvas">
+        <div class="zm-lev">PB&nbsp;· Niveles</div>
+        <div class="zm-quick"><span class="zm-q">3D</span><span class="zm-q">Elevaciones</span><span class="zm-q">PDF</span><span class="zm-q">Panel Admin</span></div>
+        <div class="zm-wall" style="left:18%;top:22%;width:64%;height:4px"></div>
+        <div class="zm-wall" style="left:18%;top:22%;width:4px;height:56%"></div>
+        <div class="zm-wall" style="left:18%;top:74%;width:64%;height:4px"></div>
+        <div class="zm-wall" style="left:78%;top:22%;width:4px;height:56%"></div>
+        <div class="zm-wall" style="left:44%;top:22%;width:4px;height:34%"></div>
+        <div class="zm-badge" style="left:45%;top:42%">3</div>
+      </div>
+      <div class="zm-side"></div>
+    </div>
+    <div class="zm-console">Comando: escriba un comando… (AYUDA)&nbsp;· REJILLA&nbsp;· SNAP&nbsp;· OSNAP&nbsp;· ORTO&nbsp;· RADIAL&nbsp;· RENDER</div>
+    <div class="zm-badge" style="position:relative;display:inline-flex;margin:6px 2px 0 2px">1</div>
+    <span style="font-size:10px;color:#5c5346;font-weight:700;vertical-align:middle"> Cinta de herramientas</span>
+    <div class="zm-badge" style="position:relative;display:inline-flex;margin:6px 2px 0 14px">2</div>
+    <span style="font-size:10px;color:#5c5346;font-weight:700;vertical-align:middle"> Paneles laterales</span>
+    <div class="zm-badge" style="position:relative;display:inline-flex;margin:6px 2px 0 14px">3</div>
+    <span style="font-size:10px;color:#5c5346;font-weight:700;vertical-align:middle"> Lienzo con el plano</span>
+    <div class="zm-badge" style="position:relative;display:inline-flex;margin:6px 2px 0 14px">4</div>
+    <span style="font-size:10px;color:#5c5346;font-weight:700;vertical-align:middle"> Selector de niveles</span>
+    <div class="zm-badge" style="position:relative;display:inline-flex;margin:6px 2px 0 14px">5</div>
+    <span style="font-size:10px;color:#5c5346;font-weight:700;vertical-align:middle"> Accesos rápidos</span>
+    <div class="zm-badge" style="position:relative;display:inline-flex;margin:6px 2px 0 14px">6</div>
+    <span style="font-size:10px;color:#5c5346;font-weight:700;vertical-align:middle"> Consola y barra de estado</span>
+  </div>
+
+  <ul class="def">
+    <li><b>Cinta de herramientas (1):</b> once pestañas que agrupan las 98 herramientas&nbsp;— Inicio (13), Dibujo (9), Modificación (15), Anotación (10), Arquitectura (9), Bloques (6), Instalaciones (5), BIM (6), Visualización (7), Análisis (11) y Productividad (8). Muchas herramientas despliegan un menú de opciones adicionales.</li>
+    <li><b>Paneles laterales (2):</b> a la izquierda, capas y biblioteca de bloques (mobiliario, sanitarios, vegetación); a la derecha, el panel de propiedades del elemento seleccionado&nbsp;— espesor de muro, tipo de ventana, giro de puerta, capa, material.</li>
+    <li><b>Lienzo (3):</b> el plano vectorial con zoom a cursor (rueda), paneo (arrastre del botón central), rejilla métrica, rosa de los vientos y escala gráfica.</li>
+    <li><b>Selector de niveles (4):</b> control flotante para crear, duplicar y cambiar de planta (véase el capítulo 5).</li>
+    <li><b>Accesos rápidos (5):</b> botones directos a 3D, Elevaciones, PDF a escala, Bloques, Heliodón, Catálogo, Cuadro BIM y Panel Admin.</li>
+    <li><b>Consola y barra de estado (6):</b> línea de comandos estilo AutoCAD con micrófono de voz, y toggles REJILLA&nbsp;· SNAP&nbsp;· OSNAP&nbsp;· ORTO&nbsp;· RADIAL&nbsp;· RENDER.</li>
+  </ul>
+
+  <figure class="figure">
+    <div class="img-wrap"><img src="images/cap-interfaz.png" alt="Interfaz completa de Jarumy"></div>
+    <figcaption><b>Figura 3</b>&nbsp;— La interfaz completa con el plano de demostración: cinta superior, paneles laterales, lienzo central, selector de niveles flotante y consola de comandos inferior.</figcaption>
+  </figure>
+
+  <h3 class="sub"><span class="n">3.1</span>El menú radial contextual</h3>
+  <p class="body-text">
+    La forma más rápida de editar es el menú radial: <b>haga clic sobre cualquier elemento del
+    plano</b> y alrededor del cursor se desplegará un círculo con seis herramientas específicas
+    para ese tipo de objeto y un centro que lo identifica. Al escoger una herramienta se abre su
+    panel de subopciones. Por ejemplo, sobre un muro encontrará modificar su espesor, rotarlo,
+    cambiar material o sombreado; sobre una puerta, voltear el giro o cambiar de bisagra; sobre
+    una cota, sobrescribir el valor o ajustar la precisión. El menú permanece abierto hasta que
+    lo cierre con <span class="kbd">ESC</span> o un clic fuera.
+  </p>
+
+  <figure class="figure">
+    <div class="img-wrap"><img src="images/cap-radial.png" alt="Menú radial contextual sobre un muro"></div>
+    <figcaption><b>Figura 4</b>&nbsp;— El menú radial abierto sobre un muro: seis herramientas contextuales en círculo con el hub central que identifica el elemento (Muro) y su resumen.</figcaption>
+  </figure>
+
+  <h3 class="sub"><span class="n">3.2</span>Ayudas de dibujo: rejilla, snap, orto y osnap</h3>
+  <p class="body-text">
+    Los cuatro toggles de la barra de estado controlan la precisión. <b>REJILLA</b> muestra la
+    malla de referencia (por defecto de 1 m). <b>SNAP</b> obliga al cursor a saltar sobre los
+    puntos de la rejilla. <b>ORTO</b> restringe el trazado a líneas horizontales y verticales
+    perfectas. <b>OSNAP</b>&nbsp;— el imán de referencia profesional&nbsp;— activa la captura de extremos,
+    puntos medios, centros, cuadrantes e intersecciones con glifos en vivo sobre el lienzo,
+    iguales a los de AutoCAD. Se encienden y apagan con un clic o con <span class="kbd">F9</span>,
+    <span class="kbd">F3</span> y <span class="kbd">F8</span> respectivamente.
+  </p>
+
+  <!-- ============ CAPÍTULO 4 ============ -->
+  <div class="chapter-header">
+    <div class="ch-tag">Capítulo 04</div>
+    <div class="ch-title">Dibujar paso a paso</div>
+    <div class="ch-divider"></div>
+  </div>
+
+  <p class="body-text">
+    Este capítulo guía la creación de una <b>vivienda pequeña de 8 × 6 m</b> desde el plano en
+    blanco hasta las cotas finales. El mismo procedimiento sirve para proyectos de cualquier
+    escala. Recuerde: <span class="kbd">Ctrl</span> + <span class="kbd">Z</span> deshace,
+    <span class="kbd">Ctrl</span> + <span class="kbd">Y</span> rehace, y el auto-guardado local
+    protege su avance en todo momento.
+  </p>
+
+  <h3 class="sub"><span class="n">4.1</span>Paso 1&nbsp;— Preparar el lienzo</h3>
+  <p class="body-text">
+    Desde la pestaña Inicio elija «Nuevo plano» → «Plano de plantas» para partir de la plantilla
+    con cajetín y escalas, o «Lámina en blanco» si prefiere empezar de cero. Active
+    <b>ORTO</b> y <b>OSNAP</b> en la barra de estado: con ellos, los muros quedarán perfectamente
+    rectos y enlazados entre sí. La rejilla de 1 m le servirá de guía visual para dimensionar
+    sin contar píxeles.
+  </p>
+
+  <h3 class="sub"><span class="n">4.2</span>Paso 2&nbsp;— Trazar los muros</h3>
+  <p class="body-text">
+    En la pestaña Arquitectura seleccione la herramienta <b>Muro</b>. El cursor se convierte en
+    un lápiz: haga clic en el punto de inicio, mueva&nbsp;— verá la línea elástica y la longitud en
+    vivo&nbsp;— y vuelva a hacer clic para fijar el tramo. Trace el rectángulo perimetral de
+    8 × 6 m en cuatro movimientos: 8 m hacia la derecha, 6 hacia abajo, 8 a la izquierda y 6
+    arriba; con ORTO activado es imposible desviarse. Con OSNAP, el último muro se engancha
+    exactamente al punto inicial. El espesor por defecto es de 0.15 m y puede cambiarse para
+    cada muro desde el menú radial o el panel de propiedades.
+  </p>
+
+  <figure class="figure">
+    <div class="img-wrap"><img src="images/cap-ribbon-dibujo.png" alt="Pestaña Dibujo de la cinta"></div>
+    <figcaption><b>Figura 5</b>&nbsp;— La pestaña Dibujo de la cinta con las herramientas de trazado: línea, polilínea, círculo, arco, rectángulo y más. Arquitectura añade muros, puertas y ventanas.</figcaption>
+  </figure>
+
+  <h3 class="sub"><span class="n">4.3</span>Paso 3&nbsp;— Puertas y ventanas</h3>
+  <p class="body-text">
+    Con la herramienta <b>Puerta</b> de la pestaña Arquitectura, acerque el cursor a un muro:
+    la puerta se previsualiza insertada en él y muestra su arco de giro. Haga clic para
+    colocarla; si el sentido no le convence, no la borre&nbsp;— ábrale el menú radial y use
+    «Voltear giro» o «Cambiar bisagra». Coloque la puerta principal de 0.90 m en el frente y
+    las interiores de 0.75 m. Las <b>ventanas</b> se insertan de la misma manera: la de la sala
+    de 1.50 × 1.10 m para cumplir holgadamente la iluminación de A.010, y la del dormitorio de
+    1.20 × 1.10 m. Todas aceptan cambiar tipo, antepecho y dimensiones desde su menú radial.
+  </p>
+
+  <h3 class="sub"><span class="n">4.4</span>Paso 4&nbsp;— Espacios con áreas automáticas</h3>
+  <p class="body-text">
+    La herramienta <b>Espacio</b> rotula los ambientes y calcula su área al instante. Haga clic
+    dentro del recinto y escriba el nombre&nbsp;— «SALA», «DORMITORIO», «BAÑO» —: la etiqueta muestra
+    el nombre y el área en m², y se actualiza sola si luego mueve un muro. La vivienda del
+    ejemplo queda con sala-comedor de 16 m², dormitorio de 11 m² y baño de 3.5 m². El
+    <b>Cuadro BIM</b> (botón de la barra superior o comando <span class="cmd">CUADRO</span>)
+    consolida todos los espacios con sus áreas y permite exportarlos a Excel.
+  </p>
+
+  <h3 class="sub"><span class="n">4.5</span>Paso 5&nbsp;— Mobiliario y bloques</h3>
+  <p class="body-text">
+    Abra la <b>biblioteca de bloques</b> del panel izquierdo: camas, sofás, mesas, inodoros,
+    lavatorios, duchas, cocinas, vegetación y más, listos para arrastrar al plano. Los bloques
+    se insertan a escala real (una cama de plaza y media mide 1.40 × 1.90 m) y pueden rotarse
+    con su menú radial o con <span class="cmd">ROT</span>. Distribuya el mobiliario esencial:
+    cama en el dormitorio, sofá y mesa en la sala, inodoro y ducha en el baño&nbsp;— este paso
+    también prepara el terreno para el análisis de accesibilidad del capítulo 6.
+  </p>
+
+  <h3 class="sub"><span class="n">4.6</span>Paso 6&nbsp;— Cotas y textos</h3>
+  <p class="body-text">
+    Pase a la pestaña Anotación y elija <b>Cota</b>: haga clic en dos puntos y la cota lineal
+    aparece con el valor real medido en el modelo&nbsp;— acote el frente (8.00 m) y el lateral
+    (6.00 m), y el detalle de vanos. Las cotas se actualizan al mover los elementos y admiten
+    sobrescribir el texto desde su menú radial. Complete con la herramienta <b>Texto</b> para
+    notas como «COTA +0.15 NPT» o rótulos de acabados; su altura se ajusta desde el panel de
+    propiedades.
+  </p>
+
+  <div class="callout tip">
+    <span class="ct">Selección múltiple y edición grupal</span>
+    Arrastre una ventana (marquee) alrededor de varios elementos para seleccionarlos juntos, o
+    añada con <span class="kbd">Ctrl</span> + clic. Después muévalos, rote, copie o borre el
+    conjunto de una sola vez. <span class="cmd">TODOSEL</span> (o <span class="kbd">Ctrl</span> +
+    <span class="kbd">A</span>) selecciona todo el plano, útil para desplazar el dibujo completo
+    dentro de la lámina.
+  </div>
+
+  <!-- ============ CAPÍTULO 5 ============ -->
+  <div class="chapter-header">
+    <div class="ch-tag">Capítulo 05</div>
+    <div class="ch-title">Trabajar por niveles</div>
+    <div class="ch-divider"></div>
+  </div>
+
+  <p class="body-text">
+    Jarumy es multinivel: cada elemento del plano pertenece a una planta (PB, P1, P2, azotea…) y
+    el lienzo muestra únicamente la planta activa. Esto evita el clásico desorden de dibujar dos
+    pisos superpuestos y permite que los análisis, el 3D y las exportaciones respeten la
+    estructura real del edificio.
+  </p>
+
+  <h3 class="sub"><span class="n">5.1</span>Crear y gestionar plantas</h3>
+  <p class="body-text">
+    El <b>selector de niveles</b> flota sobre el lienzo (arriba a la izquierda) y muestra la
+    planta activa con su cota. Desde él puede crear un nivel nuevo con su altura real&nbsp;— por
+    ejemplo P1 a <b>+2.80 m</b> —, duplicar una planta completa con todo su contenido (útil para
+    repetir tipologías de departamentos) o eliminarla. Los comandos equivalentes son
+    <span class="cmd">NIVELNUEVO</span>, <span class="cmd">NIVELDUP</span> y
+    <span class="cmd">NIVELELIM</span>; <span class="cmd">NIVELES</span> lista todos con sus cotas.
+    Al cambiar de planta, el lienzo se filtra al instante: lo dibujado en P1 no interfiere con PB.
+  </p>
+
+  <h3 class="sub"><span class="n">5.2</span>Análisis y exportación por planta</h3>
+  <p class="body-text">
+    Todos los análisis del capítulo 6 operan sobre la planta activa: revise evacuación y
+    accesibilidad de cada piso por separado con un clic en el selector. La exportación
+    <b>IFC</b> genera un <span class="cmd">IfcBuildingStorey</span> por nivel con su elevación
+    real&nbsp;— al abrir el archivo en Revit o ArchiCAD, cada planta aparece en su sitio. Y el
+    <b>trazado por lotes</b> (<span class="cmd">BATCHPLOT</span>) produce un único PDF con índice
+    A-00, una lámina por cada planta, las cuatro elevaciones y una sección transversal: el juego
+    completo de láminas del proyecto en un solo paso.
+  </p>

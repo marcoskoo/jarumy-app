@@ -1,0 +1,222 @@
+  <!-- ============ CAPÍTULO 6 ============ -->
+  <div class="chapter-header">
+    <div class="ch-tag">Capítulo 06</div>
+    <div class="ch-title">Análisis normativo RNE</div>
+    <div class="ch-divider"></div>
+  </div>
+
+  <p class="body-text">
+    Jarumy calcula el cumplimiento del plano contra el <b>Reglamento Nacional de Edificaciones
+    del Perú</b> en once módulos de análisis. No se trata de listas de verificación estáticas:
+    cada verificación mide la geometría real de su modelo&nbsp;— áreas, recorridos, anchos, alturas —
+    y emite un resultado con los valores exactos. Ejecute el análisis general con el botón de la
+    pestaña Análisis o el comando <span class="cmd">NORMATIVA</span>.
+  </p>
+
+  <figure class="figure">
+    <div class="img-wrap"><img src="images/cap-normativa.png" alt="Diálogo de análisis normativo RNE"></div>
+    <figcaption><b>Figura 6</b>&nbsp;— El análisis normativo en acción: verificaciones A.010/A.130 con valores medidos del modelo, estados de cumplimiento y detalle de cada check.</figcaption>
+  </figure>
+
+  <h3 class="sub"><span class="n">6.1</span>Módulos de análisis disponibles</h3>
+  <table class="data">
+    <thead><tr><th style="width:32%">Módulo</th><th>Norma</th><th>Qué verifica con el modelo</th></tr></thead>
+    <tbody>
+      <tr><td>Normativa general</td><td>RNE A.010</td><td>Áreas mínimas y lados mínimos de ambientes (sala 9 m², dormitorio 9 m², baño 3 m²…), iluminación y ventilación por vanos.</td></tr>
+      <tr><td>Evacuación</td><td>RNE A.130</td><td>Recorrido máximo a salida (≤ 25 m en vivienda), cantidad y ancho de salidas según aforo, rutas dibujadas sobre el plano.</td></tr>
+      <tr><td>Accesibilidad</td><td>RNE A.010 / A.050</td><td>Vanos de puertas, anchos de paso y radios de giro de silla de ruedas en los espacios.</td></tr>
+      <tr><td>Térmica</td><td>RNE E.020</td><td>Transmitancia U máxima según zona climática, riesgo de condensación por el método de Glaser con los ensamblajes reales.</td></tr>
+      <tr><td>Energía + LEED</td><td>E.020 / LEED v4.1</td><td>Refrigeración por CDD de la zona, ganancia solar SHGC del vidrio, calefacción HDD18, infiltración n50 y scorecard LEED dinámico con mejora % contra la línea base.</td></tr>
+      <tr><td>Fotovoltaico</td><td>No aplica</td><td>Potencial solar del techo: kWp instalables, kWh/año estimados y período de retorno.</td></tr>
+      <tr><td>Estructural y colisiones</td><td>No aplica</td><td>Detección de solapes entre elementos (muro-muro, muro-columna) y verificaciones geométricas del esqueleto.</td></tr>
+    </tbody>
+  </table>
+
+  <h3 class="sub"><span class="n">6.2</span>Ejemplo: interpretar los resultados</h3>
+  <p class="body-text">
+    Retome la vivienda del capítulo 4 y ejecute <span class="cmd">NORMATIVA</span>. Cada
+    verificación aparece con su estado: cumplimiento, advertencia o incumplimiento, junto con el
+    valor medido. Suponga que el baño quedó en 2.8 m²: el módulo A.010 lo marcará en rojo con
+    «ÁREA MÍNIMA: 3.00 m²&nbsp;— MEDIDO: 2.80 m²». La corrección es inmediata: mueva el muro 0.10 m
+    con la selección activa, el espacio recalcula su área y el análisis pasa a verde al
+    re-ejecutarlo. En evacuación, el check «RECORRIDO MÁX. ≤ 25 m VIVIENDA» mide la ruta desde
+    el punto más lejano del dormitorio hasta la puerta principal; si su vivienda creciera a un
+    corredor excesivo, el propio check le indica cuántos metros exceden.
+  </p>
+  <p class="body-text">
+    Para profundizar, el <b>Revisor IA de Normativa</b> (capítulo 10) lee estos mismos checks y
+    propone correcciones dimensionadas&nbsp;— por ejemplo, «amplíe el vano del dormitorio a 1.20 m
+    para alcanzar la relación mínima de iluminación».
+  </p>
+
+  <div class="callout tip">
+    <span class="ct">Análisis por planta</span>
+    Los módulos operan sobre la planta activa del selector de niveles. En un edificio de dos
+    pisos, revise evacuación y accesibilidad en PB y en P1 por separado: los recorridos y las
+    salidas de cada nivel se evalúan de forma independiente, tal como exige la norma.
+  </div>
+
+  <!-- ============ CAPÍTULO 7 ============ -->
+  <div class="chapter-header">
+    <div class="ch-tag">Capítulo 07</div>
+    <div class="ch-title">Visualización y 3D</div>
+    <div class="ch-divider"></div>
+  </div>
+
+  <p class="body-text">
+    Ver el proyecto en tres dimensiones detecta errores de proporción, mejora las presentaciones
+    al cliente y permite estudiar la luz natural. Jarumy ofrece tres modos complementarios, todos
+    accesibles desde la pestaña Visualización y los accesos rápidos de la barra superior.
+  </p>
+
+  <h3 class="sub"><span class="n">7.1</span>Axonometría orbital con sol real</h3>
+  <p class="body-text">
+    El botón <b>3D</b> genera la vista isométrica del edificio a partir de las plantas: muros
+    extruidos con su altura real, ventanas y puertas abiertas en sus vanos, y techo si lo ha
+    dibujado. La cámara orbita con el ratón y cada cara se sombrea según la <b>posición real
+    del sol</b> tomada del heliodón&nbsp;— latitud, fecha y hora configurables. Active el modo
+    <b>RENDER</b> para añadir cielo y ambiente (modo ultra) y capturar imágenes de presentación.
+    El sombreado solar no es decorativo: girando la hora del heliodón verá literalmente qué
+    muro recibe sol a las 9:00 y cuál queda en sombra a las 16:00, información valiosa para
+    decidir reflejos en vidriados o aleros.
+  </p>
+
+  <figure class="figure">
+    <div class="img-wrap"><img src="images/cap-3d.png" alt="Vista 3D isométrica del plano"></div>
+    <figcaption><b>Figura 7</b>&nbsp;— Vista 3D isométrica generada desde la planta: extrusión real de muros, vanos y entorno, con iluminación calculada según la posición del sol del heliodón.</figcaption>
+  </figure>
+
+  <h3 class="sub"><span class="n">7.2</span>Recorrido en primera persona</h3>
+  <p class="body-text">
+    El comando <span class="cmd">RECORRIDO</span> (o <span class="cmd">WALKTHROUGH</span>) le
+    «coloca dentro» del edificio: la cámara adopta la altura de ojos de 1.60 m y se mueve con
+    las teclas <span class="kbd">W</span> <span class="kbd">A</span> <span class="kbd">S</span>
+    <span class="kbd">D</span> respetando la <b>colisión con los muros</b>&nbsp;— no puede atravesar
+    una pared, exactamente como un visitante real. Use este modo para comprobar la sensación
+    espacial de los ambientes, la relación visual entre sala y cocina, o para descubrir si un
+    vano quedó demasiado bajo antes de imprimir una sola lámina.
+  </p>
+
+  <h3 class="sub"><span class="n">7.3</span>Elevaciones y heliodón</h3>
+  <p class="body-text">
+    El botón <b>Elevaciones</b> dibuja las cuatro fachadas del edificio (frontal, posterior y
+    laterales) con sus vanos y sombreados, listas para incluir en el lote de láminas del
+    capítulo 9. El <b>Heliodón</b> configura la geometría solar: elija ciudad o latitud, fecha
+    y hora, y la rosa solar resultante alimenta tanto el sombreado del 3D como los estudios de
+    asoleamiento del lote&nbsp;— la base para decisiones de diseño pasivo.
+  </p>
+
+  <!-- ============ CAPÍTULO 8 ============ -->
+  <div class="chapter-header">
+    <div class="ch-tag">Capítulo 08</div>
+    <div class="ch-title">Guardar, nube y versiones</div>
+    <div class="ch-divider"></div>
+  </div>
+
+  <p class="body-text">
+    Jarumy protege su trabajo en tres capas: el <b>auto-guardado local</b> dentro del navegador
+    (invisible y constante), el guardado con <b>versiones</b> en la nube del estudio, y los
+    <b>enlaces para compartir</b> con permisos y expiración. Comprender las tres evita sustos y
+    ordena el trabajo en equipo.
+  </p>
+
+  <h3 class="sub"><span class="n">8.1</span>Auto-guardado y versiones</h3>
+  <p class="body-text">
+    Mientras dibuja, el plano activo se guarda automáticamente en el almacenamiento local del
+    navegador: si la conexión se corta o la pestaña se cierra por accidente, al volver encontrará
+    el plano tal como lo dejó. El guardado formal en la nube se hace con
+    <span class="kbd">Ctrl</span> + <span class="kbd">S</span> o el botón Guardar: cada guardado
+    crea una <b>versión</b> en el historial (se conservan hasta 20 por plano), de modo que puede
+    volver atrás ante un giro de diseño equivocado&nbsp;— compare con la versión de ayer o restaure
+    la de la mañana. «Guardar como copia» bifurca el historial para explorar alternativas sin
+    tocar el original.
+  </p>
+
+  <h3 class="sub"><span class="n">8.2</span>Mis planos en la nube</h3>
+  <p class="body-text">
+    El botón <b>Nube</b> (o <span class="cmd">PLANOS</span>) abre su biblioteca personal: los
+    planos guardados por usuario, con guardar, abrir, versiones y papelera. Al estar en el
+    servidor, su biblioteca lo sigue a cualquier dispositivo&nbsp;— inicie sesión en la oficina, en
+    casa o en el teléfono del cliente y el plano estará allí. La papelera retiene los planos
+    eliminados por si un borrado fue apresurado.
+  </p>
+
+  <figure class="figure">
+    <div class="img-wrap"><img src="images/cap-nube.png" alt="Biblioteca de planos en la nube"></div>
+    <figcaption><b>Figura 8</b>&nbsp;— «Mis planos en la nube»: biblioteca por usuario con guardado, versiones, papelera y enlaces para compartir.</figcaption>
+  </figure>
+
+  <h3 class="sub"><span class="n">8.3</span>Compartir con enlaces</h3>
+  <p class="body-text">
+    Desde la nube puede generar un <b>enlace de compartición</b> para un plano: el destinatario
+    lo abre en su navegador sin instalar nada y sin ser usuario del estudio. Elija el permiso —
+    <b>vista</b> (solo mirar) o <b>edición</b> (puede modificar)&nbsp;— y la vigencia: 7, 30, 90 o
+    365 días, o sin expiración. Los enlaces pueden revocarse en cualquier momento. Es la vía
+    rápida para que un cliente revise un avance o para que un consultor haga ajustes puntuales
+    sin entrar a la cuenta del estudio.
+  </p>
+
+  <h3 class="sub"><span class="n">8.4</span>Colaboración en vivo</h3>
+  <p class="body-text">
+    Cuando el estudio tiene el mini-servicio de colaboración activo, la <b>sesión colaborativa</b>
+    (<span class="cmd">COLABORACION</span>) conecta a varias personas sobre el mismo plano en
+    tiempo real: la sincronización de cambios toma menos de un segundo, cada participante
+    aparece en la lista de presencia y un chat de sesión permite coordinarse sin salir del
+    dibujo. Dos arquitectos pueden repartirse plantas y revisarse mutuamente en directo.
+  </p>
+
+  <!-- ============ CAPÍTULO 9 ============ -->
+  <div class="chapter-header">
+    <div class="ch-tag">Capítulo 09</div>
+    <div class="ch-title">Importar y exportar</div>
+    <div class="ch-divider"></div>
+  </div>
+
+  <p class="body-text">
+    Jarumy no es una isla: importa base topográfica o planos DWG en formato DXF, y entrega su
+    proyecto en más de diez formatos de salida&nbsp;— del PDF a escala para obra, al IFC para el
+    mundo BIM, al STL para la maqueta impresa en 3D. La pestaña Inicio concentra ambos grupos.
+  </p>
+
+  <h3 class="sub"><span class="n">9.1</span>Importar DXF y calcar sobre referencia</h3>
+  <p class="body-text">
+    «Importar DXF» lee archivos R12 y superiores con sus líneas, círculos, arcos, textos y
+    polilíneas, detecta las unidades y re-encuadra el contenido en la escena; los bloques INSERT
+    se expanden con su escala y rotación reales, de modo que el levantamiento llega fiel. Si
+    prefiere calcar a mano sobre un antecedente, use el <b>underlay</b>: una imagen PNG/JPG o la
+    primera página de un PDF se coloca como capa de referencia con opacidad ajustable&nbsp;— dibuje
+    los muros encima y luego desactive la base.
+  </p>
+
+  <h3 class="sub"><span class="n">9.2</span>Formatos de exportación</h3>
+  <table class="data long">
+    <thead><tr><th style="width:26%">Formato</th><th style="width:36%">Uso recomendado</th><th>Detalles que importa conocer</th></tr></thead>
+    <tbody>
+      <tr><td><b>PDF a escala</b></td><td>Impresión para obra y municipalidades</td><td>Escalas 1:50&nbsp;· 1:75&nbsp;· 1:100; papel A4/A3/A2; cartela con datos del proyecto y barra de escala gráfica.</td></tr>
+      <tr><td><b>Trazado por lotes</b></td><td>Juego completo de láminas</td><td>Un PDF con índice A-00 + lámina por planta + 4 elevaciones + sección; comando <span class="cmd">BATCHPLOT</span>.</td></tr>
+      <tr><td><b>DXF</b></td><td>AutoCAD y CAD de terceros</td><td>Capas conservadas; unidades en metros; reeditable en cualquier CAD.</td></tr>
+      <tr><td><b>IFC4</b></td><td>BIM&nbsp;— Revit, ArchiCAD, Solibri</td><td>Multi-storey: un IfcBuildingStorey por planta con elevación real; espacios y contenidos por nivel.</td></tr>
+      <tr><td><b>OBJ</b></td><td>Blender, SketchUp, 3ds Max</td><td>Malla 3D extruida del modelo para render o edición avanzada.</td></tr>
+      <tr><td><b>STL</b></td><td>Impresión 3D / maquetas</td><td>Malla cerrada lista para la impresora del estudio.</td></tr>
+      <tr><td><b>PNG</b></td><td>WhatsApp, correos, presentaciones</td><td>Imagen rápida del plano para compartir al instante.</td></tr>
+      <tr><td><b>SVG</b></td><td>Illustrator / Inkscape</td><td>Vectorial editable para infografías y láminas de presentación.</td></tr>
+      <tr><td><b>Excel BIM / S10</b></td><td>Metrados y presupuesto</td><td>Cuadro de espacios con áreas y metrados volcados a planilla; base para presupuesto S10.</td></tr>
+      <tr><td><b>.jarumy.json</b></td><td>Respaldo / traslado directo</td><td>El plano completo como archivo: su colega lo importa y sigue editando en su propia sesión.</td></tr>
+    </tbody>
+  </table>
+
+  <figure class="figure">
+    <div class="img-wrap"><img src="images/cap-exportar-pdf.png" alt="Diálogo de exportación PDF a escala"></div>
+    <figcaption><b>Figura 9</b>&nbsp;— Exportación «PDF a escala»: elección de escala (1:50&nbsp;· 1:75&nbsp;· 1:100), tamaño de papel, cartela y vista previa antes de generar el archivo.</figcaption>
+  </figure>
+
+  <div class="callout tip">
+    <span class="ct">Flujo recomendado para un expediente</span>
+    1) Modele por plantas y pase los análisis del capítulo 6. 2) Ejecute
+    <span class="cmd">BATCHPLOT</span> para el juego de láminas (índice, plantas, elevaciones,
+    sección). 3) Exporte IFC para el flujo BIM y Excel BIM para metrados. 4) Genere PNG del
+    plano para la comunicación rápida con el cliente. Cada formato tiene un propósito; el
+    maestro sigue siendo el PDF a escala para la impresión formal.
+  </div>
+
+</div>

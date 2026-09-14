@@ -1,0 +1,209 @@
+
+  <!-- ============ CAPÍTULO 10 ============ -->
+  <div class="chapter-header">
+    <div class="ch-tag">Capítulo 10</div>
+    <div class="ch-title">Inteligencia artificial</div>
+    <div class="ch-divider"></div>
+  </div>
+
+  <p class="body-text">
+    La pestaña IA reúne tres asistentes que aceleran las etapas más lentas del trabajo
+    arquitectónico: partir de cero, interpretar la normativa y mantener las manos sobre el
+    dibujo. Todos operan dentro de su sesión, con límites de uso razonables para mantener el
+    servicio disponible.
+  </p>
+
+  <h3 class="sub"><span class="n">10.1</span>Generar un plano desde texto</h3>
+  <p class="body-text">
+    «Generar plano con IA» produce plantas esquemáticas a partir de una descripción. El truco
+    está en escribir el encargo como se lo contaría a un asistente: programa completo, medidas
+    del lote y contexto. Por ejemplo:
+  </p>
+  <div class="callout tip">
+    <span class="ct">Ejemplo de descripción efectiva</span>
+    «Vivienda unifamiliar de 2 dormitorios, 1 baño, sala-comedor y cocina en lote de 10 × 15 m
+    en Lima, con puerta de acceso al frente y patio posterior». La IA devuelve la planta con
+    muros, espacios rotulados según RNE, y puertas y ventanas proporcionadas&nbsp;— un punto de
+    partida real que usted refina a mano: ajuste muros, pase los análisis del capítulo 6 y
+    continúe el flujo normal del proyecto.
+  </div>
+
+  <h3 class="sub"><span class="n">10.2</span>Revisor IA de normativa</h3>
+  <p class="body-text">
+    «Revisor IA de normativa» lee los resultados del análisis RNE de su plano actual y los
+    interpreta: explica qué significa cada incumplimiento y propone la corrección
+    <b>dimensionada</b>&nbsp;— «el baño mide 2.80 m² y el mínimo es 3.00 m²; desplace el muro oeste
+    0.20 m o reduzca el lavadero». Úselo como una segunda opinión técnica antes de imprimir el
+    expediente: aplica los mismos criterios del capítulo 6, pero traducidos a instrucciones de
+    corrección concretas.
+  </p>
+
+  <h3 class="sub"><span class="n">10.3</span>Comandos de voz</h3>
+  <p class="body-text">
+    El micrófono de la consola de comandos activa el reconocimiento de voz en español: pulse,
+    hable su comando y este se ejecuta&nbsp;— «línea», «guardar», «tres de», «normativa»,
+    «seleccionar todo». Es útil cuando ambas manos están sobre el plano o al revisar en pantalla
+    táctil. Requiere Chrome o Edge y permiso del micrófono.
+  </p>
+
+  <!-- ============ CAPÍTULO 11 ============ -->
+  <div class="chapter-header">
+    <div class="ch-tag">Capítulo 11</div>
+    <div class="ch-title">Panel de administración</div>
+    <div class="ch-divider"></div>
+  </div>
+
+  <p class="body-text">
+    El Panel Admin es el centro de mando del estudio. Se organiza en seis pestañas y todo cuanto
+    se ejecuta desde él queda registrado en la auditoría con usuario, acción, detalle, fecha e IP
+   &nbsp;— trazabilidad completa para respuestas claras ante cualquier incidente.
+  </p>
+
+  <figure class="figure">
+    <div class="img-wrap"><img src="images/cap-admin-resumen.png" alt="Pestaña Resumen del Panel Admin"></div>
+    <figcaption><b>Figura 10</b>&nbsp;— La pestaña Resumen: indicadores del estudio (usuarios, eventos de auditoría, 2FA, tiempo de sesión) y accesos directos a la gestión.</figcaption>
+  </figure>
+
+  <h3 class="sub"><span class="n">11.1</span>Usuarios y roles</h3>
+  <p class="body-text">
+    La pestaña Usuarios lista las cuentas del estudio con su rol, estado de 2FA y número de
+    planos. Desde aquí el administrador crea cuentas nuevas&nbsp;— usuario, nombre a mostrar,
+    contraseña inicial y rol —, edita el nombre, restablece contraseñas (lo que revoca las
+    sesiones activas de ese usuario), restablece el 2FA cuando alguien pierde el teléfono, y
+    deshabilita cuentas con borrado lógico: los planos y la auditoría se conservan, la cuenta
+    simplemente deja de entrar. El panel protege contra errores irreversibles: no permite
+    eliminar al último administrador ni auto-deshabilitarse.
+  </p>
+
+  <figure class="figure">
+    <div class="img-wrap"><img src="images/cap-admin-usuarios.png" alt="Gestión de usuarios del Panel Admin"></div>
+    <figcaption><b>Figura 11</b>&nbsp;— Gestión de usuarios: creación con roles admin/editor/visor, restablecimiento de clave y de 2FA, y control de estado de cada cuenta.</figcaption>
+  </figure>
+
+  <h3 class="sub"><span class="n">11.2</span>Seguridad del estudio</h3>
+  <p class="body-text">
+    La pestaña Seguridad centraliza las políticas: activación del 2FA con su flujo de QR
+    (capítulo 2), tiempo de expiración de la sesión, número de intentos antes del bloqueo y su
+    duración, y la política de contraseñas&nbsp;— longitud mínima, exigencia de mayúsculas, números y
+    símbolos. Los cambios se aplican en caliente: al endurecer la política, los próximos cambios
+    de contraseña de los usuarios se someten a ella. El historial de auditoría (filtrable por
+    usuario) muestra cada evento en orden cronológico.
+  </p>
+
+  <figure class="figure">
+    <div class="img-wrap"><img src="images/cap-admin-seguridad.png" alt="Pestaña Seguridad del Panel Admin"></div>
+    <figcaption><b>Figura 12</b>&nbsp;— La pestaña Seguridad: casilla 2FA, timeout de sesión, bloqueo por intentos, política de contraseñas y auditoría.</figcaption>
+  </figure>
+
+  <h3 class="sub"><span class="n">11.3</span>Diseño web y resto de pestañas</h3>
+  <p class="body-text">
+    <b>Diseño web</b> personaliza la marca del estudio en la aplicación: nombre, logo, tema
+    claro u oscuro, siete colores primarios, color de acento, radio de bordes y densidad&nbsp;— todo
+    aplicado en vivo y persistido en la base de datos. <b>Cuenta y clave</b> permite cambiar su
+    propia contraseña (con validación de la política y verificación de la clave actual; al
+    cambiarla, todas sus sesiones activas se revocan por seguridad) y repetir el flujo del 2FA.
+    <b>Herramientas</b> activa o desactiva grupos de la cinta para simplificar la interfaz de
+    los equipos que no los usan.
+  </p>
+
+  <!-- ============ CAPÍTULO 12 ============ -->
+  <div class="chapter-header">
+    <div class="ch-tag">Capítulo 12</div>
+    <div class="ch-title">Comandos y atajos</div>
+    <div class="ch-divider"></div>
+  </div>
+
+  <p class="body-text">
+    La consola inferior acepta comandos estilo AutoCAD: escriba y pulse
+    <span class="kbd">ENTER</span>; <span class="kbd">ESC</span> cancela. El comando
+    <span class="cmd">AYUDA</span> lista siempre el catálogo actualizado. Acepta abreviaturas
+    clásicas (<span class="cmd">L</span> = LINEA, <span class="cmd">C</span> = CIRCULO,
+    <span class="cmd">REC</span> = RECTANGULO) y no distingue mayúsculas.
+  </p>
+
+  <h3 class="sub"><span class="n">12.1</span>Comandos por grupo</h3>
+  <table class="data long">
+    <thead><tr><th style="width:30%">Grupo</th><th>Comandos</th></tr></thead>
+    <tbody>
+      <tr><td>Dibujo</td><td><span class="cmd">L / LINEA ·</span> <span class="cmd">PL / POLILINEA ·</span> <span class="cmd">C / CIRCULO ·</span> <span class="cmd">ARCO ·</span> <span class="cmd">ELIPSE ·</span> <span class="cmd">SPLINE ·</span> <span class="cmd">PUNTO ·</span> <span class="cmd">REC / RECTANGULO ·</span> <span class="cmd">HATCH / ACHURA</span></td></tr>
+      <tr><td>Anotación</td><td><span class="cmd">T / TEXTO ·</span> <span class="cmd">COTA ·</span> <span class="cmd">ACOTANG ·</span> <span class="cmd">ACOTRAD ·</span> <span class="cmd">DIRECTRIZ ·</span> <span class="cmd">NUBE / NUBEDECTRL</span></td></tr>
+      <tr><td>Edición</td><td><span class="cmd">M / MOVER ·</span> <span class="cmd">CO / COPIA ·</span> <span class="cmd">E / BORRAR ·</span> <span class="cmd">U / DESHACER ·</span> <span class="cmd">REHACER ·</span> <span class="cmd">MATRIZ ·</span> <span class="cmd">MATRIZPOLAR ·</span> <span class="cmd">EQUISDIST / OFFSET ·</span> <span class="cmd">RECORTA ·</span> <span class="cmd">ALARGA ·</span> <span class="cmd">EXPLOTA ·</span> <span class="cmd">ESTIRA ·</span> <span class="cmd">EMPALME ·</span> <span class="cmd">SIMETRIA</span></td></tr>
+      <tr><td>Selección</td><td><span class="cmd">SELECCIONAR ·</span> <span class="cmd">TODOSEL ·</span> <span class="cmd">COPIARSEL / CORTAR / PEGAR ·</span> <span class="cmd">OSNAP</span> (F3)</td></tr>
+      <tr><td>Vista</td><td><span class="cmd">REJILLA ·</span> <span class="cmd">SNAP ·</span> <span class="cmd">ORTO ·</span> <span class="cmd">RENDER ·</span> <span class="cmd">3D ·</span> <span class="cmd">AJUSTAR ·</span> <span class="cmd">RECORRIDO / WALKTHROUGH</span> (1ª persona)</td></tr>
+      <tr><td>Niveles</td><td><span class="cmd">NIVEL ·</span> <span class="cmd">NIVELES ·</span> <span class="cmd">NIVELNUEVO ·</span> <span class="cmd">NIVELDUP ·</span> <span class="cmd">NIVELELIM</span></td></tr>
+      <tr><td>Análisis</td><td><span class="cmd">NORMATIVA ·</span> <span class="cmd">EVACUACION ·</span> <span class="cmd">ACCESIBILIDAD ·</span> <span class="cmd">TERMICA ·</span> <span class="cmd">ENERGIA ·</span> <span class="cmd">FOTOVOLTAICO / FV ·</span> <span class="cmd">COLISIONES ·</span> <span class="cmd">ESTRUCTURAL ·</span> <span class="cmd">LUX ·</span> <span class="cmd">ACUSTICA ·</span> <span class="cmd">METRADOS / S10 / PRESUPUESTO</span></td></tr>
+      <tr><td>Instalaciones</td><td><span class="cmd">AGUA ·</span> <span class="cmd">DESAGUE ·</span> <span class="cmd">CIRCUITO ·</span> <span class="cmd">ELECTRICO</span> (ENTER termina el trazo)</td></tr>
+      <tr><td>Paramétricos</td><td><span class="cmd">ESCALERA ·</span> <span class="cmd">TECHO ·</span> <span class="cmd">LOTE ·</span> <span class="cmd">CURVA ·</span> <span class="cmd">UNIONES</span> (T/L limpias)</td></tr>
+      <tr><td>BIM</td><td><span class="cmd">FASES ·</span> <span class="cmd">FASE</span> (asignar a selección)&nbsp;· <span class="cmd">QSELECT ·</span> <span class="cmd">CUADRO</span></td></tr>
+      <tr><td>Importar / exportar</td><td><span class="cmd">IMPORTAR / IMPORTARDXF ·</span> <span class="cmd">UNDERLAY / CALCAR ·</span> <span class="cmd">PDF ·</span> <span class="cmd">DXF / DWG ·</span> <span class="cmd">PNG ·</span> <span class="cmd">SVG ·</span> <span class="cmd">IFC ·</span> <span class="cmd">OBJ / STL ·</span> <span class="cmd">EXCELBIM ·</span> <span class="cmd">BATCHPLOT ·</span> <span class="cmd">COMPARTIR</span></td></tr>
+      <tr><td>Nube / IA</td><td><span class="cmd">PLANOS / CLOUD ·</span> <span class="cmd">COLABORACION ·</span> <span class="cmd">IA / GENERAR ·</span> <span class="cmd">IANORMA ·</span> <span class="cmd">VOZ</span></td></tr>
+      <tr><td>Documento</td><td><span class="cmd">NUEVO ·</span> <span class="cmd">GUARDAR ·</span> <span class="cmd">AUTOGUARDADO ·</span> <span class="cmd">UNIDADES</span> (m/ft)&nbsp;· <span class="cmd">ESCALA</span> (1:50/1:75/1:100)&nbsp;· <span class="cmd">PURGA ·</span> <span class="cmd">AUDIT ·</span> <span class="cmd">ADMIN ·</span> <span class="cmd">AYUDA</span></td></tr>
+    </tbody>
+  </table>
+
+  <h3 class="sub"><span class="n">12.2</span>Atajos de teclado</h3>
+  <table class="data">
+    <thead><tr><th style="width:40%">Atajo</th><th>Acción</th></tr></thead>
+    <tbody>
+      <tr><td><span class="kbd">Ctrl</span> + <span class="kbd">Z</span> / <span class="kbd">Y</span></td><td>Deshacer / rehacer</td></tr>
+      <tr><td><span class="kbd">Ctrl</span> + <span class="kbd">S</span> / <span class="kbd">P</span></td><td>Guardar / imprimir</td></tr>
+      <tr><td><span class="kbd">Ctrl</span> + <span class="kbd">C</span> / <span class="kbd">X</span> / <span class="kbd">V</span> / <span class="kbd">A</span></td><td>Copiar / cortar / pegar / seleccionar todo</td></tr>
+      <tr><td><span class="kbd">Supr</span>&nbsp;· <span class="kbd">flechas</span></td><td>Borrar selección&nbsp;· mover selección con precisión (nudge)</td></tr>
+      <tr><td><span class="kbd">F3</span>&nbsp;· <span class="kbd">F8</span>&nbsp;· <span class="kbd">F9</span></td><td>OSNAP&nbsp;· ORTO&nbsp;· rejilla (también desde la barra de estado)</td></tr>
+      <tr><td><span class="kbd">ENTER</span>&nbsp;· <span class="kbd">ESC</span></td><td>Ejecutar comando / cancelar herramienta y cerrar el menú radial</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============ CAPÍTULO 13 ============ -->
+  <div class="chapter-header">
+    <div class="ch-tag">Capítulo 13</div>
+    <div class="ch-title">Preguntas frecuentes</div>
+    <div class="ch-divider"></div>
+  </div>
+
+  <p class="body-text">
+    Los incidentes más comunes y su resolución directa. Si su caso no aparece aquí, el
+    administrador del estudio cuenta con la auditoría para diagnosticarlo y el comando
+    <span class="cmd">ADMIN</span> para acceder a la gestión.
+  </p>
+
+  <div class="faq"><div class="q">Veo una versión vieja de la aplicación o no aparece el código QR del 2FA</div>
+    <p class="a">El navegador guarda en caché la versión anterior. Haga una recarga forzosa: <span class="kbd">Ctrl</span> + <span class="kbd">F5</span> (o <span class="kbd">Cmd</span> + <span class="kbd">Shift</span> + <span class="kbd">R</span> en Mac). La aplicación se actualiza sola a partir de ese momento.</p></div>
+
+  <div class="faq"><div class="q">Mi código de Google Authenticator «no funciona» y aparece «Usuario o contraseña incorrectos»</div>
+    <p class="a">Ese mensaje corresponde al paso de usuario y contraseña, no al código. Compruebe que el usuario esté escrito exactamente (los puntos y espacios cuentan) y que no haya puesto el código de 6 dígitos en el campo Contraseña: el código se solicita en el paso siguiente. Si además el reloj de su teléfono no está en automático, los códigos rotarán desfasados&nbsp;— actívelo.</p></div>
+
+  <div class="faq"><div class="q">Mi cuenta se bloqueó: «Cuenta bloqueada temporalmente»</div>
+    <p class="a">Es la protección contra fuerza bruta tras cinco intentos fallidos. Espere a que la cuenta regresiva llegue a cero&nbsp;— el propio aviso le avisa&nbsp;— y reintente con calma. Si urge, el administrador puede desbloquearla y, si olvidó la contraseña, restablecerla desde la pestaña Usuarios.</p></div>
+
+  <div class="faq"><div class="q">Perdí el teléfono donde tenía el autenticador</div>
+    <p class="a">El administrador usa «Restablecer 2FA» en la pestaña Usuarios: la cuenta vuelve a entrar solo con contraseña y usted re-empareja el teléfono nuevo escaneando el QR (borre antes la entrada «Jarumy» vieja de la app autenticadora para no confundirlas).</p></div>
+
+  <div class="faq"><div class="q">¿Funciona sin internet?</div>
+    <p class="a">La aplicación se instala como PWA y el plano activo se auto-guarda localmente, por lo que puede seguir dibujando sin conexión durante la sesión. Iniciar sesión, guardar en la nube y los servicios de IA sí requieren conexión.</p></div>
+
+  <div class="faq"><div class="q">¿Cómo llevo mi plano a Revit o AutoCAD?</div>
+    <p class="a">Exporte IFC para Revit/ArchiCAD (cada planta llega como IfcBuildingStorey con su elevación real) o DXF para AutoCAD (capas conservadas, unidades en metros). Ambos están en Inicio → Exportar.</p></div>
+
+  <div class="faq"><div class="q">El 3D se ve oscuro o sin sombras en algunos muros</div>
+    <p class="a">El sombreado depende de la posición del sol del heliodón. Abra el Heliodón y ajuste fecha y hora&nbsp;— por ejemplo, 21 de junio a las 12:00&nbsp;— y la axonometría volverá a iluminar las caras de acuerdo con esa geometría solar.</p></div>
+
+  <div class="faq"><div class="q">¿Qué tan seguros son mis planos y cuentas?</div>
+    <p class="a">Las contraseñas se guardan con hash scrypt (nunca en texto plano), las sesiones van firmadas y son revocables, la conexión usa HTTPS con cookie protegida, y el servidor aplica cabeceras de seguridad OWASP, protección CSRF y bloqueo por intentos. Los enlaces compartidos caducan según la vigencia que usted elija.</p></div>
+
+</div>
+
+<!-- ================= CIERRE ================= -->
+<div class="ending">
+  <div class="end-mark">J</div>
+  <div class="end-title">Jarumy app</div>
+  <p class="end-text">
+    Diseñe, analice y comparta arquitectura con la normativa peruana a un clic. Este manual
+    acompaña la versión 1.0 de la aplicación; las novedades de cada actualización se integran
+    a los capítulos correspondientes.
+  </p>
+  <div class="end-meta">Manual de Usuario&nbsp;· Versión 1.0&nbsp;· Septiembre 2026</div>
+</div>
+
+</body>
+</html>
